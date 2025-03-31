@@ -116,30 +116,68 @@ class ReturnRxSimple:
             print(f"\nError: {str(e)}")
     
     def add_scenario(self, scenario_name, sku, sales_30, avg_sale_price, sales_channel, 
-                    returns_30, solution, solution_cost, additional_cost_per_item, 
-                    current_unit_cost, reduction_rate):
-        """Calculate metrics and add a scenario to the data."""
-        # Generate a default scenario name if not provided
-        if not scenario_name:
-            scenario_name = f"Scenario {len(self.scenarios) + 1}"
-        
-        # Calculate costs and impacts
-        return_cost_30 = returns_30 * current_unit_cost
-        return_cost_annual = return_cost_30 * 12
-        revenue_impact_30 = returns_30 * avg_sale_price
-        revenue_impact_annual = revenue_impact_30 * 12
-        new_unit_cost = current_unit_cost + additional_cost_per_item
-        
-        # Calculate benefits and ROI
-        savings_30 = returns_30 * (reduction_rate / 100) * avg_sale_price
-        annual_savings = savings_30 * 12
-        
-        # Calculate ROI and break-even
-               if solution_cost > 0 and annual_savings > 0:
-            roi = annual_savings / solution_cost
+                 returns_30, solution, solution_cost, additional_cost_per_item, 
+                 current_unit_cost, reduction_rate):
+    """Calculate metrics and add a scenario to the data."""
+    
+    # Generate a default scenario name if not provided
+    if not scenario_name:
+        scenario_name = f"Scenario {len(self.scenarios) + 1}"
 
-            # Calculate break-even with additional item costs factored in
-            annual_additional_costs = additional_cost_per_item * sales_30 * 12
-            if (annual_savings - annual_additional_costs) > 0:
-                break_even_days = solution_cost / (annual_savings - annual_additional_costs)
+    # Calculate costs and impacts
+    return_cost_30 = returns_30 * current_unit_cost
+    return_cost_annual = return_cost_30 * 12
+    revenue_impact_30 = returns_30 * avg_sale_price
+    revenue_impact_annual = revenue_impact_30 * 12
+    new_unit_cost = current_unit_cost + additional_cost_per_item
 
+    # Calculate benefits and ROI
+    savings_30 = returns_30 * (reduction_rate / 100) * avg_sale_price
+    annual_savings = savings_30 * 12
+
+    roi = None
+    break_even_days = None
+    break_even_months = None
+    score = None
+
+    if solution_cost > 0 and annual_savings > 0:
+        roi = annual_savings / solution_cost
+
+        # Calculate break-even with additional item costs factored in
+        annual_additional_costs = additional_cost_per_item * sales_30 * 12
+
+        if (annual_savings - annual_additional_costs) > 0:
+            break_even_days = solution_cost / (annual_savings - annual_additional_costs)
+            break_even_months = break_even_days / 30
+            score = roi * 100 - break_even_days
+
+    # Create the scenario row
+    new_row = {
+        'scenario_name': scenario_name,
+        'sku': sku,
+        'sales_30': sales_30,
+        'avg_sale_price': avg_sale_price,
+        'sales_channel': sales_channel,
+        'returns_30': returns_30,
+        'solution': solution,
+        'solution_cost': solution_cost,
+        'additional_cost_per_item': additional_cost_per_item,
+        'current_unit_cost': current_unit_cost,
+        'reduction_rate': reduction_rate,
+        'return_cost_30': return_cost_30,
+        'return_cost_annual': return_cost_annual,
+        'revenue_impact_30': revenue_impact_30,
+        'revenue_impact_annual': revenue_impact_annual,
+        'new_unit_cost': new_unit_cost,
+        'savings_30': savings_30,
+        'annual_savings': annual_savings,
+        'break_even_days': break_even_days,
+        'break_even_months': break_even_months,
+        'roi': roi,
+        'score': score,
+        'timestamp': datetime.now()
+    }
+
+    # Append to the DataFrame
+    self.scenarios = pd.concat([self.scenarios, pd.DataFrame([new_row])], ignore_index=True)
+    print(f"\n✅ Scenario '{scenario_name}' added successfully.")
