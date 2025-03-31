@@ -115,7 +115,6 @@ st.subheader("📊 All Scenarios")
 if app.scenarios.empty:
     st.info("No scenarios added yet.")
 else:
-    # Filter section
     with st.expander("🔍 Filter Options"):
         selected_sku = st.selectbox("Filter by SKU", ["All"] + sorted(app.scenarios['sku'].unique().tolist()))
         selected_channel = st.selectbox("Filter by Sales Channel", ["All"] + sorted(app.scenarios['sales_channel'].unique().tolist()))
@@ -126,27 +125,33 @@ else:
         if selected_channel != "All":
             filtered_df = filtered_df[filtered_df['sales_channel'] == selected_channel]
 
-    # Display filtered results
     st.dataframe(filtered_df, use_container_width=True)
 
-    # CSV Export Button
+    # Download filtered CSV
     csv = filtered_df.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        label="📥 Download Filtered CSV",
-        data=csv,
-        file_name="scenarios_export.csv",
-        mime="text/csv"
-    )
+    st.download_button("📥 Download Filtered CSV", data=csv, file_name="scenarios_export.csv", mime="text/csv")
 
-    # ROI Chart
-    st.subheader("📈 ROI by Scenario")
-    roi_chart_data = filtered_df.dropna(subset=['roi'])
-    if not roi_chart_data.empty:
+    # ROI and Breakeven Summary
+    st.subheader("📘 ROI and Breakeven Summary")
+    for _, row in filtered_df.iterrows():
+        st.markdown(f"**🧪 Scenario:** `{row['scenario_name']}`")
+        st.markdown(f"- 💸 Total Solution Cost: **${row['solution_cost']:,.2f}**")
+        st.markdown(f"- 🧾 Additional Cost per Item: **${row['additional_cost_per_item']:,.2f}**")
+        st.markdown(f"- 📦 Est. Annual Additional Item Cost: **${row['additional_cost_per_item'] * row['sales_30'] * 12:,.2f}**")
+        st.markdown(f"- 💰 Annual Savings from Reduction: **${row['annual_savings']:,.2f}**")
+        st.markdown(f"- 📉 ROI: **{row['roi']:.2f}**")
+        st.markdown(f"- ⏳ Breakeven: **{row['break_even_months']:.2f} months**")
+        st.divider()
+
+    # Bar chart - Breakeven analysis (months)
+    st.subheader("📊 Breakeven Analysis (Months)")
+    breakeven_data = filtered_df.dropna(subset=['break_even_months'])
+    if not breakeven_data.empty:
         fig, ax = plt.subplots()
-        ax.bar(roi_chart_data['scenario_name'], roi_chart_data['roi'])
-        ax.set_ylabel("ROI")
-        ax.set_title("ROI per Scenario")
+        ax.bar(breakeven_data['scenario_name'], breakeven_data['break_even_months'])
+        ax.set_ylabel("Months")
+        ax.set_title("Time to Breakeven per Scenario")
         ax.tick_params(axis='x', rotation=45)
         st.pyplot(fig)
     else:
-        st.info("No ROI data available to plot.")
+        st.info("No breakeven data available to plot.")
