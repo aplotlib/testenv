@@ -135,12 +135,11 @@ class ReturnRxSimple:
         annual_savings = savings_30 * 12
         
         # Calculate ROI and break-even
-        if solution_cost > 0 and annual_savings > 0:
+               if solution_cost > 0 and annual_savings > 0:
             roi = annual_savings / solution_cost
-            
+
             # Calculate break-even with additional item costs factored in
             annual_additional_costs = additional_cost_per_item * sales_30 * 12
+            if (annual_savings - annual_additional_costs) > 0:
+                break_even_days = solution_cost / (annual_savings - annual_additional_costs)
 
-        if (annual_savings - annual_additional_costs) > 0:
-            break_even_days = solution_cost / (annual_savings - annual_additional_costs)
-   
