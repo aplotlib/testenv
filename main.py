@@ -13,7 +13,7 @@ class ReturnRxSimple:
             'return_cost_30', 'return_cost_annual', 'revenue_impact_30',
             'revenue_impact_annual', 'new_unit_cost', 'savings_30',
             'annual_savings', 'break_even_days', 'break_even_months',
-            'roi', 'score', 'timestamp'])
+            'roi', 'score', 'timestamp', 'annual_additional_costs', 'net_benefit'])
 
     def add_scenario(self, scenario_name, sku, sales_30, avg_sale_price, sales_channel, 
                      returns_30, solution, solution_cost, additional_cost_per_item, 
@@ -30,18 +30,19 @@ class ReturnRxSimple:
         savings_30 = returns_30 * (reduction_rate / 100) * avg_sale_price
         annual_savings = savings_30 * 12
 
+        annual_additional_costs = additional_cost_per_item * sales_30 * 12
+        net_benefit = annual_savings - annual_additional_costs
+
         roi = None
         break_even_days = None
         break_even_months = None
         score = None
 
-        if solution_cost > 0 and annual_savings > 0:
-            roi = annual_savings / solution_cost
-            annual_additional_costs = additional_cost_per_item * sales_30 * 12
-            if (annual_savings - annual_additional_costs) > 0:
-                break_even_days = solution_cost / (annual_savings - annual_additional_costs)
-                break_even_months = break_even_days / 30
-                score = roi * 100 - break_even_days
+        if solution_cost > 0 and net_benefit > 0:
+            roi = net_benefit / solution_cost
+            break_even_days = solution_cost / net_benefit
+            break_even_months = break_even_days / 30
+            score = roi * 100 - break_even_days
 
         new_row = {
             'scenario_name': scenario_name,
@@ -66,7 +67,9 @@ class ReturnRxSimple:
             'break_even_months': break_even_months,
             'roi': roi,
             'score': score,
-            'timestamp': datetime.now()
+            'timestamp': datetime.now(),
+            'annual_additional_costs': annual_additional_costs,
+            'net_benefit': net_benefit
         }
 
         self.scenarios = pd.concat([self.scenarios, pd.DataFrame([new_row])], ignore_index=True)
@@ -137,10 +140,15 @@ else:
         st.markdown(f"**🧪 Scenario:** `{row['scenario_name']}`")
         st.markdown(f"- 💸 Total Solution Cost: **${row['solution_cost']:,.2f}**")
         st.markdown(f"- 🧾 Additional Cost per Item: **${row['additional_cost_per_item']:,.2f}**")
-        st.markdown(f"- 📦 Est. Annual Additional Item Cost: **${row['additional_cost_per_item'] * row['sales_30'] * 12:,.2f}**")
+        st.markdown(f"- 📦 Est. Annual Additional Item Cost: **${row['annual_additional_costs']:,.2f}**")
         st.markdown(f"- 💰 Annual Savings from Reduction: **${row['annual_savings']:,.2f}**")
-        st.markdown(f"- 📉 ROI: **{row['roi']:.2f}**")
-        st.markdown(f"- ⏳ Breakeven: **{row['break_even_months']:.2f} months**")
+        st.markdown(f"- ✅ Net Benefit: **${row['net_benefit']:,.2f}**")
+        roi_display = f"{row['roi']:.2f}" if pd.notnull(row['roi']) else "N/A"
+        st.markdown(f"- 📉 ROI (Net Benefit / Solution Cost): **{roi_display}**")
+        if pd.notnull(row['break_even_months']):
+            st.markdown(f"- ⏳ Breakeven: **{row['break_even_months']:.2f} months**")
+        else:
+            st.markdown("- ⏳ Breakeven: **Not applicable**")
         st.divider()
 
     # Bar chart - Breakeven analysis (months)
