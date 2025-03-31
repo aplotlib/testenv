@@ -142,4 +142,4 @@ class ReturnRxSimple:
             annual_additional_costs = additional_cost_per_item * sales_30 * 12
             
             if (annual_savings - annual_additional_costs) > 0:
-                break_even_days = solution_cost / ((annual_savings - annual_additional_costs) / 365)
+            break_even_days = solution_cost / ((annual_savings - annual_additional_costs)
