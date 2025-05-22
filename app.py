@@ -14,9 +14,7 @@ import io
 from typing import Dict, List, Any, Optional, Tuple
 import re
 from collections import Counter, defaultdict
-import plotly.graph_objects as go
-import plotly.express as px
-from plotly.subplots import make_subplots
+# Using Streamlit's built-in visualization capabilities instead of external libraries
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -648,150 +646,46 @@ def calculate_basic_stats(df):
         logger.error(f"Stats calculation error: {e}")
         return None
 
-def create_visualizations(df: pd.DataFrame, metrics: Dict[str, Any]) -> Dict[str, go.Figure]:
-    """Create advanced visualizations for review data"""
-    figures = {}
+def create_visualization_data(df: pd.DataFrame, metrics: Dict[str, Any]) -> Dict[str, Any]:
+    """Prepare data for Streamlit native visualizations"""
+    viz_data = {}
     
-    # 1. Rating Distribution Radar Chart
+    # 1. Rating Distribution Data
     rating_dist = metrics['basic_stats']['rating_distribution']
-    fig_radar = go.Figure()
+    viz_data['rating_distribution'] = pd.DataFrame({
+        'Stars': [5, 4, 3, 2, 1],
+        'Count': [rating_dist.get(5, 0), rating_dist.get(4, 0), rating_dist.get(3, 0), 
+                  rating_dist.get(2, 0), rating_dist.get(1, 0)]
+    })
     
-    categories = ['5 Stars', '4 Stars', '3 Stars', '2 Stars', '1 Star']
-    values = [rating_dist.get(5, 0), rating_dist.get(4, 0), rating_dist.get(3, 0), 
-              rating_dist.get(2, 0), rating_dist.get(1, 0)]
-    
-    fig_radar.add_trace(go.Scatterpolar(
-        r=values,
-        theta=categories,
-        fill='toself',
-        name='Rating Distribution',
-        line_color=COLORS['primary'],
-        fillcolor=f"{COLORS['primary']}40"
-    ))
-    
-    fig_radar.update_layout(
-        polar=dict(
-            radialaxis=dict(
-                visible=True,
-                gridcolor=COLORS['muted'],
-                linecolor=COLORS['muted']
-            ),
-            angularaxis=dict(
-                gridcolor=COLORS['muted'],
-                linecolor=COLORS['muted']
-            ),
-            bgcolor=COLORS['dark']
-        ),
-        showlegend=False,
-        paper_bgcolor=COLORS['dark'],
-        plot_bgcolor=COLORS['dark'],
-        font=dict(color=COLORS['text'], family='Rajdhani')
-    )
-    
-    figures['rating_radar'] = fig_radar
-    
-    # 2. Sentiment Flow Chart
+    # 2. Sentiment Data
     sentiment = metrics['sentiment_breakdown']
+    viz_data['sentiment'] = pd.DataFrame({
+        'Type': ['Positive', 'Negative', 'Neutral', 'Mixed'],
+        'Count': [sentiment['positive'], sentiment['negative'], sentiment['neutral'], sentiment['mixed']]
+    })
     
-    fig_sentiment = go.Figure(data=[
-        go.Bar(
-            x=['Positive', 'Negative', 'Neutral', 'Mixed'],
-            y=[sentiment['positive'], sentiment['negative'], sentiment['neutral'], sentiment['mixed']],
-            marker_color=[COLORS['success'], COLORS['danger'], COLORS['muted'], COLORS['warning']],
-            text=[sentiment['positive'], sentiment['negative'], sentiment['neutral'], sentiment['mixed']],
-            textposition='auto',
-        )
-    ])
-    
-    fig_sentiment.update_layout(
-        title='Sentiment Analysis',
-        paper_bgcolor=COLORS['dark'],
-        plot_bgcolor=COLORS['dark'],
-        font=dict(color=COLORS['text'], family='Rajdhani'),
-        xaxis=dict(gridcolor=COLORS['muted']),
-        yaxis=dict(gridcolor=COLORS['muted'])
-    )
-    
-    figures['sentiment'] = fig_sentiment
-    
-    # 3. Issue Categories Heatmap
+    # 3. Issue Categories Data
     issues = metrics['issue_categories']
+    viz_data['issues'] = pd.DataFrame(
+        list(issues.items()), 
+        columns=['Category', 'Count']
+    ).sort_values('Count', ascending=False)
     
-    fig_issues = go.Figure(data=go.Heatmap(
-        z=[[issues[cat] for cat in issues.keys()]],
-        x=list(issues.keys()),
-        y=['Issues'],
-        colorscale=[[0, COLORS['dark']], [0.5, COLORS['warning']], [1, COLORS['danger']]],
-        text=[[issues[cat] for cat in issues.keys()]],
-        texttemplate="%{text}",
-        textfont={"size": 16, "color": COLORS['text']},
-        showscale=False
-    ))
-    
-    fig_issues.update_layout(
-        title='Issue Category Distribution',
-        paper_bgcolor=COLORS['dark'],
-        plot_bgcolor=COLORS['dark'],
-        font=dict(color=COLORS['text'], family='Rajdhani'),
-        xaxis=dict(tickangle=-45),
-        height=200
-    )
-    
-    figures['issues'] = fig_issues
-    
-    # 4. Temporal Trend (if available)
-    if 'monthly_averages' in metrics['temporal_trends']:
+    # 4. Temporal Trend Data (if available)
+    if 'monthly_averages' in metrics['temporal_trends'] and metrics['temporal_trends']['monthly_averages']:
         monthly_data = metrics['temporal_trends']['monthly_averages']
-        if monthly_data:
-            months = list(monthly_data['mean'].keys())
-            ratings = list(monthly_data['mean'].values())
-            counts = list(monthly_data['count'].values())
-            
-            fig_trend = make_subplots(
-                rows=2, cols=1,
-                shared_xaxes=True,
-                vertical_spacing=0.1,
-                subplot_titles=('Average Rating Trend', 'Review Volume')
-            )
-            
-            # Rating trend
-            fig_trend.add_trace(
-                go.Scatter(
-                    x=[str(m) for m in months],
-                    y=ratings,
-                    mode='lines+markers',
-                    name='Avg Rating',
-                    line=dict(color=COLORS['primary'], width=3),
-                    marker=dict(size=8, color=COLORS['primary'])
-                ),
-                row=1, col=1
-            )
-            
-            # Volume bars
-            fig_trend.add_trace(
-                go.Bar(
-                    x=[str(m) for m in months],
-                    y=counts,
-                    name='Review Count',
-                    marker_color=COLORS['accent']
-                ),
-                row=2, col=1
-            )
-            
-            fig_trend.update_layout(
-                paper_bgcolor=COLORS['dark'],
-                plot_bgcolor=COLORS['dark'],
-                font=dict(color=COLORS['text'], family='Rajdhani'),
-                showlegend=False,
-                height=400
-            )
-            
-            fig_trend.update_xaxes(gridcolor=COLORS['muted'])
-            fig_trend.update_yaxes(gridcolor=COLORS['muted'])
-            
-            figures['trend'] = fig_trend
+        months = list(monthly_data['mean'].keys())
+        ratings = list(monthly_data['mean'].values())
+        counts = list(monthly_data['count'].values())
+        
+        viz_data['trend'] = pd.DataFrame({
+            'Month': [str(m) for m in months],
+            'Average Rating': ratings,
+            'Review Count': counts
+        })
     
-    return figures
+    return viz_data
 
 def run_comprehensive_ai_analysis(df: pd.DataFrame, metrics: Dict[str, Any], product_info: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Run comprehensive AI analysis on reviews"""
@@ -1252,32 +1146,100 @@ def display_ai_insights(analysis: str):
                     st.info(content)
 
 def display_metrics_dashboard(metrics: Dict[str, Any]):
-    """Display interactive metrics dashboard"""
+    """Display interactive metrics dashboard with native Streamlit charts"""
     st.markdown(f"""
     <div class="neon-box">
         <h3 style="color: {COLORS['primary']};">📊 PERFORMANCE METRICS DASHBOARD</h3>
     </div>
     """, unsafe_allow_html=True)
     
-    # Create visualizations
-    figures = create_visualizations(st.session_state.uploaded_data['df_filtered'], metrics)
+    # Get visualization data
+    viz_data = create_visualization_data(st.session_state.uploaded_data['df_filtered'], metrics)
     
-    # Display in grid
+    # Display charts in grid
     col1, col2 = st.columns(2)
     
     with col1:
-        if 'rating_radar' in figures:
-            st.plotly_chart(figures['rating_radar'], use_container_width=True)
+        # Rating Distribution Bar Chart
+        st.markdown("#### ⭐ Rating Distribution")
+        if 'rating_distribution' in viz_data:
+            st.bar_chart(
+                viz_data['rating_distribution'].set_index('Stars'),
+                color=COLORS['primary']
+            )
         
-        if 'issues' in figures:
-            st.plotly_chart(figures['issues'], use_container_width=True)
+        # Issue Categories
+        st.markdown("#### ⚠️ Issue Categories")
+        if 'issues' in viz_data and not viz_data['issues'].empty:
+            # Display as styled metrics instead of chart
+            for _, row in viz_data['issues'].head(5).iterrows():
+                if row['Count'] > 0:
+                    severity_color = COLORS['danger'] if row['Count'] > 20 else COLORS['warning'] if row['Count'] > 10 else COLORS['success']
+                    st.markdown(f"""
+                    <div style="background: {COLORS['dark']}80; border-left: 3px solid {severity_color}; 
+                                padding: 0.5rem; margin: 0.5rem 0; border-radius: 5px;">
+                        <strong style="color: {severity_color};">{row['Category'].replace('_', ' ').title()}</strong>: {row['Count']} mentions
+                    </div>
+                    """, unsafe_allow_html=True)
     
     with col2:
-        if 'sentiment' in figures:
-            st.plotly_chart(figures['sentiment'], use_container_width=True)
+        # Sentiment Analysis
+        st.markdown("#### 💭 Sentiment Analysis")
+        if 'sentiment' in viz_data:
+            # Create custom colored bar display
+            sentiment_data = viz_data['sentiment']
+            total = sentiment_data['Count'].sum()
+            
+            for _, row in sentiment_data.iterrows():
+                percentage = (row['Count'] / total * 100) if total > 0 else 0
+                color = {
+                    'Positive': COLORS['success'],
+                    'Negative': COLORS['danger'],
+                    'Neutral': COLORS['muted'],
+                    'Mixed': COLORS['warning']
+                }.get(row['Type'], COLORS['primary'])
+                
+                st.markdown(f"""
+                <div style="margin: 0.5rem 0;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;">
+                        <span style="color: {color};">{row['Type']}</span>
+                        <span style="color: {COLORS['text']};">{row['Count']} ({percentage:.1f}%)</span>
+                    </div>
+                    <div style="background: {COLORS['dark']}; border-radius: 10px; height: 20px; overflow: hidden;">
+                        <div style="background: {color}; width: {percentage}%; height: 100%; 
+                                    box-shadow: 0 0 10px {color}60; transition: width 0.5s ease;">
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
         
-        if 'trend' in figures:
-            st.plotly_chart(figures['trend'], use_container_width=True)
+        # Temporal Trend (if available)
+        if 'trend' in viz_data:
+            st.markdown("#### 📈 Rating Trend")
+            trend_data = viz_data['trend']
+            
+            # Display mini metrics for trend
+            if len(trend_data) >= 2:
+                recent_avg = trend_data['Average Rating'].iloc[-1]
+                previous_avg = trend_data['Average Rating'].iloc[-2]
+                trend_direction = "↑" if recent_avg > previous_avg else "↓" if recent_avg < previous_avg else "→"
+                trend_color = COLORS['success'] if recent_avg > previous_avg else COLORS['danger'] if recent_avg < previous_avg else COLORS['warning']
+                
+                st.markdown(f"""
+                <div style="background: {COLORS['dark']}90; border: 1px solid {trend_color}50; 
+                            padding: 1rem; border-radius: 10px; text-align: center;">
+                    <h2 style="color: {trend_color}; margin: 0;">
+                        {recent_avg:.2f} {trend_direction}
+                    </h2>
+                    <p style="margin: 0; opacity: 0.8;">Latest Month Average</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Simple line chart
+                st.line_chart(
+                    trend_data.set_index('Month')['Average Rating'],
+                    color=COLORS['primary']
+                )
     
     # Key metrics cards
     st.markdown("### 🎯 Key Performance Indicators")
@@ -1673,7 +1635,7 @@ def generate_issue_csv(metrics: Dict[str, Any]) -> str:
     return csv_data
 
 def display_metrics_view():
-    """Display detailed metrics view"""
+    """Display detailed metrics view with native Streamlit visualizations"""
     if not st.session_state.uploaded_data:
         st.error("No data available")
         return
@@ -1686,28 +1648,126 @@ def display_metrics_view():
     </div>
     """, unsafe_allow_html=True)
     
-    # Create comprehensive visualizations
-    figures = create_visualizations(st.session_state.uploaded_data['df_filtered'], metrics)
+    # Get visualization data
+    viz_data = create_visualization_data(st.session_state.uploaded_data['df_filtered'], metrics)
     
-    # Display all visualizations
-    for name, fig in figures.items():
-        st.plotly_chart(fig, use_container_width=True)
+    # Display visualizations
+    st.markdown("### 📊 Rating Distribution Analysis")
+    if 'rating_distribution' in viz_data:
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            st.bar_chart(
+                viz_data['rating_distribution'].set_index('Stars')['Count'],
+                color=COLORS['primary']
+            )
+        with col2:
+            st.markdown("**Distribution Stats:**")
+            for _, row in viz_data['rating_distribution'].iterrows():
+                total = viz_data['rating_distribution']['Count'].sum()
+                pct = (row['Count'] / total * 100) if total > 0 else 0
+                st.markdown(f"- {row['Stars']} stars: {row['Count']} ({pct:.1f}%)")
     
-    # Detailed metrics tables
-    st.markdown("### 📊 Detailed Statistics")
+    # Sentiment breakdown
+    st.markdown("### 💭 Sentiment Analysis Breakdown")
+    if 'sentiment' in viz_data:
+        # Create columns for sentiment cards
+        cols = st.columns(4)
+        for i, row in enumerate(viz_data['sentiment'].itertuples()):
+            with cols[i]:
+                color = {
+                    'Positive': COLORS['success'],
+                    'Negative': COLORS['danger'],
+                    'Neutral': COLORS['muted'],
+                    'Mixed': COLORS['warning']
+                }.get(row.Type, COLORS['primary'])
+                
+                st.markdown(f"""
+                <div class="metric-card" style="border-color: {color};">
+                    <h3 style="color: {color}; margin: 0;">{row.Count}</h3>
+                    <p style="margin: 0;">{row.Type}</p>
+                </div>
+                """, unsafe_allow_html=True)
+    
+    # Issue categories detailed view
+    st.markdown("### ⚠️ Issue Category Deep Dive")
+    if 'issues' in viz_data and not viz_data['issues'].empty:
+        # Create expandable sections for each issue
+        for _, row in viz_data['issues'].iterrows():
+            if row['Count'] > 0:
+                severity = 'CRITICAL' if row['Count'] > 20 else 'HIGH' if row['Count'] > 10 else 'MEDIUM' if row['Count'] > 5 else 'LOW'
+                color = COLORS['danger'] if severity == 'CRITICAL' else COLORS['warning'] if severity == 'HIGH' else COLORS['accent'] if severity == 'MEDIUM' else COLORS['success']
+                
+                with st.expander(f"{row['Category'].replace('_', ' ').title()} - {row['Count']} mentions ({severity})"):
+                    st.markdown(f"""
+                    <div style="border-left: 4px solid {color}; padding-left: 1rem;">
+                        <p><strong>Impact:</strong> {(row['Count'] / metrics['basic_stats']['total_reviews'] * 100):.1f}% of all reviews</p>
+                        <p><strong>Severity Level:</strong> <span style="color: {color};">{severity}</span></p>
+                        <p><strong>Recommended Action:</strong> {"Immediate attention required" if severity in ['CRITICAL', 'HIGH'] else "Monitor and address in next update"}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+    
+    # Detailed statistics table
+    st.markdown("### 📊 Comprehensive Statistics")
     
     # Convert metrics to displayable format
-    stats_df = pd.DataFrame([
-        {'Metric': 'Total Reviews', 'Value': metrics['basic_stats']['total_reviews']},
-        {'Metric': 'Average Rating', 'Value': f"{metrics['basic_stats']['average_rating']}/5"},
-        {'Metric': 'Median Rating', 'Value': f"{metrics['basic_stats']['median_rating']}/5"},
-        {'Metric': 'Rating Std Dev', 'Value': metrics['basic_stats']['rating_std']},
-        {'Metric': 'Verified Reviews', 'Value': metrics['basic_stats']['verified_count']},
-        {'Metric': '4-5 Star %', 'Value': f"{metrics['basic_stats']['4_5_star_percentage']}%"},
-        {'Metric': '1-2 Star %', 'Value': f"{metrics['basic_stats']['1_2_star_percentage']}%"}
+    stats_data = []
+    basic = metrics['basic_stats']
+    
+    stats_data.extend([
+        {'Category': 'Reviews', 'Metric': 'Total Reviews', 'Value': str(basic['total_reviews'])},
+        {'Category': 'Reviews', 'Metric': 'Verified Reviews', 'Value': str(basic['verified_count'])},
+        {'Category': 'Ratings', 'Metric': 'Average Rating', 'Value': f"{basic['average_rating']}/5"},
+        {'Category': 'Ratings', 'Metric': 'Median Rating', 'Value': f"{basic['median_rating']}/5"},
+        {'Category': 'Ratings', 'Metric': 'Standard Deviation', 'Value': str(basic['rating_std'])},
+        {'Category': 'Ratings', 'Metric': '4-5 Star %', 'Value': f"{basic['4_5_star_percentage']}%"},
+        {'Category': 'Ratings', 'Metric': '1-2 Star %', 'Value': f"{basic['1_2_star_percentage']}%"},
+        {'Category': 'Quality', 'Metric': 'Avg Review Quality', 'Value': f"{metrics['review_quality_scores']['avg_quality_score']:.1f}/10"},
+        {'Category': 'Quality', 'Metric': 'High Quality Reviews', 'Value': str(metrics['review_quality_scores']['high_quality_count'])},
+        {'Category': 'Trend', 'Metric': 'Direction', 'Value': metrics['temporal_trends'].get('trend', 'Unknown').title()},
+        {'Category': 'Health', 'Metric': 'Listing Score', 'Value': f"{metrics['listing_health_score']['total_score']:.1f}/100"},
+        {'Category': 'Health', 'Metric': 'Grade', 'Value': metrics['listing_health_score']['grade']}
     ])
     
-    st.dataframe(stats_df, use_container_width=True)
+    stats_df = pd.DataFrame(stats_data)
+    
+    # Style the dataframe
+    st.dataframe(
+        stats_df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Category": st.column_config.TextColumn("Category", width="small"),
+            "Metric": st.column_config.TextColumn("Metric", width="medium"),
+            "Value": st.column_config.TextColumn("Value", width="small")
+        }
+    )
+    
+    # Keyword analysis
+    st.markdown("### 🔍 Keyword Analysis")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("#### ✅ Positive Keywords")
+        positive_keywords = metrics['keyword_analysis']['positive_keywords'][:10]
+        for keyword, count in positive_keywords:
+            st.markdown(f"""
+            <div style="display: flex; justify-content: space-between; padding: 0.25rem 0;">
+                <span style="color: {COLORS['success']};">{keyword}</span>
+                <span style="color: {COLORS['text']}; opacity: 0.7;">{count}</span>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("#### ❌ Negative Keywords")
+        negative_keywords = metrics['keyword_analysis']['negative_keywords'][:10]
+        for keyword, count in negative_keywords:
+            st.markdown(f"""
+            <div style="display: flex; justify-content: space-between; padding: 0.25rem 0;">
+                <span style="color: {COLORS['danger']};">{keyword}</span>
+                <span style="color: {COLORS['text']}; opacity: 0.7;">{count}</span>
+            </div>
+            """, unsafe_allow_html=True)
 
 def main():
     """Main application with cyberpunk theme"""
