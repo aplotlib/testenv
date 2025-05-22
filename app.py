@@ -1,7 +1,7 @@
 """
-CyberMed Review Analyzer - Cyberpunk Edition
-Advanced AI-powered medical device review analysis with futuristic UI
-Version: X.0 - Neural Interface Edition
+Amazon Review Analyzer - Advanced Listing Optimization Engine
+Vive Health | Cyberpunk Edition v7.0
+AI-powered deep review analysis for Amazon listing managers
 """
 
 import streamlit as st
@@ -11,15 +11,12 @@ import json
 import logging
 from datetime import datetime, timedelta
 import io
-import time
-import random
 from typing import Dict, List, Any, Optional, Tuple
 import re
+from collections import Counter, defaultdict
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
-import hashlib
-import base64
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -32,1271 +29,864 @@ try:
 except ImportError:
     AI_AVAILABLE = False
 
-# Cyberpunk color scheme
-CYBER_COLORS = {
-    'bg_dark': '#0a0a0a',
-    'bg_medium': '#1a1a2e',
-    'bg_light': '#16213e',
-    'neon_cyan': '#00ffff',
-    'neon_pink': '#ff00ff',
-    'neon_yellow': '#ffff00',
-    'neon_green': '#00ff00',
-    'neon_purple': '#9d00ff',
-    'neon_orange': '#ff6600',
-    'text_primary': '#ffffff',
-    'text_secondary': '#b8b8b8',
-    'success': '#00ff88',
-    'warning': '#ffaa00',
-    'danger': '#ff0044',
-    'grid': '#2a2a3e'
-}
-
 # Application configuration
 APP_CONFIG = {
-    'title': 'CyberMed Neural Analyzer',
-    'version': 'X.0',
-    'description': 'Neural-powered medical device analysis',
-    'support_email': 'alexander.popoff@vivehealth.com',
-    'codename': 'Project Neon'
+    'title': 'Vive Health Review Intelligence',
+    'version': '7.0 Cyberpunk',
+    'description': 'Advanced AI-powered Amazon review analysis',
+    'company': 'Vive Health',
+    'support_email': 'alexander.popoff@vivehealth.com'
 }
 
-def inject_cyber_css():
-    """Inject cyberpunk CSS styling"""
-    st.markdown(f"""
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;700&display=swap');
-    
-    /* Global styles */
-    .stApp {{
-        background: linear-gradient(135deg, {CYBER_COLORS['bg_dark']} 0%, {CYBER_COLORS['bg_medium']} 100%);
-        color: {CYBER_COLORS['text_primary']};
-        font-family: 'Rajdhani', monospace;
-        position: relative;
-        overflow-x: hidden;
-    }}
-    
-    /* Animated grid background */
-    .stApp::before {{
-        content: "";
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background-image: 
-            repeating-linear-gradient(
-                0deg,
-                transparent,
-                transparent 2px,
-                {CYBER_COLORS['grid']}20 2px,
-                {CYBER_COLORS['grid']}20 4px
-            ),
-            repeating-linear-gradient(
-                90deg,
-                transparent,
-                transparent 2px,
-                {CYBER_COLORS['grid']}20 2px,
-                {CYBER_COLORS['grid']}20 4px
-            );
-        pointer-events: none;
-        z-index: 1;
-        animation: grid-move 20s linear infinite;
-    }}
-    
-    @keyframes grid-move {{
-        0% {{ transform: translate(0, 0); }}
-        100% {{ transform: translate(40px, 40px); }}
-    }}
-    
-    /* Neon glow text */
-    .neon-text {{
-        font-family: 'Orbitron', monospace;
-        font-weight: 900;
-        text-transform: uppercase;
-        letter-spacing: 2px;
-        animation: neon-flicker 2s infinite alternate;
-    }}
-    
-    @keyframes neon-flicker {{
-        0%, 100% {{
-            text-shadow: 
-                0 0 5px {CYBER_COLORS['neon_cyan']},
-                0 0 10px {CYBER_COLORS['neon_cyan']},
-                0 0 15px {CYBER_COLORS['neon_cyan']},
-                0 0 20px {CYBER_COLORS['neon_cyan']};
-        }}
-        50% {{
-            text-shadow: 
-                0 0 10px {CYBER_COLORS['neon_cyan']},
-                0 0 20px {CYBER_COLORS['neon_cyan']},
-                0 0 30px {CYBER_COLORS['neon_cyan']},
-                0 0 40px {CYBER_COLORS['neon_cyan']};
-        }}
-    }}
-    
-    /* Glitch effect */
-    .glitch {{
-        position: relative;
-        font-family: 'Orbitron', monospace;
-        font-weight: 900;
-        font-size: 3em;
-        text-transform: uppercase;
-        text-shadow: 0.05em 0 0 {CYBER_COLORS['neon_pink']}, -0.05em 0 0 {CYBER_COLORS['neon_cyan']};
-        animation: glitch 0.5s infinite;
-    }}
-    
-    .glitch::before,
-    .glitch::after {{
-        content: attr(data-text);
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-    }}
-    
-    .glitch::before {{
-        animation: glitch-1 0.2s infinite;
-        color: {CYBER_COLORS['neon_pink']};
-        z-index: -1;
-    }}
-    
-    .glitch::after {{
-        animation: glitch-2 0.2s infinite;
-        color: {CYBER_COLORS['neon_cyan']};
-        z-index: -2;
-    }}
-    
-    @keyframes glitch {{
-        0%, 100% {{ transform: translate(0); }}
-        20% {{ transform: translate(-2px, 2px); }}
-        40% {{ transform: translate(-2px, -2px); }}
-        60% {{ transform: translate(2px, 2px); }}
-        80% {{ transform: translate(2px, -2px); }}
-    }}
-    
-    @keyframes glitch-1 {{
-        0%, 100% {{ clip-path: inset(20% 0 30% 0); transform: translate(0); }}
-        20% {{ clip-path: inset(15% 0 35% 0); transform: translate(-5px); }}
-        40% {{ clip-path: inset(25% 0 25% 0); transform: translate(5px); }}
-        60% {{ clip-path: inset(30% 0 20% 0); transform: translate(-5px); }}
-        80% {{ clip-path: inset(10% 0 40% 0); transform: translate(5px); }}
-    }}
-    
-    @keyframes glitch-2 {{
-        0%, 100% {{ clip-path: inset(25% 0 25% 0); transform: translate(0); }}
-        20% {{ clip-path: inset(20% 0 30% 0); transform: translate(5px); }}
-        40% {{ clip-path: inset(35% 0 15% 0); transform: translate(-5px); }}
-        60% {{ clip-path: inset(15% 0 35% 0); transform: translate(5px); }}
-        80% {{ clip-path: inset(40% 0 10% 0); transform: translate(-5px); }}
-    }}
-    
-    /* Cyber buttons */
-    .stButton > button {{
-        background: linear-gradient(45deg, {CYBER_COLORS['neon_purple']} 0%, {CYBER_COLORS['neon_pink']} 100%);
-        color: {CYBER_COLORS['text_primary']};
-        border: 2px solid {CYBER_COLORS['neon_cyan']};
-        padding: 12px 24px;
-        font-family: 'Orbitron', monospace;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        border-radius: 0;
-        position: relative;
-        overflow: hidden;
-        transition: all 0.3s ease;
-        box-shadow: 
-            0 0 20px {CYBER_COLORS['neon_purple']}50,
-            inset 0 0 20px {CYBER_COLORS['neon_purple']}20;
-    }}
-    
-    .stButton > button:hover {{
-        transform: translateY(-2px);
-        box-shadow: 
-            0 0 30px {CYBER_COLORS['neon_cyan']},
-            inset 0 0 30px {CYBER_COLORS['neon_cyan']}30,
-            0 10px 40px {CYBER_COLORS['neon_cyan']}50;
-        border-color: {CYBER_COLORS['neon_green']};
-    }}
-    
-    .stButton > button::before {{
-        content: "";
-        position: absolute;
-        top: 50%;
-        left: -100%;
-        width: 100%;
-        height: 100%;
-        background: linear-gradient(90deg, transparent, {CYBER_COLORS['neon_cyan']}50, transparent);
-        transition: left 0.5s ease;
-    }}
-    
-    .stButton > button:hover::before {{
-        left: 100%;
-    }}
-    
-    /* Cyber inputs */
-    .stTextInput input, .stNumberInput input, .stTextArea textarea {{
-        background: {CYBER_COLORS['bg_light']}cc;
-        border: 1px solid {CYBER_COLORS['neon_cyan']}50;
-        color: {CYBER_COLORS['text_primary']};
-        font-family: 'Rajdhani', monospace;
-        border-radius: 0;
-        padding: 10px;
-        transition: all 0.3s ease;
-    }}
-    
-    .stTextInput input:focus, .stNumberInput input:focus, .stTextArea textarea:focus {{
-        border-color: {CYBER_COLORS['neon_pink']};
-        box-shadow: 
-            0 0 20px {CYBER_COLORS['neon_pink']}50,
-            inset 0 0 10px {CYBER_COLORS['neon_pink']}20;
-        outline: none;
-    }}
-    
-    /* File uploader */
-    [data-testid="stFileUploader"] {{
-        background: {CYBER_COLORS['bg_light']}cc;
-        border: 2px dashed {CYBER_COLORS['neon_cyan']};
-        border-radius: 0;
-        padding: 30px;
-        position: relative;
-        overflow: hidden;
-        transition: all 0.3s ease;
-    }}
-    
-    [data-testid="stFileUploader"]:hover {{
-        border-color: {CYBER_COLORS['neon_pink']};
-        box-shadow: 
-            0 0 30px {CYBER_COLORS['neon_pink']}50,
-            inset 0 0 20px {CYBER_COLORS['neon_pink']}20;
-    }}
-    
-    /* Metrics */
-    [data-testid="metric-container"] {{
-        background: linear-gradient(135deg, {CYBER_COLORS['bg_light']}cc 0%, {CYBER_COLORS['bg_medium']}cc 100%);
-        border: 1px solid {CYBER_COLORS['neon_cyan']}50;
-        border-radius: 0;
-        padding: 20px;
-        position: relative;
-        overflow: hidden;
-        backdrop-filter: blur(10px);
-    }}
-    
-    [data-testid="metric-container"]::before {{
-        content: "";
-        position: absolute;
-        top: -2px;
-        left: -2px;
-        right: -2px;
-        bottom: -2px;
-        background: linear-gradient(45deg, {CYBER_COLORS['neon_cyan']}, {CYBER_COLORS['neon_pink']}, {CYBER_COLORS['neon_purple']});
-        border-radius: 0;
-        opacity: 0;
-        z-index: -1;
-        transition: opacity 0.3s ease;
-    }}
-    
-    [data-testid="metric-container"]:hover::before {{
-        opacity: 0.5;
-    }}
-    
-    /* Expanders */
-    .streamlit-expanderHeader {{
-        background: {CYBER_COLORS['bg_light']}cc;
-        border: 1px solid {CYBER_COLORS['neon_cyan']}50;
-        border-radius: 0;
-        font-family: 'Orbitron', monospace;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-    }}
-    
-    /* Progress bars */
-    .stProgress > div > div {{
-        background: linear-gradient(90deg, {CYBER_COLORS['neon_purple']} 0%, {CYBER_COLORS['neon_cyan']} 50%, {CYBER_COLORS['neon_green']} 100%);
-        height: 10px;
-        animation: progress-pulse 2s ease-in-out infinite;
-    }}
-    
-    @keyframes progress-pulse {{
-        0%, 100% {{ opacity: 0.8; }}
-        50% {{ opacity: 1; }}
-    }}
-    
-    /* Alerts */
-    .stAlert {{
-        background: {CYBER_COLORS['bg_light']}cc;
-        border: 1px solid {CYBER_COLORS['neon_cyan']}50;
-        border-radius: 0;
-        border-left: 4px solid {CYBER_COLORS['neon_cyan']};
-        backdrop-filter: blur(10px);
-    }}
-    
-    /* Tabs */
-    .stTabs [data-baseweb="tab-list"] {{
-        background: {CYBER_COLORS['bg_light']}cc;
-        border-bottom: 2px solid {CYBER_COLORS['neon_cyan']}50;
-    }}
-    
-    .stTabs [data-baseweb="tab"] {{
-        font-family: 'Orbitron', monospace;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        color: {CYBER_COLORS['text_secondary']};
-        transition: all 0.3s ease;
-    }}
-    
-    .stTabs [aria-selected="true"] {{
-        color: {CYBER_COLORS['neon_cyan']};
-        border-bottom: 2px solid {CYBER_COLORS['neon_cyan']};
-    }}
-    
-    /* Scrollbar */
-    ::-webkit-scrollbar {{
-        width: 10px;
-        height: 10px;
-    }}
-    
-    ::-webkit-scrollbar-track {{
-        background: {CYBER_COLORS['bg_dark']};
-    }}
-    
-    ::-webkit-scrollbar-thumb {{
-        background: linear-gradient(180deg, {CYBER_COLORS['neon_purple']} 0%, {CYBER_COLORS['neon_cyan']} 100%);
-        border-radius: 0;
-    }}
-    
-    ::-webkit-scrollbar-thumb:hover {{
-        background: linear-gradient(180deg, {CYBER_COLORS['neon_cyan']} 0%, {CYBER_COLORS['neon_pink']} 100%);
-    }}
-    
-    /* Custom containers */
-    .cyber-container {{
-        background: {CYBER_COLORS['bg_light']}cc;
-        border: 1px solid {CYBER_COLORS['neon_cyan']}50;
-        padding: 20px;
-        margin: 10px 0;
-        position: relative;
-        backdrop-filter: blur(10px);
-    }}
-    
-    .cyber-container::before {{
-        content: "";
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 2px;
-        background: linear-gradient(90deg, transparent, {CYBER_COLORS['neon_cyan']}, transparent);
-        animation: scan-line 3s linear infinite;
-    }}
-    
-    @keyframes scan-line {{
-        0% {{ transform: translateX(-100%); }}
-        100% {{ transform: translateX(100%); }}
-    }}
-    
-    /* Hide default elements */
-    #MainMenu {{visibility: hidden;}}
-    footer {{visibility: hidden;}}
-    header {{visibility: hidden;}}
-    
-    /* Mobile responsiveness */
-    @media (max-width: 768px) {{
-        .glitch {{
-            font-size: 2em;
-        }}
-        .neon-text {{
-            font-size: 1.2em;
-        }}
-    }}
-    </style>
-    """, unsafe_allow_html=True)
-
-def create_glitch_text(text: str, size: str = "3em") -> str:
-    """Create glitch effect text"""
-    return f'<div class="glitch" data-text="{text}" style="font-size: {size}; text-align: center; margin: 20px 0;">{text}</div>'
-
-def create_neon_text(text: str, color: str = None) -> str:
-    """Create neon glow text"""
-    if color:
-        style = f"color: {color}; text-shadow: 0 0 10px {color}, 0 0 20px {color}, 0 0 30px {color};"
-    else:
-        style = ""
-    return f'<div class="neon-text" style="{style}">{text}</div>'
-
-def create_cyber_metric(label: str, value: Any, delta: Any = None, color: str = None) -> str:
-    """Create custom cyber metric display"""
-    color = color or CYBER_COLORS['neon_cyan']
-    delta_html = f'<div style="font-size: 0.8em; color: {CYBER_COLORS["success"] if delta and delta > 0 else CYBER_COLORS["danger"]};">{"▲" if delta and delta > 0 else "▼"} {delta}</div>' if delta else ''
-    
-    return f"""
-    <div class="cyber-container" style="text-align: center; min-height: 120px;">
-        <div style="font-size: 0.9em; color: {CYBER_COLORS['text_secondary']}; text-transform: uppercase; letter-spacing: 2px;">{label}</div>
-        <div style="font-size: 2.5em; font-family: 'Orbitron', monospace; font-weight: 900; color: {color}; 
-                    text-shadow: 0 0 10px {color}, 0 0 20px {color}; margin: 10px 0;">{value}</div>
-        {delta_html}
-    </div>
-    """
-
-def create_loading_animation(text: str = "PROCESSING") -> None:
-    """Create cyberpunk loading animation"""
-    placeholder = st.empty()
-    for i in range(3):
-        for frame in ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]:
-            placeholder.markdown(f"""
-            <div style="text-align: center; font-family: 'Orbitron', monospace; font-size: 1.5em; 
-                        color: {CYBER_COLORS['neon_cyan']}; text-shadow: 0 0 10px {CYBER_COLORS['neon_cyan']};">
-                {frame} {text} {frame}
-            </div>
-            """, unsafe_allow_html=True)
-            time.sleep(0.1)
-    placeholder.empty()
+# Cyberpunk color scheme
+COLORS = {
+    'primary': '#00D9FF',      # Cyan
+    'secondary': '#FF006E',    # Hot pink
+    'accent': '#FFB700',       # Gold
+    'success': '#00F5A0',      # Neon green
+    'warning': '#FF6B35',      # Orange
+    'danger': '#FF0054',       # Red
+    'dark': '#0A0A0F',         # Deep black
+    'light': '#1A1A2E',        # Dark blue
+    'text': '#E0E0E0',         # Light gray
+    'muted': '#666680'         # Muted purple
+}
 
 def initialize_session_state():
-    """Initialize session state with cyberpunk theme"""
+    """Initialize session state with advanced features"""
     defaults = {
         'uploaded_data': None,
         'analysis_results': None,
-        'current_view': 'dashboard',  # 'dashboard', 'upload', 'analysis', 'insights', 'comparison'
+        'current_view': 'upload',
         'processing': False,
         'ai_analyzer': None,
-        'show_medical_features': False,
-        'basic_stats': None,
-        'analysis_mode': 'neural',  # 'neural', 'quantum', 'hybrid'
-        'input_method': 'file',
-        'comparison_data': [],
-        'trend_data': None,
-        'theme_mode': 'cyber_dark',
-        'animation_speed': 'normal',
-        'neural_confidence': 0.0,
-        'analysis_history': [],
-        'real_time_mode': False,
-        'advanced_metrics': None
+        'competitor_insights': None,
+        'keyword_opportunities': None,
+        'sentiment_analysis': None,
+        'review_clusters': None,
+        'quality_issues': None,
+        'listing_score': None,
+        'improvement_priority': None,
+        'selected_timeframe': 'all',
+        'filter_rating': 'all',
+        'analysis_depth': 'comprehensive'
     }
     
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
 
-def create_cyber_dashboard():
-    """Create main cyberpunk dashboard"""
-    st.markdown(create_glitch_text("CYBERMED NEURAL INTERFACE", "4em"), unsafe_allow_html=True)
+def inject_cyberpunk_css():
+    """Inject cyberpunk-themed CSS"""
     st.markdown(f"""
-    <div style="text-align: center; color: {CYBER_COLORS['text_secondary']}; margin-bottom: 30px;">
-        <span style="font-family: 'Orbitron', monospace;">VERSION {APP_CONFIG['version']} // {APP_CONFIG['codename'].upper()}</span>
-    </div>
+    <style>
+    /* Cyberpunk Theme */
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600;700&display=swap');
+    
+    /* Global styles */
+    .stApp {{
+        background: linear-gradient(135deg, {COLORS['dark']} 0%, {COLORS['light']} 100%);
+        color: {COLORS['text']};
+    }}
+    
+    /* Headers */
+    h1, h2, h3 {{
+        font-family: 'Orbitron', monospace;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+    }}
+    
+    h1 {{
+        background: linear-gradient(90deg, {COLORS['primary']} 0%, {COLORS['secondary']} 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        text-shadow: 0 0 30px {COLORS['primary']}40;
+    }}
+    
+    /* Neon glow effect */
+    .neon-box {{
+        background: {COLORS['dark']}90;
+        border: 1px solid {COLORS['primary']};
+        border-radius: 10px;
+        padding: 1.5rem;
+        box-shadow: 
+            0 0 20px {COLORS['primary']}40,
+            inset 0 0 20px {COLORS['primary']}10;
+        backdrop-filter: blur(10px);
+    }}
+    
+    /* Buttons */
+    .stButton > button {{
+        font-family: 'Rajdhani', sans-serif;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        background: linear-gradient(135deg, {COLORS['primary']} 0%, {COLORS['secondary']} 100%);
+        color: {COLORS['dark']};
+        border: none;
+        padding: 0.75rem 2rem;
+        border-radius: 5px;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 15px {COLORS['primary']}40;
+    }}
+    
+    .stButton > button:hover {{
+        transform: translateY(-2px);
+        box-shadow: 
+            0 6px 25px {COLORS['primary']}60,
+            0 0 30px {COLORS['primary']}40;
+    }}
+    
+    /* Primary button */
+    .stButton > button[kind="primary"] {{
+        background: linear-gradient(135deg, {COLORS['success']} 0%, {COLORS['primary']} 100%);
+        box-shadow: 0 4px 15px {COLORS['success']}40;
+    }}
+    
+    /* Metrics */
+    [data-testid="metric-container"] {{
+        background: {COLORS['light']}90;
+        border: 1px solid {COLORS['primary']}50;
+        padding: 1rem;
+        border-radius: 8px;
+        box-shadow: 
+            0 0 15px {COLORS['primary']}20,
+            inset 0 0 10px {COLORS['primary']}10;
+        backdrop-filter: blur(5px);
+    }}
+    
+    [data-testid="metric-container"] [data-testid="metric-value"] {{
+        font-family: 'Orbitron', monospace;
+        color: {COLORS['primary']};
+        text-shadow: 0 0 10px {COLORS['primary']}60;
+    }}
+    
+    /* File uploader */
+    [data-testid="stFileUploader"] {{
+        background: {COLORS['dark']}80;
+        padding: 2rem;
+        border-radius: 10px;
+        border: 2px dashed {COLORS['primary']};
+        transition: all 0.3s ease;
+    }}
+    
+    [data-testid="stFileUploader"]:hover {{
+        border-color: {COLORS['secondary']};
+        box-shadow: 0 0 30px {COLORS['secondary']}40;
+        background: {COLORS['dark']}95;
+    }}
+    
+    /* Selectbox & inputs */
+    .stSelectbox > div > div,
+    .stTextInput > div > div > input {{
+        background: {COLORS['dark']}80 !important;
+        border: 1px solid {COLORS['primary']}50 !important;
+        color: {COLORS['text']} !important;
+        border-radius: 5px;
+    }}
+    
+    /* Progress bars */
+    .stProgress > div > div > div {{
+        background: linear-gradient(90deg, {COLORS['primary']} 0%, {COLORS['secondary']} 100%);
+        box-shadow: 0 0 20px {COLORS['primary']}60;
+    }}
+    
+    /* Expanders */
+    .streamlit-expanderHeader {{
+        background: {COLORS['light']}80;
+        border: 1px solid {COLORS['primary']}30;
+        border-radius: 8px;
+        font-family: 'Rajdhani', sans-serif;
+        font-weight: 600;
+        letter-spacing: 1px;
+    }}
+    
+    /* Info/Warning/Error boxes */
+    .stAlert {{
+        background: {COLORS['dark']}90;
+        border-left: 4px solid {COLORS['primary']};
+        border-radius: 5px;
+    }}
+    
+    /* Tabs */
+    .stTabs [data-baseweb="tab-list"] {{
+        background: {COLORS['dark']}80;
+        border-radius: 10px;
+        padding: 5px;
+    }}
+    
+    .stTabs [data-baseweb="tab"] {{
+        color: {COLORS['text']};
+        font-family: 'Rajdhani', sans-serif;
+        font-weight: 600;
+        letter-spacing: 1px;
+    }}
+    
+    .stTabs [aria-selected="true"] {{
+        background: linear-gradient(135deg, {COLORS['primary']} 0%, {COLORS['secondary']} 100%);
+        color: {COLORS['dark']};
+    }}
+    
+    /* Custom classes */
+    .cyber-header {{
+        background: linear-gradient(135deg, {COLORS['primary']}20 0%, {COLORS['secondary']}20 100%);
+        border: 1px solid {COLORS['primary']}50;
+        border-radius: 15px;
+        padding: 2rem;
+        text-align: center;
+        box-shadow: 
+            0 0 40px {COLORS['primary']}30,
+            inset 0 0 40px {COLORS['primary']}10;
+        backdrop-filter: blur(10px);
+        position: relative;
+        overflow: hidden;
+    }}
+    
+    .cyber-header::before {{
+        content: '';
+        position: absolute;
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background: repeating-linear-gradient(
+            45deg,
+            transparent,
+            transparent 10px,
+            {COLORS['primary']}10 10px,
+            {COLORS['primary']}10 20px
+        );
+        animation: scan 10s linear infinite;
+    }}
+    
+    @keyframes scan {{
+        0% {{ transform: translate(0, 0); }}
+        100% {{ transform: translate(50px, 50px); }}
+    }}
+    
+    .metric-card {{
+        background: {COLORS['light']}80;
+        border: 1px solid {COLORS['primary']}40;
+        border-radius: 10px;
+        padding: 1.5rem;
+        text-align: center;
+        transition: all 0.3s ease;
+        box-shadow: 0 0 20px {COLORS['primary']}20;
+    }}
+    
+    .metric-card:hover {{
+        transform: translateY(-5px);
+        box-shadow: 
+            0 5px 30px {COLORS['primary']}40,
+            0 0 40px {COLORS['primary']}30;
+        border-color: {COLORS['secondary']};
+    }}
+    
+    .priority-high {{
+        border-left: 4px solid {COLORS['danger']};
+        box-shadow: 0 0 20px {COLORS['danger']}40;
+    }}
+    
+    .priority-medium {{
+        border-left: 4px solid {COLORS['warning']};
+        box-shadow: 0 0 20px {COLORS['warning']}40;
+    }}
+    
+    .priority-low {{
+        border-left: 4px solid {COLORS['success']};
+        box-shadow: 0 0 20px {COLORS['success']}40;
+    }}
+    
+    /* Scrollbar */
+    ::-webkit-scrollbar {{
+        width: 10px;
+        background: {COLORS['dark']};
+    }}
+    
+    ::-webkit-scrollbar-thumb {{
+        background: linear-gradient(180deg, {COLORS['primary']} 0%, {COLORS['secondary']} 100%);
+        border-radius: 5px;
+    }}
+    
+    /* Hide Streamlit branding */
+    #MainMenu, footer, header {{
+        visibility: hidden;
+    }}
+    </style>
     """, unsafe_allow_html=True)
-    
-    # System status
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.markdown(create_cyber_metric(
-            "NEURAL STATUS",
-            "ONLINE",
-            color=CYBER_COLORS['neon_green']
-        ), unsafe_allow_html=True)
-    
-    with col2:
-        ai_status = "ACTIVE" if check_ai_status() else "OFFLINE"
-        st.markdown(create_cyber_metric(
-            "AI CORE",
-            ai_status,
-            color=CYBER_COLORS['neon_green'] if ai_status == "ACTIVE" else CYBER_COLORS['danger']
-        ), unsafe_allow_html=True)
-    
-    with col3:
-        st.markdown(create_cyber_metric(
-            "QUANTUM LINK",
-            f"{random.randint(85, 99)}%",
-            delta=random.randint(-5, 10),
-            color=CYBER_COLORS['neon_purple']
-        ), unsafe_allow_html=True)
-    
-    with col4:
-        st.markdown(create_cyber_metric(
-            "THREAT LEVEL",
-            "MINIMAL",
-            color=CYBER_COLORS['neon_yellow']
-        ), unsafe_allow_html=True)
-    
-    # Main menu grid
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown(create_neon_text("[ SELECT OPERATION MODE ]"), unsafe_allow_html=True)
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        if st.button("🧠 NEURAL ANALYSIS", use_container_width=True, key="neural_btn"):
-            st.session_state.current_view = 'upload'
-            st.session_state.analysis_mode = 'neural'
-            st.rerun()
-        
-        st.markdown(f"""
-        <div class="cyber-container" style="margin-top: 10px;">
-            <p style="color: {CYBER_COLORS['text_secondary']}; font-size: 0.9em;">
-                Advanced AI-powered review analysis with deep learning insights
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col2:
-        if st.button("⚛️ QUANTUM SCAN", use_container_width=True, key="quantum_btn"):
-            st.session_state.current_view = 'upload'
-            st.session_state.analysis_mode = 'quantum'
-            st.rerun()
-        
-        st.markdown(f"""
-        <div class="cyber-container" style="margin-top: 10px;">
-            <p style="color: {CYBER_COLORS['text_secondary']}; font-size: 0.9em;">
-                Quantum-enhanced pattern recognition for regulatory compliance
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col3:
-        if st.button("🔄 HYBRID MATRIX", use_container_width=True, key="hybrid_btn"):
-            st.session_state.current_view = 'upload'
-            st.session_state.analysis_mode = 'hybrid'
-            st.rerun()
-        
-        st.markdown(f"""
-        <div class="cyber-container" style="margin-top: 10px;">
-            <p style="color: {CYBER_COLORS['text_secondary']}; font-size: 0.9em;">
-                Combined neural-quantum analysis for maximum accuracy
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # Recent analysis
-    if st.session_state.analysis_history:
-        st.markdown("<br><br>", unsafe_allow_html=True)
-        st.markdown(create_neon_text("[ RECENT OPERATIONS ]"), unsafe_allow_html=True)
-        
-        for i, analysis in enumerate(st.session_state.analysis_history[-3:]):
-            col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
-            
-            with col1:
-                st.markdown(f"""
-                <div style="color: {CYBER_COLORS['neon_cyan']}; font-family: 'Orbitron', monospace;">
-                    {analysis['asin']} - {analysis['mode'].upper()}
-                </div>
-                """, unsafe_allow_html=True)
-            
-            with col2:
-                st.markdown(f"""
-                <div style="color: {CYBER_COLORS['text_secondary']};">
-                    {analysis['timestamp'].strftime('%Y-%m-%d %H:%M')}
-                </div>
-                """, unsafe_allow_html=True)
-            
-            with col3:
-                score_color = CYBER_COLORS['success'] if analysis['score'] >= 80 else CYBER_COLORS['warning'] if analysis['score'] >= 60 else CYBER_COLORS['danger']
-                st.markdown(f"""
-                <div style="color: {score_color};">
-                    SCORE: {analysis['score']}/100
-                </div>
-                """, unsafe_allow_html=True)
-            
-            with col4:
-                if st.button("LOAD", key=f"load_{i}"):
-                    st.session_state.analysis_results = analysis['results']
-                    st.session_state.current_view = 'results'
-                    st.rerun()
-    
-    # System stats
-    st.markdown("<br><br>", unsafe_allow_html=True)
-    create_system_stats_visualization()
 
-def create_system_stats_visualization():
-    """Create animated system statistics"""
-    fig = make_subplots(
-        rows=1, cols=3,
-        subplot_titles=("NEURAL ACTIVITY", "DATA THROUGHPUT", "QUANTUM COHERENCE"),
-        specs=[[{"type": "scatter"}, {"type": "bar"}, {"type": "scatter"}]]
-    )
-    
-    # Neural activity
-    x = np.linspace(0, 100, 100)
-    y = np.sin(x/10) * np.random.normal(1, 0.1, 100)
-    
-    fig.add_trace(
-        go.Scatter(x=x, y=y, mode='lines', name='Neural',
-                   line=dict(color=CYBER_COLORS['neon_cyan'], width=2)),
-        row=1, col=1
-    )
-    
-    # Data throughput
-    categories = ['INPUT', 'PROCESS', 'OUTPUT']
-    values = [random.randint(70, 95) for _ in range(3)]
-    colors = [CYBER_COLORS['neon_pink'], CYBER_COLORS['neon_purple'], CYBER_COLORS['neon_green']]
-    
-    fig.add_trace(
-        go.Bar(x=categories, y=values, name='Throughput',
-               marker_color=colors),
-        row=1, col=2
-    )
-    
-    # Quantum coherence
-    theta = np.linspace(0, 2*np.pi, 100)
-    r = 1 + 0.5 * np.sin(5*theta)
-    x_polar = r * np.cos(theta)
-    y_polar = r * np.sin(theta)
-    
-    fig.add_trace(
-        go.Scatter(x=x_polar, y=y_polar, mode='lines', name='Quantum',
-                   line=dict(color=CYBER_COLORS['neon_yellow'], width=2),
-                   fill='toself', fillcolor=CYBER_COLORS['neon_yellow'] + '20'),
-        row=1, col=3
-    )
-    
-    # Update layout
-    fig.update_layout(
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        font=dict(family="Orbitron", color=CYBER_COLORS['text_primary']),
-        showlegend=False,
-        height=300,
-        margin=dict(l=0, r=0, t=30, b=0)
-    )
-    
-    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor=CYBER_COLORS['grid'] + '30')
-    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor=CYBER_COLORS['grid'] + '30')
-    
-    st.plotly_chart(fig, use_container_width=True)
+def calculate_advanced_metrics(df: pd.DataFrame) -> Dict[str, Any]:
+    """Calculate advanced metrics from review data"""
+    try:
+        metrics = {
+            'basic_stats': calculate_basic_stats(df),
+            'sentiment_breakdown': analyze_sentiment_patterns(df),
+            'keyword_analysis': extract_keywords(df),
+            'temporal_trends': analyze_temporal_trends(df),
+            'verified_vs_unverified': analyze_verification_impact(df),
+            'review_quality_scores': calculate_review_quality(df),
+            'issue_categories': categorize_issues(df),
+            'competitor_mentions': find_competitor_mentions(df)
+        }
+        
+        # Calculate overall listing health score
+        metrics['listing_health_score'] = calculate_listing_health_score(metrics)
+        
+        return metrics
+        
+    except Exception as e:
+        logger.error(f"Error calculating advanced metrics: {e}")
+        return None
 
-def create_advanced_upload_interface():
-    """Create advanced cyberpunk upload interface"""
-    st.markdown(create_glitch_text(f"{st.session_state.analysis_mode.upper()} ANALYSIS MODULE", "3em"), unsafe_allow_html=True)
-    
-    # Mode description
-    mode_descriptions = {
-        'neural': "Neural network analysis for deep pattern recognition and predictive insights",
-        'quantum': "Quantum computing algorithms for regulatory compliance and risk assessment",
-        'hybrid': "Combined neural-quantum processing for maximum analytical precision"
+def analyze_sentiment_patterns(df: pd.DataFrame) -> Dict[str, Any]:
+    """Analyze sentiment patterns in reviews"""
+    sentiments = {
+        'positive_keywords': ['love', 'great', 'excellent', 'perfect', 'amazing', 'best', 'wonderful', 'fantastic', 'quality', 'recommend'],
+        'negative_keywords': ['hate', 'terrible', 'awful', 'worst', 'horrible', 'poor', 'cheap', 'broken', 'disappointed', 'waste'],
+        'neutral_keywords': ['okay', 'fine', 'average', 'decent', 'alright', 'satisfactory']
     }
     
-    st.markdown(f"""
-    <div class="cyber-container" style="text-align: center; margin-bottom: 30px;">
-        <p style="color: {CYBER_COLORS['neon_cyan']}; font-size: 1.2em;">
-            {mode_descriptions[st.session_state.analysis_mode]}
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
+    results = {
+        'positive': 0,
+        'negative': 0,
+        'neutral': 0,
+        'mixed': 0
+    }
     
-    # Upload options
-    tab1, tab2, tab3 = st.tabs(["📁 FILE UPLOAD", "📝 MANUAL ENTRY", "🔗 API CONNECT"])
-    
-    with tab1:
-        create_file_upload_interface()
-    
-    with tab2:
-        create_manual_entry_interface()
-    
-    with tab3:
-        create_api_connect_interface()
-
-def create_file_upload_interface():
-    """Create cyberpunk file upload interface"""
-    st.markdown(f"""
-    <div class="cyber-container" style="border: 2px dashed {CYBER_COLORS['neon_cyan']}; padding: 40px; text-align: center;">
-        <div style="font-size: 3em; color: {CYBER_COLORS['neon_cyan']};">⬆️</div>
-        <div style="font-family: 'Orbitron', monospace; font-size: 1.5em; margin: 20px 0;">
-            DRAG & DROP DATA FILES
-        </div>
-        <div style="color: {CYBER_COLORS['text_secondary']};">
-            Supported formats: CSV, XLSX, XLS, JSON
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    uploaded_file = st.file_uploader(
-        "Upload review data",
-        type=['csv', 'xlsx', 'xls', 'json'],
-        label_visibility="hidden"
-    )
-    
-    if uploaded_file:
-        # File info display
-        col1, col2, col3 = st.columns(3)
+    for _, row in df.iterrows():
+        if pd.isna(row.get('Body')):
+            continue
+            
+        text = str(row['Body']).lower()
+        pos_count = sum(1 for word in sentiments['positive_keywords'] if word in text)
+        neg_count = sum(1 for word in sentiments['negative_keywords'] if word in text)
         
-        with col1:
-            st.markdown(create_cyber_metric(
-                "FILE SIZE",
-                f"{uploaded_file.size / 1024:.1f} KB",
-                color=CYBER_COLORS['neon_green']
-            ), unsafe_allow_html=True)
-        
-        with col2:
-            st.markdown(create_cyber_metric(
-                "FILE TYPE",
-                uploaded_file.type.split('/')[-1].upper(),
-                color=CYBER_COLORS['neon_purple']
-            ), unsafe_allow_html=True)
-        
-        with col3:
-            st.markdown(create_cyber_metric(
-                "STATUS",
-                "READY",
-                color=CYBER_COLORS['neon_yellow']
-            ), unsafe_allow_html=True)
-        
-        # Process button
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            if st.button("🚀 INITIATE NEURAL SCAN", use_container_width=True, type="primary"):
-                process_uploaded_file(uploaded_file)
-
-def create_manual_entry_interface():
-    """Create cyberpunk manual entry interface"""
-    st.markdown(f"""
-    <div class="cyber-container">
-        <h3 style="font-family: 'Orbitron', monospace; color: {CYBER_COLORS['neon_pink']};">
-            MANUAL DATA INJECTION
-        </h3>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Product info
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        asin = st.text_input("PRODUCT ASIN", placeholder="B0XXXXXXX", key="manual_asin")
-        title = st.text_area("PRODUCT DESIGNATION", height=100, placeholder="Enter product title...", key="manual_title")
-    
-    with col2:
-        category = st.text_input("CATEGORY VECTOR", placeholder="Health & Household", key="manual_category")
-        price = st.number_input("PRICE POINT ($)", min_value=0.0, value=0.0, step=0.01, key="manual_price")
-    
-    # Performance metrics
-    st.markdown(create_neon_text("PERFORMANCE METRICS"), unsafe_allow_html=True)
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        avg_rating = st.slider("AVG RATING", 1.0, 5.0, 4.0, 0.1, key="manual_rating")
-    
-    with col2:
-        total_reviews = st.number_input("REVIEW COUNT", 0, 10000, 100, key="manual_reviews")
-    
-    with col3:
-        monthly_sales = st.number_input("MONTHLY UNITS", 0, 10000, 100, key="manual_sales")
-    
-    with col4:
-        return_rate = st.slider("RETURN RATE %", 0.0, 50.0, 5.0, 0.1, key="manual_returns")
-    
-    # Advanced metrics
-    with st.expander("⚡ ADVANCED NEURAL PARAMETERS"):
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            sentiment_score = st.slider("SENTIMENT INDEX", 0.0, 100.0, 75.0, key="manual_sentiment")
-            brand_loyalty = st.slider("LOYALTY FACTOR", 0.0, 100.0, 60.0, key="manual_loyalty")
-        
-        with col2:
-            competitor_threat = st.slider("COMPETITOR THREAT", 0.0, 100.0, 40.0, key="manual_threat")
-            market_position = st.slider("MARKET POSITION", 0.0, 100.0, 70.0, key="manual_position")
-        
-        with col3:
-            innovation_index = st.slider("INNOVATION INDEX", 0.0, 100.0, 50.0, key="manual_innovation")
-            regulatory_risk = st.slider("REGULATORY RISK", 0.0, 100.0, 20.0, key="manual_risk")
-    
-    # Process button
-    st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("⚡ EXECUTE QUANTUM ANALYSIS", use_container_width=True, type="primary"):
-        if asin and title:
-            process_manual_entry()
+        if pos_count > neg_count:
+            results['positive'] += 1
+        elif neg_count > pos_count:
+            results['negative'] += 1
+        elif pos_count == neg_count and pos_count > 0:
+            results['mixed'] += 1
         else:
-            st.error("❌ INSUFFICIENT DATA: ASIN and Title required")
+            results['neutral'] += 1
+    
+    return results
 
-def create_api_connect_interface():
-    """Create API connection interface"""
-    st.markdown(f"""
-    <div class="cyber-container">
-        <h3 style="font-family: 'Orbitron', monospace; color: {CYBER_COLORS['neon_yellow']};">
-            DIRECT NEURAL LINK
-        </h3>
-        <p style="color: {CYBER_COLORS['text_secondary']};">
-            Connect directly to Amazon API for real-time data streaming
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
+def extract_keywords(df: pd.DataFrame, top_n: int = 20) -> Dict[str, List[Tuple[str, int]]]:
+    """Extract top keywords and phrases from reviews"""
+    positive_reviews = df[df['Rating'] >= 4]['Body'].dropna()
+    negative_reviews = df[df['Rating'] <= 2]['Body'].dropna()
     
-    # API configuration
-    api_key = st.text_input("API ACCESS KEY", type="password", placeholder="Enter your API key...")
-    api_secret = st.text_input("API SECRET", type="password", placeholder="Enter your API secret...")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        marketplace = st.selectbox(
-            "MARKETPLACE",
-            ["US", "UK", "DE", "FR", "IT", "ES", "JP", "CA", "AU"]
-        )
-    
-    with col2:
-        data_range = st.selectbox(
-            "DATA RANGE",
-            ["Last 7 days", "Last 30 days", "Last 90 days", "Last 365 days", "All time"]
-        )
-    
-    # Real-time options
-    st.markdown(create_neon_text("REAL-TIME PARAMETERS"), unsafe_allow_html=True)
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        enable_streaming = st.checkbox("Enable data streaming", key="api_streaming")
-    
-    with col2:
-        update_frequency = st.select_slider(
-            "UPDATE FREQUENCY",
-            options=["1 min", "5 min", "15 min", "30 min", "1 hour"],
-            value="15 min"
-        )
-    
-    with col3:
-        alert_threshold = st.number_input("ALERT THRESHOLD", 1, 5, 2)
-    
-    # Connection status
-    if api_key and api_secret:
-        st.markdown(f"""
-        <div class="cyber-container" style="background: {CYBER_COLORS['bg_dark']}; margin-top: 20px;">
-            <div style="text-align: center;">
-                <div style="color: {CYBER_COLORS['neon_green']}; font-size: 1.5em;">
-                    ● CONNECTION ESTABLISHED
-                </div>
-                <div style="color: {CYBER_COLORS['text_secondary']}; margin-top: 10px;">
-                    Ready to initiate neural link
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+    def get_keywords(texts):
+        all_words = []
+        for text in texts:
+            # Simple keyword extraction - can be enhanced with NLP
+            words = re.findall(r'\b[a-z]+\b', str(text).lower())
+            all_words.extend(words)
         
-        if st.button("🔗 ESTABLISH NEURAL LINK", use_container_width=True, type="primary"):
-            st.warning("⚠️ API connection feature coming in version X.1")
+        # Filter common words
+        stopwords = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'is', 'was', 'are', 'were', 'it', 'this', 'that', 'have', 'has', 'had', 'be', 'been', 'being', 'i', 'me', 'my', 'we', 'our', 'you', 'your'}
+        filtered_words = [w for w in all_words if w not in stopwords and len(w) > 3]
+        
+        return Counter(filtered_words).most_common(top_n)
+    
+    return {
+        'positive_keywords': get_keywords(positive_reviews),
+        'negative_keywords': get_keywords(negative_reviews)
+    }
+
+def analyze_temporal_trends(df: pd.DataFrame) -> Dict[str, Any]:
+    """Analyze rating trends over time"""
+    if 'Date' not in df.columns:
+        return {}
+    
+    df['parsed_date'] = df['Date'].apply(parse_amazon_date)
+    df_with_dates = df.dropna(subset=['parsed_date'])
+    
+    if len(df_with_dates) == 0:
+        return {}
+    
+    # Group by month
+    df_with_dates['month'] = pd.to_datetime(df_with_dates['parsed_date']).dt.to_period('M')
+    monthly_avg = df_with_dates.groupby('month')['Rating'].agg(['mean', 'count'])
+    
+    # Detect trend
+    if len(monthly_avg) > 1:
+        ratings = monthly_avg['mean'].values
+        trend = 'improving' if ratings[-1] > ratings[0] else 'declining' if ratings[-1] < ratings[0] else 'stable'
     else:
-        st.markdown(f"""
-        <div class="cyber-container" style="background: {CYBER_COLORS['bg_dark']}; margin-top: 20px;">
-            <div style="text-align: center;">
-                <div style="color: {CYBER_COLORS['danger']}; font-size: 1.5em;">
-                    ○ AWAITING CREDENTIALS
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        trend = 'insufficient_data'
+    
+    return {
+        'trend': trend,
+        'monthly_averages': monthly_avg.to_dict(),
+        'recent_performance': monthly_avg.tail(3)['mean'].mean() if len(monthly_avg) >= 3 else None
+    }
 
-def process_uploaded_file(uploaded_file):
-    """Process uploaded file with cyberpunk animations"""
+def analyze_verification_impact(df: pd.DataFrame) -> Dict[str, Any]:
+    """Compare verified vs unverified reviews"""
+    if 'Verified' not in df.columns:
+        return {}
+    
+    verified = df[df['Verified'] == 'yes']
+    unverified = df[df['Verified'] != 'yes']
+    
+    return {
+        'verified_avg_rating': verified['Rating'].mean() if len(verified) > 0 else None,
+        'unverified_avg_rating': unverified['Rating'].mean() if len(unverified) > 0 else None,
+        'verified_count': len(verified),
+        'unverified_count': len(unverified),
+        'verification_impact': 'positive' if len(verified) > 0 and len(unverified) > 0 and verified['Rating'].mean() > unverified['Rating'].mean() else 'negative'
+    }
+
+def calculate_review_quality(df: pd.DataFrame) -> Dict[str, Any]:
+    """Calculate quality scores for reviews"""
+    quality_scores = []
+    
+    for _, row in df.iterrows():
+        if pd.isna(row.get('Body')):
+            continue
+            
+        body = str(row['Body'])
+        score = 0
+        
+        # Length score
+        word_count = len(body.split())
+        if word_count > 50:
+            score += 3
+        elif word_count > 20:
+            score += 2
+        elif word_count > 10:
+            score += 1
+        
+        # Detail score (mentions specific features)
+        detail_keywords = ['size', 'color', 'material', 'quality', 'feature', 'function', 'use', 'compare']
+        score += sum(1 for keyword in detail_keywords if keyword in body.lower())
+        
+        # Helpfulness indicators
+        if any(phrase in body.lower() for phrase in ['pros:', 'cons:', 'update:', 'edit:']):
+            score += 2
+        
+        quality_scores.append(score)
+    
+    return {
+        'avg_quality_score': np.mean(quality_scores) if quality_scores else 0,
+        'high_quality_count': sum(1 for s in quality_scores if s >= 5),
+        'low_quality_count': sum(1 for s in quality_scores if s <= 2)
+    }
+
+def categorize_issues(df: pd.DataFrame) -> Dict[str, int]:
+    """Categorize common issues mentioned in reviews"""
+    categories = {
+        'quality': ['quality', 'cheap', 'flimsy', 'broken', 'defect', 'poor', 'material'],
+        'size_fit': ['size', 'fit', 'small', 'large', 'tight', 'loose', 'measurement'],
+        'shipping': ['shipping', 'package', 'delivery', 'damaged', 'late', 'box'],
+        'functionality': ['work', 'function', 'feature', 'button', 'mechanism', 'operate'],
+        'value': ['price', 'expensive', 'value', 'worth', 'money', 'cost'],
+        'durability': ['last', 'durable', 'broke', 'wear', 'tear', 'months', 'weeks'],
+        'instructions': ['instructions', 'manual', 'setup', 'install', 'confusing', 'unclear'],
+        'customer_service': ['service', 'support', 'response', 'help', 'contact']
+    }
+    
+    issue_counts = {cat: 0 for cat in categories}
+    
+    negative_reviews = df[df['Rating'] <= 3]['Body'].dropna()
+    
+    for review in negative_reviews:
+        review_lower = str(review).lower()
+        for category, keywords in categories.items():
+            if any(keyword in review_lower for keyword in keywords):
+                issue_counts[category] += 1
+    
+    return issue_counts
+
+def find_competitor_mentions(df: pd.DataFrame) -> Dict[str, int]:
+    """Find mentions of competitors or competitor products"""
+    # Common competitor indicators
+    competitor_patterns = [
+        r'better than\s+\w+',
+        r'worse than\s+\w+',
+        r'compared to\s+\w+',
+        r'unlike\s+\w+',
+        r'switch from\s+\w+',
+        r'instead of\s+\w+',
+        r'[A-Z]\w+\s+brand',
+        r'[A-Z]\w+\s+version'
+    ]
+    
+    mentions = []
+    
+    for _, row in df.iterrows():
+        if pd.isna(row.get('Body')):
+            continue
+            
+        text = str(row['Body'])
+        for pattern in competitor_patterns:
+            matches = re.findall(pattern, text, re.IGNORECASE)
+            mentions.extend(matches)
+    
+    return Counter(mentions).most_common(10)
+
+def calculate_listing_health_score(metrics: Dict[str, Any]) -> Dict[str, Any]:
+    """Calculate overall listing health score"""
+    score_components = {
+        'rating_score': 0,
+        'review_volume_score': 0,
+        'sentiment_score': 0,
+        'trend_score': 0,
+        'quality_score': 0,
+        'issue_score': 0
+    }
+    
+    # Rating score (0-25)
+    avg_rating = metrics['basic_stats']['average_rating']
+    score_components['rating_score'] = (avg_rating / 5) * 25
+    
+    # Review volume score (0-15)
+    total_reviews = metrics['basic_stats']['total_reviews']
+    if total_reviews >= 1000:
+        score_components['review_volume_score'] = 15
+    elif total_reviews >= 500:
+        score_components['review_volume_score'] = 12
+    elif total_reviews >= 100:
+        score_components['review_volume_score'] = 8
+    else:
+        score_components['review_volume_score'] = 5
+    
+    # Sentiment score (0-20)
+    sentiment = metrics['sentiment_breakdown']
+    total_sentiment = sum(sentiment.values())
+    if total_sentiment > 0:
+        positive_ratio = sentiment['positive'] / total_sentiment
+        score_components['sentiment_score'] = positive_ratio * 20
+    
+    # Trend score (0-15)
+    trend = metrics['temporal_trends'].get('trend', 'stable')
+    if trend == 'improving':
+        score_components['trend_score'] = 15
+    elif trend == 'stable':
+        score_components['trend_score'] = 10
+    else:
+        score_components['trend_score'] = 5
+    
+    # Quality score (0-15)
+    review_quality = metrics['review_quality_scores'].get('avg_quality_score', 0)
+    score_components['quality_score'] = min((review_quality / 8) * 15, 15)
+    
+    # Issue score (0-10) - inverse scoring
+    issues = metrics['issue_categories']
+    total_issues = sum(issues.values())
+    issue_ratio = total_issues / max(metrics['basic_stats']['total_reviews'], 1)
+    score_components['issue_score'] = max(10 - (issue_ratio * 50), 0)
+    
+    total_score = sum(score_components.values())
+    
+    return {
+        'total_score': round(total_score, 1),
+        'components': score_components,
+        'grade': 'A' if total_score >= 85 else 'B' if total_score >= 70 else 'C' if total_score >= 55 else 'D' if total_score >= 40 else 'F',
+        'status': 'Excellent' if total_score >= 85 else 'Good' if total_score >= 70 else 'Needs Improvement' if total_score >= 55 else 'Poor' if total_score >= 40 else 'Critical'
+    }
+
+def parse_amazon_date(date_string):
+    """Parse Amazon review date formats"""
     try:
-        # Show processing animation
-        with st.spinner(""):
-            create_loading_animation("INITIALIZING NEURAL SCAN")
-        
-        # Read file
-        if uploaded_file.name.endswith('.csv'):
-            df = pd.read_csv(uploaded_file)
-        elif uploaded_file.name.endswith('.json'):
-            df = pd.read_json(uploaded_file)
+        if pd.isna(date_string) or not date_string:
+            return None
+            
+        if "on " in str(date_string):
+            date_part = str(date_string).split("on ")[-1]
         else:
-            df = pd.read_excel(uploaded_file)
+            date_part = str(date_string)
         
-        # Validate
-        required_cols = ['Title', 'Body', 'Rating']
-        missing = [col for col in required_cols if col not in df.columns]
+        # Try common formats
+        for fmt in ['%B %d, %Y', '%b %d, %Y', '%m/%d/%Y', '%Y-%m-%d']:
+            try:
+                return datetime.strptime(date_part.strip(), fmt).date()
+            except:
+                continue
         
-        if missing:
-            st.error(f"❌ CRITICAL ERROR: Missing data streams: {', '.join(missing)}")
-            return
+        return pd.to_datetime(date_part, errors='coerce').date()
         
-        # Calculate stats
-        stats = calculate_advanced_stats(df)
-        
-        # Store data
-        product_info = {
-            'asin': df['Variation'].iloc[0] if 'Variation' in df.columns else 'UNKNOWN',
-            'total_reviews': len(df),
-            'file_name': uploaded_file.name
-        }
-        
-        st.session_state.uploaded_data = {
-            'df': df,
-            'product_info': product_info,
-            'stats': stats
-        }
-        
-        # Show preview with cyber styling
-        create_data_preview(df, stats)
-        
-        # Analysis button
-        st.markdown("<br>", unsafe_allow_html=True)
-        col1, col2, col3 = st.columns([1, 2, 1])
-        
-        with col2:
-            if st.button("⚡ EXECUTE FULL SPECTRUM ANALYSIS", use_container_width=True, type="primary"):
-                run_advanced_analysis(df, product_info)
-                
-    except Exception as e:
-        st.error(f"❌ SYSTEM ERROR: {str(e)}")
-        logger.error(f"File processing error: {e}")
+    except:
+        return None
 
-def calculate_advanced_stats(df):
-    """Calculate advanced statistics with additional metrics"""
+def calculate_basic_stats(df):
+    """Calculate basic statistics"""
     try:
         ratings = df['Rating'].dropna()
         
-        # Basic stats
-        basic_stats = {
+        # Rating distribution
+        rating_counts = ratings.value_counts().sort_index().to_dict()
+        
+        # Basic metrics
+        stats = {
             'total_reviews': len(df),
             'average_rating': round(ratings.mean(), 2),
-            'rating_distribution': ratings.value_counts().sort_index().to_dict(),
+            'rating_distribution': rating_counts,
             'verified_count': sum(df['Verified'] == 'yes') if 'Verified' in df.columns else 0,
-            '1_2_star_percentage': round((sum(ratings <= 2) / len(ratings)) * 100, 1) if len(ratings) > 0 else 0
+            '1_2_star_percentage': round((sum(ratings <= 2) / len(ratings)) * 100, 1) if len(ratings) > 0 else 0,
+            '4_5_star_percentage': round((sum(ratings >= 4) / len(ratings)) * 100, 1) if len(ratings) > 0 else 0,
+            'median_rating': ratings.median(),
+            'rating_std': round(ratings.std(), 2)
         }
         
-        # Advanced metrics
-        advanced_metrics = {
-            'std_deviation': round(ratings.std(), 2),
-            'rating_trend': calculate_rating_trend(df),
-            'sentiment_distribution': analyze_sentiment_distribution(df),
-            'review_length_avg': df['Body'].str.len().mean() if 'Body' in df.columns else 0,
-            'response_rate': calculate_response_rate(df),
-            'helpful_ratio': calculate_helpful_ratio(df)
-        }
+        # Date range if available
+        if 'Date' in df.columns:
+            df['parsed_date'] = df['Date'].apply(parse_amazon_date)
+            valid_dates = df['parsed_date'].dropna()
+            if len(valid_dates) > 0:
+                stats['date_range'] = {
+                    'earliest': valid_dates.min(),
+                    'latest': valid_dates.max(),
+                    'days_covered': (valid_dates.max() - valid_dates.min()).days
+                }
         
-        # Combine stats
-        return {**basic_stats, **advanced_metrics}
+        return stats
         
     except Exception as e:
         logger.error(f"Stats calculation error: {e}")
         return None
 
-def calculate_rating_trend(df):
-    """Calculate rating trend over time"""
-    try:
-        if 'Date' in df.columns:
-            df['parsed_date'] = pd.to_datetime(df['Date'], errors='coerce')
-            df_sorted = df.sort_values('parsed_date')
-            
-            # Group by month
-            monthly = df_sorted.groupby(pd.Grouper(key='parsed_date', freq='M'))['Rating'].mean()
-            
-            if len(monthly) > 1:
-                # Calculate trend
-                x = np.arange(len(monthly))
-                y = monthly.values
-                z = np.polyfit(x, y, 1)
-                return 'increasing' if z[0] > 0 else 'decreasing'
-        
-        return 'stable'
-    except:
-        return 'unknown'
-
-def analyze_sentiment_distribution(df):
-    """Analyze sentiment distribution"""
-    try:
-        # Simple sentiment based on rating
-        sentiment_map = {
-            5: 'positive',
-            4: 'positive',
-            3: 'neutral',
-            2: 'negative',
-            1: 'negative'
-        }
-        
-        sentiments = df['Rating'].map(sentiment_map).value_counts().to_dict()
-        return sentiments
-    except:
-        return {}
-
-def calculate_response_rate(df):
-    """Calculate seller response rate"""
-    # Placeholder - would need actual response data
-    return random.randint(60, 95)
-
-def calculate_helpful_ratio(df):
-    """Calculate helpful votes ratio"""
-    # Placeholder - would need helpful votes data
-    return random.randint(70, 90)
-
-def create_data_preview(df, stats):
-    """Create cyberpunk data preview"""
-    st.markdown(create_neon_text("DATA SCAN COMPLETE"), unsafe_allow_html=True)
+def create_visualizations(df: pd.DataFrame, metrics: Dict[str, Any]) -> Dict[str, go.Figure]:
+    """Create advanced visualizations for review data"""
+    figures = {}
     
-    # Main metrics
-    col1, col2, col3, col4 = st.columns(4)
+    # 1. Rating Distribution Radar Chart
+    rating_dist = metrics['basic_stats']['rating_distribution']
+    fig_radar = go.Figure()
     
-    with col1:
-        st.markdown(create_cyber_metric(
-            "DATA POINTS",
-            f"{stats['total_reviews']:,}",
-            color=CYBER_COLORS['neon_cyan']
-        ), unsafe_allow_html=True)
+    categories = ['5 Stars', '4 Stars', '3 Stars', '2 Stars', '1 Star']
+    values = [rating_dist.get(5, 0), rating_dist.get(4, 0), rating_dist.get(3, 0), 
+              rating_dist.get(2, 0), rating_dist.get(1, 0)]
     
-    with col2:
-        st.markdown(create_cyber_metric(
-            "NEURAL SCORE",
-            f"{stats['average_rating']}/5",
-            color=CYBER_COLORS['neon_green'] if stats['average_rating'] >= 4 else CYBER_COLORS['warning']
-        ), unsafe_allow_html=True)
+    fig_radar.add_trace(go.Scatterpolar(
+        r=values,
+        theta=categories,
+        fill='toself',
+        name='Rating Distribution',
+        line_color=COLORS['primary'],
+        fillcolor=f"{COLORS['primary']}40"
+    ))
     
-    with col3:
-        trend_icon = "📈" if stats['rating_trend'] == 'increasing' else "📉" if stats['rating_trend'] == 'decreasing' else "➡️"
-        st.markdown(create_cyber_metric(
-            "TREND VECTOR",
-            f"{trend_icon} {stats['rating_trend'].upper()}",
-            color=CYBER_COLORS['neon_purple']
-        ), unsafe_allow_html=True)
+    fig_radar.update_layout(
+        polar=dict(
+            radialaxis=dict(
+                visible=True,
+                gridcolor=COLORS['muted'],
+                linecolor=COLORS['muted']
+            ),
+            angularaxis=dict(
+                gridcolor=COLORS['muted'],
+                linecolor=COLORS['muted']
+            ),
+            bgcolor=COLORS['dark']
+        ),
+        showlegend=False,
+        paper_bgcolor=COLORS['dark'],
+        plot_bgcolor=COLORS['dark'],
+        font=dict(color=COLORS['text'], family='Rajdhani')
+    )
     
-    with col4:
-        threat_level = "HIGH" if stats['1_2_star_percentage'] > 20 else "MEDIUM" if stats['1_2_star_percentage'] > 10 else "LOW"
-        threat_color = CYBER_COLORS['danger'] if threat_level == "HIGH" else CYBER_COLORS['warning'] if threat_level == "MEDIUM" else CYBER_COLORS['success']
-        st.markdown(create_cyber_metric(
-            "THREAT LEVEL",
-            threat_level,
-            delta=f"{stats['1_2_star_percentage']}%",
-            color=threat_color
-        ), unsafe_allow_html=True)
+    figures['rating_radar'] = fig_radar
     
-    # Visualizations
-    create_preview_visualizations(df, stats)
-
-def create_preview_visualizations(df, stats):
-    """Create cyberpunk preview visualizations"""
-    col1, col2 = st.columns(2)
+    # 2. Sentiment Flow Chart
+    sentiment = metrics['sentiment_breakdown']
     
-    with col1:
-        # Rating distribution
-        fig = go.Figure()
-        
-        ratings = list(range(1, 6))
-        counts = [stats['rating_distribution'].get(r, 0) for r in ratings]
-        colors = [
-            CYBER_COLORS['danger'],
-            CYBER_COLORS['warning'],
-            CYBER_COLORS['neon_yellow'],
-            CYBER_COLORS['neon_cyan'],
-            CYBER_COLORS['success']
-        ]
-        
-        fig.add_trace(go.Bar(
-            x=ratings,
-            y=counts,
-            marker_color=colors,
-            text=counts,
-            textposition='outside',
-            name='Reviews'
-        ))
-        
-        fig.update_layout(
-            title="RATING DISTRIBUTION MATRIX",
-            paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0)',
-            font=dict(family="Orbitron", color=CYBER_COLORS['text_primary']),
-            showlegend=False,
-            height=300,
-            xaxis_title="RATING",
-            yaxis_title="FREQUENCY"
+    fig_sentiment = go.Figure(data=[
+        go.Bar(
+            x=['Positive', 'Negative', 'Neutral', 'Mixed'],
+            y=[sentiment['positive'], sentiment['negative'], sentiment['neutral'], sentiment['mixed']],
+            marker_color=[COLORS['success'], COLORS['danger'], COLORS['muted'], COLORS['warning']],
+            text=[sentiment['positive'], sentiment['negative'], sentiment['neutral'], sentiment['mixed']],
+            textposition='auto',
         )
-        
-        fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor=CYBER_COLORS['grid'] + '30')
-        fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor=CYBER_COLORS['grid'] + '30')
-        
-        st.plotly_chart(fig, use_container_width=True)
+    ])
     
-    with col2:
-        # Sentiment pie chart
-        sentiments = stats.get('sentiment_distribution', {})
-        if sentiments:
-            fig = go.Figure()
+    fig_sentiment.update_layout(
+        title='Sentiment Analysis',
+        paper_bgcolor=COLORS['dark'],
+        plot_bgcolor=COLORS['dark'],
+        font=dict(color=COLORS['text'], family='Rajdhani'),
+        xaxis=dict(gridcolor=COLORS['muted']),
+        yaxis=dict(gridcolor=COLORS['muted'])
+    )
+    
+    figures['sentiment'] = fig_sentiment
+    
+    # 3. Issue Categories Heatmap
+    issues = metrics['issue_categories']
+    
+    fig_issues = go.Figure(data=go.Heatmap(
+        z=[[issues[cat] for cat in issues.keys()]],
+        x=list(issues.keys()),
+        y=['Issues'],
+        colorscale=[[0, COLORS['dark']], [0.5, COLORS['warning']], [1, COLORS['danger']]],
+        text=[[issues[cat] for cat in issues.keys()]],
+        texttemplate="%{text}",
+        textfont={"size": 16, "color": COLORS['text']},
+        showscale=False
+    ))
+    
+    fig_issues.update_layout(
+        title='Issue Category Distribution',
+        paper_bgcolor=COLORS['dark'],
+        plot_bgcolor=COLORS['dark'],
+        font=dict(color=COLORS['text'], family='Rajdhani'),
+        xaxis=dict(tickangle=-45),
+        height=200
+    )
+    
+    figures['issues'] = fig_issues
+    
+    # 4. Temporal Trend (if available)
+    if 'monthly_averages' in metrics['temporal_trends']:
+        monthly_data = metrics['temporal_trends']['monthly_averages']
+        if monthly_data:
+            months = list(monthly_data['mean'].keys())
+            ratings = list(monthly_data['mean'].values())
+            counts = list(monthly_data['count'].values())
             
-            labels = list(sentiments.keys())
-            values = list(sentiments.values())
-            colors_map = {
-                'positive': CYBER_COLORS['success'],
-                'neutral': CYBER_COLORS['neon_yellow'],
-                'negative': CYBER_COLORS['danger']
-            }
-            colors = [colors_map.get(label, CYBER_COLORS['neon_cyan']) for label in labels]
-            
-            fig.add_trace(go.Pie(
-                labels=labels,
-                values=values,
-                hole=0.7,
-                marker_colors=colors,
-                textinfo='label+percent',
-                textposition='outside'
-            ))
-            
-            fig.update_layout(
-                title="SENTIMENT ANALYSIS",
-                paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(0,0,0,0)',
-                font=dict(family="Orbitron", color=CYBER_COLORS['text_primary']),
-                showlegend=False,
-                height=300,
-                annotations=[
-                    dict(
-                        text='SENTIMENT',
-                        x=0.5, y=0.5,
-                        font_size=16,
-                        showarrow=False,
-                        font_family="Orbitron"
-                    )
-                ]
+            fig_trend = make_subplots(
+                rows=2, cols=1,
+                shared_xaxes=True,
+                vertical_spacing=0.1,
+                subplot_titles=('Average Rating Trend', 'Review Volume')
             )
             
-            st.plotly_chart(fig, use_container_width=True)
+            # Rating trend
+            fig_trend.add_trace(
+                go.Scatter(
+                    x=[str(m) for m in months],
+                    y=ratings,
+                    mode='lines+markers',
+                    name='Avg Rating',
+                    line=dict(color=COLORS['primary'], width=3),
+                    marker=dict(size=8, color=COLORS['primary'])
+                ),
+                row=1, col=1
+            )
+            
+            # Volume bars
+            fig_trend.add_trace(
+                go.Bar(
+                    x=[str(m) for m in months],
+                    y=counts,
+                    name='Review Count',
+                    marker_color=COLORS['accent']
+                ),
+                row=2, col=1
+            )
+            
+            fig_trend.update_layout(
+                paper_bgcolor=COLORS['dark'],
+                plot_bgcolor=COLORS['dark'],
+                font=dict(color=COLORS['text'], family='Rajdhani'),
+                showlegend=False,
+                height=400
+            )
+            
+            fig_trend.update_xaxes(gridcolor=COLORS['muted'])
+            fig_trend.update_yaxes(gridcolor=COLORS['muted'])
+            
+            figures['trend'] = fig_trend
+    
+    return figures
 
-def run_advanced_analysis(df, product_info):
-    """Run advanced AI analysis with cyberpunk interface"""
+def run_comprehensive_ai_analysis(df: pd.DataFrame, metrics: Dict[str, Any], product_info: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Run comprehensive AI analysis on reviews"""
     if not check_ai_status():
-        st.error(f"❌ NEURAL CORE OFFLINE. Contact {APP_CONFIG['support_email']}")
-        return
+        return None
     
     try:
-        # Multi-stage processing animation
-        progress_placeholder = st.empty()
-        status_placeholder = st.empty()
+        # Prepare review samples
+        reviews = prepare_reviews_for_ai(df)
         
-        stages = [
-            ("INITIALIZING NEURAL NETWORK", 10),
-            ("LOADING QUANTUM MATRICES", 20),
-            ("SCANNING REVIEW DATA", 40),
-            ("PATTERN RECOGNITION", 60),
-            ("SENTIMENT ANALYSIS", 80),
-            ("GENERATING INSIGHTS", 90),
-            ("FINALIZING REPORT", 100)
-        ]
-        
-        for stage, progress in stages:
-            progress_placeholder.progress(progress / 100)
-            status_placeholder.markdown(f"""
-            <div style="text-align: center; font-family: 'Orbitron', monospace; 
-                        color: {CYBER_COLORS['neon_cyan']}; font-size: 1.2em;">
-                {stage}... {progress}%
-            </div>
-            """, unsafe_allow_html=True)
-            time.sleep(0.5)
-        
-        # Run actual analysis
-        reviews = prepare_reviews_for_advanced_ai(df)
-        
-        # Generate comprehensive prompt based on mode
-        if st.session_state.analysis_mode == 'neural':
-            analysis_focus = """
-            NEURAL ANALYSIS PROTOCOL:
-            1. DEEP PATTERN RECOGNITION in customer behavior
-            2. PREDICTIVE INSIGHTS for future performance
-            3. HIDDEN CORRELATIONS between features and satisfaction
-            4. NEURAL NETWORK confidence scores
-            5. ANOMALY DETECTION in review patterns
-            6. COMPETITOR INTELLIGENCE from mentions
-            7. OPTIMIZATION VECTORS for improvement
-            """
-        elif st.session_state.analysis_mode == 'quantum':
-            analysis_focus = """
-            QUANTUM ANALYSIS PROTOCOL:
-            1. REGULATORY COMPLIANCE probability matrices
-            2. RISK ASSESSMENT quantum states
-            3. SAFETY ISSUE superposition analysis
-            4. QUALITY DEFECT entanglement patterns
-            5. FDA/MDR COMPLIANCE scoring
-            6. POST-MARKET SURVEILLANCE insights
-            7. CORRECTIVE ACTION quantum recommendations
-            """
-        else:  # hybrid
-            analysis_focus = """
-            HYBRID ANALYSIS PROTOCOL:
-            1. COMBINED NEURAL-QUANTUM insights
-            2. MULTI-DIMENSIONAL pattern analysis
-            3. CROSS-VALIDATED predictions
-            4. UNIFIED RISK-OPPORTUNITY matrix
-            5. SYNERGISTIC optimization strategies
-            6. QUANTUM-ENHANCED sentiment analysis
-            7. NEURAL-VERIFIED compliance scoring
-            """
-        
+        # Create comprehensive analysis prompt
         prompt = f"""
-        CYBERMED NEURAL ANALYZER - {st.session_state.analysis_mode.upper()} MODE
+        Analyze these Amazon reviews for ADVANCED LISTING OPTIMIZATION INSIGHTS.
         
-        Analyzing {len(reviews)} data points for ASIN: {product_info.get('asin', 'UNKNOWN')}
+        Product: {product_info.get('asin', 'Unknown')}
+        Total Reviews: {len(reviews)}
+        Average Rating: {metrics['basic_stats']['average_rating']}/5
         
-        {analysis_focus}
+        METRICS SUMMARY:
+        - Positive Sentiment: {metrics['sentiment_breakdown']['positive']}
+        - Negative Sentiment: {metrics['sentiment_breakdown']['negative']}
+        - Top Positive Keywords: {', '.join([k[0] for k in metrics['keyword_analysis']['positive_keywords'][:5]])}
+        - Top Negative Keywords: {', '.join([k[0] for k in metrics['keyword_analysis']['negative_keywords'][:5]])}
+        - Main Issues: {', '.join([k for k, v in metrics['issue_categories'].items() if v > 5])}
+        - Trend: {metrics['temporal_trends'].get('trend', 'unknown')}
         
-        REVIEW DATA:
-        {json.dumps(reviews[:50], indent=2)}  # Sample for token limits
+        PROVIDE THE FOLLOWING ANALYSIS:
         
-        Generate a comprehensive CYBERPUNK-STYLE analysis with:
-        - THREAT LEVELS (Critical/High/Medium/Low)
-        - OPPORTUNITY MATRICES
-        - PREDICTIVE FORECASTS
-        - ACTIONABLE NEURAL INSIGHTS
-        - QUANTUM PROBABILITIES
+        1. **LISTING OPTIMIZATION PRIORITIES** (Top 5)
+           - Specific changes to title, bullets, description
+           - Keywords to add/emphasize
+           - Features to highlight
         
-        Format with clear sections and use technical terminology.
-        Include confidence scores and probability percentages.
+        2. **COMPETITIVE POSITIONING**
+           - How to differentiate from competitors mentioned
+           - Unique value propositions to emphasize
+           - Price positioning insights
+        
+        3. **IMAGE/VIDEO RECOMMENDATIONS**
+           - What visual content customers want to see
+           - Common misconceptions to address visually
+           - A+ content priorities
+        
+        4. **CUSTOMER OBJECTION HANDLING**
+           - Main purchase barriers
+           - How to address in listing copy
+           - FAQ recommendations
+        
+        5. **QUALITY IMPROVEMENT PRIORITIES** (For Quality Team)
+           - Top 3 product improvements needed
+           - Packaging/instruction improvements
+           - Quality control focus areas
+        
+        6. **QUICK WINS** (Can implement immediately)
+           - Simple listing tweaks
+           - Response templates for reviews
+           - Keyword additions
+        
+        Be extremely specific and actionable. Include exact copy suggestions where relevant.
+        Focus on changes that will directly impact conversion rate and reduce returns.
         """
+        
+        # Add review samples
+        review_samples = reviews[:50]  # Limit to prevent token overflow
+        reviews_text = "\n".join([
+            f"[{r['rating']}/5]: {r['title']} - {r['body'][:200]}"
+            for r in review_samples
+        ])
+        
+        prompt += f"\n\nREVIEW SAMPLES:\n{reviews_text}"
         
         # Call AI
         result = st.session_state.ai_analyzer.api_client.call_api([
-            {"role": "system", "content": "You are CYBERMED, an advanced neural-quantum AI analyzer. Provide highly technical, cyberpunk-styled analysis with specific metrics and predictions."},
+            {"role": "system", "content": """You are an expert Amazon listing optimization specialist. 
+            Provide ultra-specific, actionable recommendations that will immediately improve conversion rates and reduce negative reviews.
+            Format your response with clear sections and bullet points."""},
             {"role": "user", "content": prompt}
-        ], max_tokens=3000, temperature=0.7)
+        ], max_tokens=3000, temperature=0.3)
         
         if result['success']:
-            # Calculate advanced metrics
-            advanced_metrics = calculate_neural_metrics(df, reviews)
-            
-            # Store results
-            analysis_results = {
+            return {
                 'success': True,
                 'analysis': result['result'],
-                'reviews_analyzed': len(reviews),
                 'timestamp': datetime.now(),
-                'mode': st.session_state.analysis_mode,
-                'neural_confidence': random.uniform(0.85, 0.98),
-                'quantum_coherence': random.uniform(0.80, 0.95),
-                'advanced_metrics': advanced_metrics,
-                'raw_data': {
-                    'df': df,
-                    'reviews': reviews,
-                    'product_info': product_info
-                }
+                'reviews_analyzed': len(reviews)
             }
-            
-            st.session_state.analysis_results = analysis_results
-            
-            # Add to history
-            st.session_state.analysis_history.append({
-                'asin': product_info['asin'],
-                'timestamp': datetime.now(),
-                'mode': st.session_state.analysis_mode,
-                'score': advanced_metrics['overall_score'],
-                'results': analysis_results
-            })
-            
-            # Clear progress
-            progress_placeholder.empty()
-            status_placeholder.empty()
-            
-            # Success message
-            st.success("✅ NEURAL ANALYSIS COMPLETE")
-            time.sleep(1)
-            
-            st.session_state.current_view = 'results'
-            st.rerun()
-        else:
-            st.error("❌ NEURAL CORE ERROR: Analysis failed")
-            
+        
+        return None
+        
     except Exception as e:
-        logger.error(f"Advanced analysis error: {e}")
-        st.error(f"❌ SYSTEM CRITICAL ERROR: {str(e)}")
+        logger.error(f"AI analysis error: {e}")
+        return None
 
-def prepare_reviews_for_advanced_ai(df):
-    """Prepare reviews with additional metadata"""
+def prepare_reviews_for_ai(df: pd.DataFrame) -> List[Dict[str, Any]]:
+    """Prepare reviews for AI analysis"""
     reviews = []
     
     for idx, row in df.iterrows():
@@ -1307,1065 +897,14 @@ def prepare_reviews_for_advanced_ai(df):
                 'title': str(row.get('Title', '')),
                 'body': str(row.get('Body', '')),
                 'verified': row.get('Verified', '') == 'yes',
-                'date': str(row.get('Date', '')),
-                'length': len(str(row.get('Body', ''))),
-                'exclamation_count': str(row.get('Body', '')).count('!'),
-                'question_count': str(row.get('Body', '')).count('?'),
-                'caps_ratio': sum(1 for c in str(row.get('Body', '')) if c.isupper()) / max(len(str(row.get('Body', ''))), 1)
+                'date': str(row.get('Date', ''))
             }
             reviews.append(review)
     
+    # Sort by most recent and mix of ratings
+    reviews.sort(key=lambda x: (x['date'], x['rating']), reverse=True)
+    
     return reviews
-
-def calculate_neural_metrics(df, reviews):
-    """Calculate advanced neural metrics"""
-    ratings = df['Rating'].dropna()
-    
-    # Calculate various scores
-    quality_score = (ratings.mean() / 5) * 100
-    volume_score = min(100, (len(reviews) / 1000) * 100)
-    consistency_score = max(0, 100 - (ratings.std() * 20))
-    trend_score = 70 + random.randint(-20, 20)  # Placeholder
-    
-    # Overall neural score
-    overall_score = round(
-        quality_score * 0.4 +
-        volume_score * 0.2 +
-        consistency_score * 0.2 +
-        trend_score * 0.2
-    )
-    
-    return {
-        'overall_score': overall_score,
-        'quality_score': round(quality_score, 1),
-        'volume_score': round(volume_score, 1),
-        'consistency_score': round(consistency_score, 1),
-        'trend_score': round(trend_score, 1),
-        'risk_level': 'LOW' if overall_score >= 80 else 'MEDIUM' if overall_score >= 60 else 'HIGH',
-        'opportunity_index': round(100 - overall_score, 1),
-        'market_position': 'DOMINANT' if overall_score >= 85 else 'STRONG' if overall_score >= 70 else 'COMPETITIVE' if overall_score >= 50 else 'VULNERABLE'
-    }
-
-def display_advanced_results():
-    """Display results with advanced cyberpunk interface"""
-    if not st.session_state.analysis_results:
-        st.error("NO DATA IN NEURAL BUFFER")
-        return
-    
-    results = st.session_state.analysis_results
-    metrics = results['advanced_metrics']
-    
-    # Header with glitch effect
-    st.markdown(create_glitch_text("ANALYSIS COMPLETE", "3em"), unsafe_allow_html=True)
-    
-    # Neural confidence indicator
-    col1, col2, col3 = st.columns([1, 2, 1])
-    
-    with col2:
-        confidence = results['neural_confidence']
-        coherence = results['quantum_coherence']
-        
-        st.markdown(f"""
-        <div class="cyber-container" style="text-align: center; padding: 20px;">
-            <div style="display: flex; justify-content: space-around; align-items: center;">
-                <div>
-                    <div style="font-size: 0.9em; color: {CYBER_COLORS['text_secondary']};">NEURAL CONFIDENCE</div>
-                    <div style="font-size: 2em; color: {CYBER_COLORS['neon_cyan']}; font-family: 'Orbitron', monospace;">
-                        {confidence:.1%}
-                    </div>
-                </div>
-                <div style="font-size: 3em; color: {CYBER_COLORS['neon_purple']};">⚡</div>
-                <div>
-                    <div style="font-size: 0.9em; color: {CYBER_COLORS['text_secondary']};">QUANTUM COHERENCE</div>
-                    <div style="font-size: 2em; color: {CYBER_COLORS['neon_pink']}; font-family: 'Orbitron', monospace;">
-                        {coherence:.1%}
-                    </div>
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # Main metrics dashboard
-    st.markdown(create_neon_text("PERFORMANCE MATRIX"), unsafe_allow_html=True)
-    
-    col1, col2, col3, col4, col5 = st.columns(5)
-    
-    score_color = CYBER_COLORS['success'] if metrics['overall_score'] >= 80 else CYBER_COLORS['warning'] if metrics['overall_score'] >= 60 else CYBER_COLORS['danger']
-    
-    with col1:
-        st.markdown(create_cyber_metric(
-            "NEURAL SCORE",
-            f"{metrics['overall_score']}/100",
-            color=score_color
-        ), unsafe_allow_html=True)
-    
-    with col2:
-        st.markdown(create_cyber_metric(
-            "QUALITY INDEX",
-            f"{metrics['quality_score']:.1f}%",
-            color=CYBER_COLORS['neon_green']
-        ), unsafe_allow_html=True)
-    
-    with col3:
-        risk_color = CYBER_COLORS['success'] if metrics['risk_level'] == 'LOW' else CYBER_COLORS['warning'] if metrics['risk_level'] == 'MEDIUM' else CYBER_COLORS['danger']
-        st.markdown(create_cyber_metric(
-            "RISK LEVEL",
-            metrics['risk_level'],
-            color=risk_color
-        ), unsafe_allow_html=True)
-    
-    with col4:
-        st.markdown(create_cyber_metric(
-            "OPPORTUNITY",
-            f"{metrics['opportunity_index']:.1f}%",
-            color=CYBER_COLORS['neon_yellow']
-        ), unsafe_allow_html=True)
-    
-    with col5:
-        position_color = CYBER_COLORS['success'] if metrics['market_position'] in ['DOMINANT', 'STRONG'] else CYBER_COLORS['warning']
-        st.markdown(create_cyber_metric(
-            "MARKET POS",
-            metrics['market_position'],
-            color=position_color
-        ), unsafe_allow_html=True)
-    
-    # Advanced visualizations
-    create_advanced_visualizations(results)
-    
-    # AI Analysis Display
-    st.markdown(create_neon_text("NEURAL ANALYSIS OUTPUT"), unsafe_allow_html=True)
-    
-    # Parse and display AI analysis with cyber styling
-    analysis_text = results['analysis']
-    
-    # Create tabbed interface for different analysis sections
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "🧠 NEURAL INSIGHTS",
-        "⚡ THREAT ANALYSIS", 
-        "🎯 OPPORTUNITIES",
-        "📊 PREDICTIONS"
-    ])
-    
-    with tab1:
-        display_neural_insights(analysis_text)
-    
-    with tab2:
-        display_threat_analysis(analysis_text)
-    
-    with tab3:
-        display_opportunities(analysis_text)
-    
-    with tab4:
-        display_predictions(results)
-    
-    # Export options
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown(create_neon_text("DATA EXPORT PROTOCOLS"), unsafe_allow_html=True)
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        if st.button("📄 NEURAL REPORT", use_container_width=True):
-            generate_neural_report(results)
-    
-    with col2:
-        if st.button("📊 QUANTUM DATA", use_container_width=True):
-            generate_quantum_export(results)
-    
-    with col3:
-        if st.button("🎨 HOLO-VIZ", use_container_width=True):
-            generate_holographic_visualization(results)
-    
-    with col4:
-        if st.button("🔗 BLOCKCHAIN", use_container_width=True):
-            st.info("🔒 Blockchain export coming in v.X.1")
-
-def create_advanced_visualizations(results):
-    """Create advanced cyberpunk visualizations"""
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Neural network visualization
-        create_neural_network_viz(results)
-    
-    with col2:
-        # Quantum probability matrix
-        create_quantum_matrix_viz(results)
-    
-    # Time series analysis
-    create_time_series_analysis(results)
-    
-    # 3D sentiment topology
-    create_3d_sentiment_topology(results)
-
-def create_neural_network_viz(results):
-    """Create neural network visualization"""
-    fig = go.Figure()
-    
-    # Create nodes
-    metrics = results['advanced_metrics']
-    
-    # Central node
-    fig.add_trace(go.Scatter(
-        x=[0], y=[0],
-        mode='markers+text',
-        marker=dict(size=50, color=CYBER_COLORS['neon_purple']),
-        text=[f"SCORE<br>{metrics['overall_score']}"],
-        textposition="middle center",
-        textfont=dict(color=CYBER_COLORS['text_primary'], family="Orbitron"),
-        showlegend=False
-    ))
-    
-    # Surrounding nodes
-    angles = np.linspace(0, 2*np.pi, 5, endpoint=False)
-    radius = 1.5
-    
-    node_data = [
-        ("QUALITY", metrics['quality_score'], CYBER_COLORS['neon_green']),
-        ("VOLUME", metrics['volume_score'], CYBER_COLORS['neon_cyan']),
-        ("CONSISTENCY", metrics['consistency_score'], CYBER_COLORS['neon_yellow']),
-        ("TREND", metrics['trend_score'], CYBER_COLORS['neon_pink']),
-        ("OPPORTUNITY", metrics['opportunity_index'], CYBER_COLORS['neon_orange'])
-    ]
-    
-    for i, (label, value, color) in enumerate(node_data):
-        x = radius * np.cos(angles[i])
-        y = radius * np.sin(angles[i])
-        
-        # Connection line
-        fig.add_trace(go.Scatter(
-            x=[0, x], y=[0, y],
-            mode='lines',
-            line=dict(color=color, width=2),
-            showlegend=False
-        ))
-        
-        # Node
-        fig.add_trace(go.Scatter(
-            x=[x], y=[y],
-            mode='markers+text',
-            marker=dict(size=30, color=color),
-            text=[f"{label}<br>{value:.0f}"],
-            textposition="middle center",
-            textfont=dict(color=CYBER_COLORS['text_primary'], size=10),
-            showlegend=False
-        ))
-    
-    fig.update_layout(
-        title="NEURAL NETWORK TOPOLOGY",
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        font=dict(family="Orbitron", color=CYBER_COLORS['text_primary']),
-        xaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
-        yaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
-        height=400
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
-
-def create_quantum_matrix_viz(results):
-    """Create quantum probability matrix visualization"""
-    # Generate random quantum states for visualization
-    matrix_size = 10
-    quantum_states = np.random.rand(matrix_size, matrix_size)
-    
-    # Add patterns based on metrics
-    metrics = results['advanced_metrics']
-    center = matrix_size // 2
-    radius = matrix_size // 3
-    
-    for i in range(matrix_size):
-        for j in range(matrix_size):
-            dist = np.sqrt((i - center)**2 + (j - center)**2)
-            if dist < radius:
-                quantum_states[i, j] *= metrics['overall_score'] / 100
-    
-    fig = go.Figure(data=go.Heatmap(
-        z=quantum_states,
-        colorscale=[
-            [0, CYBER_COLORS['bg_dark']],
-            [0.25, CYBER_COLORS['neon_purple']],
-            [0.5, CYBER_COLORS['neon_pink']],
-            [0.75, CYBER_COLORS['neon_cyan']],
-            [1, CYBER_COLORS['neon_green']]
-        ],
-        showscale=False
-    ))
-    
-    fig.update_layout(
-        title="QUANTUM PROBABILITY MATRIX",
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        font=dict(family="Orbitron", color=CYBER_COLORS['text_primary']),
-        xaxis=dict(showgrid=False, showticklabels=False),
-        yaxis=dict(showgrid=False, showticklabels=False),
-        height=400
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
-
-def create_time_series_analysis(results):
-    """Create time series analysis visualization"""
-    # Generate synthetic time series data
-    days = 90
-    dates = pd.date_range(end=datetime.now(), periods=days)
-    
-    # Base trend
-    trend = np.linspace(3.5, 4.2, days)
-    
-    # Add noise and patterns
-    noise = np.random.normal(0, 0.2, days)
-    seasonal = 0.3 * np.sin(2 * np.pi * np.arange(days) / 30)
-    
-    ratings = trend + noise + seasonal
-    ratings = np.clip(ratings, 1, 5)
-    
-    # Create figure
-    fig = go.Figure()
-    
-    # Add main line
-    fig.add_trace(go.Scatter(
-        x=dates,
-        y=ratings,
-        mode='lines',
-        name='Rating Trend',
-        line=dict(color=CYBER_COLORS['neon_cyan'], width=2)
-    ))
-    
-    # Add moving average
-    ma = pd.Series(ratings).rolling(window=7).mean()
-    fig.add_trace(go.Scatter(
-        x=dates,
-        y=ma,
-        mode='lines',
-        name='Neural Average',
-        line=dict(color=CYBER_COLORS['neon_pink'], width=3, dash='dash')
-    ))
-    
-    # Add prediction cone
-    last_date = dates[-1]
-    future_dates = pd.date_range(start=last_date + timedelta(days=1), periods=30)
-    
-    # Prediction
-    last_value = ratings[-1]
-    prediction = np.linspace(last_value, last_value + 0.3, 30)
-    upper_bound = prediction + np.linspace(0, 0.5, 30)
-    lower_bound = prediction - np.linspace(0, 0.5, 30)
-    
-    fig.add_trace(go.Scatter(
-        x=future_dates,
-        y=upper_bound,
-        mode='lines',
-        line=dict(width=0),
-        showlegend=False
-    ))
-    
-    fig.add_trace(go.Scatter(
-        x=future_dates,
-        y=lower_bound,
-        mode='lines',
-        line=dict(width=0),
-        fill='tonexty',
-        fillcolor=CYBER_COLORS['neon_purple'] + '30',
-        name='Prediction Zone'
-    ))
-    
-    fig.add_trace(go.Scatter(
-        x=future_dates,
-        y=prediction,
-        mode='lines',
-        name='Quantum Prediction',
-        line=dict(color=CYBER_COLORS['neon_yellow'], width=3, dash='dot')
-    ))
-    
-    fig.update_layout(
-        title="TEMPORAL ANALYSIS & QUANTUM FORECASTING",
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        font=dict(family="Orbitron", color=CYBER_COLORS['text_primary']),
-        xaxis=dict(
-            showgrid=True,
-            gridwidth=1,
-            gridcolor=CYBER_COLORS['grid'] + '30',
-            title="TIME VECTOR"
-        ),
-        yaxis=dict(
-            showgrid=True,
-            gridwidth=1,
-            gridcolor=CYBER_COLORS['grid'] + '30',
-            title="NEURAL SCORE",
-            range=[1, 5]
-        ),
-        height=400,
-        hovermode='x unified'
-    )
-    
-    # Add annotations
-    fig.add_annotation(
-        x=last_date,
-        y=last_value,
-        text="PRESENT",
-        showarrow=True,
-        arrowhead=2,
-        arrowcolor=CYBER_COLORS['neon_cyan'],
-        ax=-50,
-        ay=-50
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
-
-def create_3d_sentiment_topology(results):
-    """Create 3D sentiment topology visualization"""
-    # Generate 3D surface data
-    x = np.linspace(-5, 5, 50)
-    y = np.linspace(-5, 5, 50)
-    X, Y = np.meshgrid(x, y)
-    
-    # Create topology based on sentiment
-    Z = np.sin(np.sqrt(X**2 + Y**2)) * np.exp(-0.1 * (X**2 + Y**2))
-    
-    # Add random peaks for interest
-    for _ in range(5):
-        cx, cy = np.random.uniform(-3, 3, 2)
-        peak = 2 * np.exp(-0.5 * ((X - cx)**2 + (Y - cy)**2))
-        Z += peak
-    
-    fig = go.Figure(data=[go.Surface(
-        z=Z,
-        x=X,
-        y=Y,
-        colorscale=[
-            [0, CYBER_COLORS['danger']],
-            [0.25, CYBER_COLORS['warning']],
-            [0.5, CYBER_COLORS['neon_yellow']],
-            [0.75, CYBER_COLORS['neon_cyan']],
-            [1, CYBER_COLORS['success']]
-        ],
-        showscale=False,
-        contours=dict(
-            z=dict(
-                show=True,
-                usecolormap=True,
-                highlightcolor=CYBER_COLORS['neon_pink'],
-                project=dict(z=True)
-            )
-        )
-    )])
-    
-    fig.update_layout(
-        title="3D SENTIMENT TOPOLOGY MAP",
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        font=dict(family="Orbitron", color=CYBER_COLORS['text_primary']),
-        scene=dict(
-            xaxis=dict(
-                showgrid=True,
-                gridcolor=CYBER_COLORS['grid'] + '30',
-                showbackground=False,
-                title="POSITIVE AXIS"
-            ),
-            yaxis=dict(
-                showgrid=True,
-                gridcolor=CYBER_COLORS['grid'] + '30',
-                showbackground=False,
-                title="NEGATIVE AXIS"
-            ),
-            zaxis=dict(
-                showgrid=True,
-                gridcolor=CYBER_COLORS['grid'] + '30',
-                showbackground=False,
-                title="INTENSITY"
-            ),
-            camera=dict(
-                eye=dict(x=1.5, y=1.5, z=1.5)
-            )
-        ),
-        height=500
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
-
-def display_neural_insights(analysis_text):
-    """Display neural insights section"""
-    st.markdown(f"""
-    <div class="cyber-container">
-        <h3 style="color: {CYBER_COLORS['neon_cyan']}; font-family: 'Orbitron', monospace;">
-            DEEP NEURAL INSIGHTS
-        </h3>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Extract or generate insights
-    insights = extract_section(analysis_text, "INSIGHTS") or generate_neural_insights()
-    
-    # Display insights with cyber styling
-    for i, insight in enumerate(insights):
-        color = [CYBER_COLORS['neon_cyan'], CYBER_COLORS['neon_pink'], CYBER_COLORS['neon_yellow']][i % 3]
-        st.markdown(f"""
-        <div class="cyber-container" style="border-left: 4px solid {color}; margin: 10px 0;">
-            <div style="color: {color}; font-weight: bold;">INSIGHT {i+1}</div>
-            <div style="margin-top: 5px;">{insight}</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-def display_threat_analysis(analysis_text):
-    """Display threat analysis section"""
-    st.markdown(f"""
-    <div class="cyber-container">
-        <h3 style="color: {CYBER_COLORS['danger']}; font-family: 'Orbitron', monospace;">
-            THREAT DETECTION MATRIX
-        </h3>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Create threat levels
-    threats = [
-        {
-            "level": "CRITICAL",
-            "description": "Major quality issues detected in 15% of reviews",
-            "probability": 0.92,
-            "impact": "HIGH",
-            "color": CYBER_COLORS['danger']
-        },
-        {
-            "level": "HIGH",
-            "description": "Competitor mentions increasing by 40%",
-            "probability": 0.78,
-            "impact": "MEDIUM",
-            "color": CYBER_COLORS['warning']
-        },
-        {
-            "level": "MEDIUM",
-            "description": "Shipping delays mentioned in recent reviews",
-            "probability": 0.45,
-            "impact": "LOW",
-            "color": CYBER_COLORS['neon_yellow']
-        }
-    ]
-    
-    for threat in threats:
-        st.markdown(f"""
-        <div class="cyber-container" style="background: {threat['color']}20; border: 1px solid {threat['color']};">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                    <div style="color: {threat['color']}; font-size: 1.2em; font-weight: bold;">
-                        ⚠️ {threat['level']} THREAT
-                    </div>
-                    <div style="margin-top: 5px;">{threat['description']}</div>
-                </div>
-                <div style="text-align: right;">
-                    <div style="color: {CYBER_COLORS['text_secondary']};">PROBABILITY</div>
-                    <div style="color: {threat['color']}; font-size: 1.5em; font-family: 'Orbitron', monospace;">
-                        {threat['probability']:.0%}
-                    </div>
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-def display_opportunities(analysis_text):
-    """Display opportunities section"""
-    st.markdown(f"""
-    <div class="cyber-container">
-        <h3 style="color: {CYBER_COLORS['success']}; font-family: 'Orbitron', monospace;">
-            OPPORTUNITY VECTORS
-        </h3>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Create opportunity matrix
-    opportunities = [
-        {
-            "title": "LISTING OPTIMIZATION",
-            "potential": 85,
-            "effort": 30,
-            "roi": 280,
-            "description": "Update title and bullets based on customer language patterns"
-        },
-        {
-            "title": "QUALITY ENHANCEMENT",
-            "potential": 70,
-            "effort": 60,
-            "roi": 150,
-            "description": "Address top 3 quality issues to reduce returns by 40%"
-        },
-        {
-            "title": "MARKET EXPANSION",
-            "potential": 95,
-            "effort": 80,
-            "roi": 320,
-            "description": "Launch variation targeting underserved segment"
-        }
-    ]
-    
-    # Create opportunity visualization
-    fig = go.Figure()
-    
-    for i, opp in enumerate(opportunities):
-        fig.add_trace(go.Scatter(
-            x=[opp['effort']],
-            y=[opp['potential']],
-            mode='markers+text',
-            marker=dict(
-                size=opp['roi'] / 5,
-                color=[CYBER_COLORS['neon_green'], CYBER_COLORS['neon_cyan'], CYBER_COLORS['neon_purple']][i],
-                line=dict(color=CYBER_COLORS['text_primary'], width=2)
-            ),
-            text=[opp['title']],
-            textposition="top center",
-            name=opp['title'],
-            hovertemplate=f"<b>{opp['title']}</b><br>Potential: {opp['potential']}%<br>Effort: {opp['effort']}%<br>ROI: {opp['roi']}%<br>{opp['description']}<extra></extra>"
-        ))
-    
-    fig.update_layout(
-        title="OPPORTUNITY MATRIX",
-        xaxis_title="EFFORT REQUIRED →",
-        yaxis_title="POTENTIAL IMPACT →",
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        font=dict(family="Orbitron", color=CYBER_COLORS['text_primary']),
-        xaxis=dict(range=[0, 100], showgrid=True, gridcolor=CYBER_COLORS['grid'] + '30'),
-        yaxis=dict(range=[0, 100], showgrid=True, gridcolor=CYBER_COLORS['grid'] + '30'),
-        height=400,
-        showlegend=False
-    )
-    
-    # Add quadrant lines
-    fig.add_hline(y=50, line_dash="dash", line_color=CYBER_COLORS['grid'])
-    fig.add_vline(x=50, line_dash="dash", line_color=CYBER_COLORS['grid'])
-    
-    # Add quadrant labels
-    fig.add_annotation(x=25, y=75, text="QUICK WINS", showarrow=False, font=dict(color=CYBER_COLORS['success']))
-    fig.add_annotation(x=75, y=75, text="MAJOR PROJECTS", showarrow=False, font=dict(color=CYBER_COLORS['warning']))
-    fig.add_annotation(x=25, y=25, text="LOW PRIORITY", showarrow=False, font=dict(color=CYBER_COLORS['text_secondary']))
-    fig.add_annotation(x=75, y=25, text="QUESTIONABLE", showarrow=False, font=dict(color=CYBER_COLORS['danger']))
-    
-    st.plotly_chart(fig, use_container_width=True)
-    
-    # Opportunity details
-    for opp in opportunities:
-        roi_color = CYBER_COLORS['success'] if opp['roi'] > 200 else CYBER_COLORS['warning'] if opp['roi'] > 100 else CYBER_COLORS['danger']
-        st.markdown(f"""
-        <div class="cyber-container" style="margin: 10px 0;">
-            <div style="display: flex; justify-content: space-between;">
-                <div>
-                    <div style="color: {CYBER_COLORS['neon_cyan']}; font-weight: bold;">
-                        {opp['title']}
-                    </div>
-                    <div style="color: {CYBER_COLORS['text_secondary']}; margin-top: 5px;">
-                        {opp['description']}
-                    </div>
-                </div>
-                <div style="text-align: center; margin-left: 20px;">
-                    <div style="color: {roi_color}; font-size: 2em; font-family: 'Orbitron', monospace;">
-                        {opp['roi']}%
-                    </div>
-                    <div style="color: {CYBER_COLORS['text_secondary']}; font-size: 0.8em;">
-                        ROI
-                    </div>
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-def display_predictions(results):
-    """Display predictions section"""
-    st.markdown(f"""
-    <div class="cyber-container">
-        <h3 style="color: {CYBER_COLORS['neon_purple']}; font-family: 'Orbitron', monospace;">
-            QUANTUM PREDICTIONS
-        </h3>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Generate predictions
-    current_score = results['advanced_metrics']['overall_score']
-    
-    predictions = [
-        {
-            "timeframe": "30 DAYS",
-            "metric": "Neural Score",
-            "current": current_score,
-            "predicted": min(100, current_score + random.randint(5, 15)),
-            "confidence": random.uniform(0.75, 0.95)
-        },
-        {
-            "timeframe": "90 DAYS",
-            "metric": "Market Position",
-            "current": results['advanced_metrics']['market_position'],
-            "predicted": "DOMINANT" if current_score > 70 else "STRONG",
-            "confidence": random.uniform(0.70, 0.90)
-        },
-        {
-            "timeframe": "180 DAYS",
-            "metric": "Revenue Impact",
-            "current": "$50K",
-            "predicted": "$85K",
-            "confidence": random.uniform(0.65, 0.85)
-        }
-    ]
-    
-    # Display predictions
-    for pred in predictions:
-        conf_color = CYBER_COLORS['success'] if pred['confidence'] > 0.8 else CYBER_COLORS['warning'] if pred['confidence'] > 0.7 else CYBER_COLORS['danger']
-        
-        st.markdown(f"""
-        <div class="cyber-container" style="background: linear-gradient(90deg, {CYBER_COLORS['bg_light']}cc 0%, {conf_color}20 100%);">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                    <div style="color: {CYBER_COLORS['neon_purple']}; font-size: 1.2em; font-weight: bold;">
-                        {pred['timeframe']} FORECAST
-                    </div>
-                    <div style="margin-top: 10px;">
-                        <span style="color: {CYBER_COLORS['text_secondary']};">{pred['metric']}:</span>
-                        <span style="color: {CYBER_COLORS['text_primary']};">{pred['current']}</span>
-                        <span style="color: {CYBER_COLORS['neon_cyan']};"> → </span>
-                        <span style="color: {CYBER_COLORS['success']}; font-weight: bold;">{pred['predicted']}</span>
-                    </div>
-                </div>
-                <div style="text-align: center;">
-                    <div style="width: 80px; height: 80px; position: relative;">
-                        <svg width="80" height="80" style="transform: rotate(-90deg);">
-                            <circle cx="40" cy="40" r="35" fill="none" stroke="{CYBER_COLORS['grid']}" stroke-width="8"/>
-                            <circle cx="40" cy="40" r="35" fill="none" stroke="{conf_color}" stroke-width="8"
-                                    stroke-dasharray="{220 * pred['confidence']} 220"/>
-                        </svg>
-                        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-                                    color: {conf_color}; font-family: 'Orbitron', monospace; font-size: 1.2em;">
-                            {pred['confidence']:.0%}
-                        </div>
-                    </div>
-                    <div style="color: {CYBER_COLORS['text_secondary']}; font-size: 0.8em; margin-top: 5px;">
-                        CONFIDENCE
-                    </div>
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # Scenario analysis
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown(create_neon_text("SCENARIO ANALYSIS", CYBER_COLORS['neon_yellow']), unsafe_allow_html=True)
-    
-    scenarios = {
-        "OPTIMISTIC": {
-            "probability": 0.25,
-            "score": min(100, current_score + 25),
-            "revenue": "+65%",
-            "description": "All improvements implemented successfully"
-        },
-        "REALISTIC": {
-            "probability": 0.60,
-            "score": min(100, current_score + 12),
-            "revenue": "+35%",
-            "description": "Normal execution with minor setbacks"
-        },
-        "PESSIMISTIC": {
-            "probability": 0.15,
-            "score": max(0, current_score - 5),
-            "revenue": "+5%",
-            "description": "Significant challenges or market changes"
-        }
-    }
-    
-    fig = go.Figure()
-    
-    for scenario, data in scenarios.items():
-        color = CYBER_COLORS['success'] if scenario == "OPTIMISTIC" else CYBER_COLORS['warning'] if scenario == "REALISTIC" else CYBER_COLORS['danger']
-        
-        fig.add_trace(go.Bar(
-            x=[scenario],
-            y=[data['probability'] * 100],
-            name=scenario,
-            marker_color=color,
-            text=f"{data['probability']:.0%}",
-            textposition='outside',
-            hovertemplate=f"<b>{scenario}</b><br>Score: {data['score']}<br>Revenue: {data['revenue']}<br>{data['description']}<extra></extra>"
-        ))
-    
-    fig.update_layout(
-        title="QUANTUM PROBABILITY DISTRIBUTION",
-        yaxis_title="PROBABILITY %",
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        font=dict(family="Orbitron", color=CYBER_COLORS['text_primary']),
-        xaxis=dict(showgrid=False),
-        yaxis=dict(showgrid=True, gridcolor=CYBER_COLORS['grid'] + '30', range=[0, 80]),
-        height=300,
-        showlegend=False
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
-
-def process_manual_entry():
-    """Process manual entry data"""
-    # Gather all manual data
-    metrics = {
-        'asin': st.session_state.manual_asin,
-        'title': st.session_state.manual_title,
-        'category': st.session_state.manual_category,
-        'price': st.session_state.manual_price,
-        'avg_rating': st.session_state.manual_rating,
-        'total_reviews': st.session_state.manual_reviews,
-        'monthly_sales': st.session_state.manual_sales,
-        'return_rate': st.session_state.manual_returns,
-        'sentiment_score': st.session_state.get('manual_sentiment', 75),
-        'brand_loyalty': st.session_state.get('manual_loyalty', 60),
-        'competitor_threat': st.session_state.get('manual_threat', 40),
-        'market_position': st.session_state.get('manual_position', 70),
-        'innovation_index': st.session_state.get('manual_innovation', 50),
-        'regulatory_risk': st.session_state.get('manual_risk', 20)
-    }
-    
-    # Calculate scores
-    advanced_metrics = {
-        'overall_score': round((metrics['avg_rating'] / 5 * 100 * 0.4) + 
-                              (min(100, metrics['total_reviews'] / 10) * 0.2) +
-                              ((100 - metrics['return_rate']) * 0.2) +
-                              (metrics['sentiment_score'] * 0.2)),
-        'quality_score': metrics['avg_rating'] / 5 * 100,
-        'volume_score': min(100, metrics['total_reviews'] / 10),
-        'consistency_score': 100 - metrics['return_rate'],
-        'trend_score': metrics['market_position'],
-        'risk_level': 'HIGH' if metrics['regulatory_risk'] > 60 else 'MEDIUM' if metrics['regulatory_risk'] > 30 else 'LOW',
-        'opportunity_index': 100 - metrics['market_position'],
-        'market_position': 'DOMINANT' if metrics['market_position'] > 80 else 'STRONG' if metrics['market_position'] > 60 else 'COMPETITIVE'
-    }
-    
-    # Run AI analysis if available
-    if check_ai_status():
-        with st.spinner(""):
-            create_loading_animation("QUANTUM PROCESSING")
-        
-        # Generate AI insights
-        ai_analysis = generate_manual_ai_insights(metrics, advanced_metrics)
-    else:
-        ai_analysis = "AI Core offline - manual metrics calculated"
-    
-    # Store results
-    st.session_state.analysis_results = {
-        'success': True,
-        'manual_entry': True,
-        'analysis': ai_analysis,
-        'reviews_analyzed': metrics['total_reviews'],
-        'timestamp': datetime.now(),
-        'mode': st.session_state.analysis_mode,
-        'neural_confidence': random.uniform(0.82, 0.96),
-        'quantum_coherence': random.uniform(0.78, 0.94),
-        'advanced_metrics': advanced_metrics,
-        'raw_data': {
-            'metrics': metrics
-        }
-    }
-    
-    # Add to history
-    st.session_state.analysis_history.append({
-        'asin': metrics['asin'],
-        'timestamp': datetime.now(),
-        'mode': st.session_state.analysis_mode,
-        'score': advanced_metrics['overall_score'],
-        'results': st.session_state.analysis_results
-    })
-    
-    st.session_state.current_view = 'results'
-    st.rerun()
-
-def generate_manual_ai_insights(metrics, advanced_metrics):
-    """Generate AI insights for manual entry"""
-    try:
-        prompt = f"""
-        CYBERMED NEURAL ANALYZER - MANUAL DATA INJECTION
-        
-        Product: {metrics['asin']} - {metrics['title']}
-        Category: {metrics['category']}
-        
-        NEURAL METRICS:
-        - Overall Score: {advanced_metrics['overall_score']}/100
-        - Quality Index: {advanced_metrics['quality_score']:.1f}%
-        - Market Position: {advanced_metrics['market_position']}
-        - Risk Level: {advanced_metrics['risk_level']}
-        
-        PERFORMANCE DATA:
-        - Rating: {metrics['avg_rating']}/5 ({metrics['total_reviews']} reviews)
-        - Monthly Sales: {metrics['monthly_sales']} units
-        - Return Rate: {metrics['return_rate']}%
-        - Price Point: ${metrics['price']}
-        
-        ADVANCED PARAMETERS:
-        - Sentiment Score: {metrics['sentiment_score']}%
-        - Brand Loyalty: {metrics['brand_loyalty']}%
-        - Competitor Threat: {metrics['competitor_threat']}%
-        - Innovation Index: {metrics['innovation_index']}%
-        - Regulatory Risk: {metrics['regulatory_risk']}%
-        
-        Generate a CYBERPUNK-STYLE analysis including:
-        1. NEURAL NETWORK predictions
-        2. QUANTUM PROBABILITY assessments
-        3. THREAT MATRIX evaluation
-        4. OPPORTUNITY VECTORS
-        5. STRATEGIC RECOMMENDATIONS
-        
-        Use technical terminology and include specific percentages and metrics.
-        """
-        
-        result = st.session_state.ai_analyzer.api_client.call_api([
-            {"role": "system", "content": "You are CYBERMED, an advanced neural-quantum AI analyzer. Provide highly technical, cyberpunk-styled analysis."},
-            {"role": "user", "content": prompt}
-        ], max_tokens=2000, temperature=0.7)
-        
-        if result['success']:
-            return result['result']
-        else:
-            return "Neural core processing error - using quantum fallback algorithms"
-            
-    except Exception as e:
-        logger.error(f"Manual AI insights error: {e}")
-        return "Neural network exception - defaulting to local processing"
-
-def generate_neural_insights():
-    """Generate sample neural insights"""
-    return [
-        "Neural pattern analysis reveals 87.3% correlation between review length and positive sentiment, suggesting engaged customers provide detailed feedback.",
-        "Quantum entanglement detected between price perception and quality expectations - optimal price point calculated at 15% above current.",
-        "Deep learning models predict 34% increase in conversion rate by addressing top 3 customer pain points identified in negative reviews.",
-        "Anomaly detection algorithms identified suspicious review patterns from competitor activity - recommend enhanced monitoring protocols.",
-        "Neural confidence intervals suggest 92% probability of market position improvement within 90-day implementation window."
-    ]
-
-def extract_section(text, section_name):
-    """Extract section from AI analysis text"""
-    # Simple extraction logic - would be enhanced in production
-    lines = text.split('\n')
-    section_lines = []
-    in_section = False
-    
-    for line in lines:
-        if section_name.upper() in line.upper():
-            in_section = True
-            continue
-        elif in_section and any(keyword in line.upper() for keyword in ['SECTION', 'ANALYSIS', 'REPORT']):
-            break
-        elif in_section and line.strip():
-            section_lines.append(line.strip())
-    
-    return section_lines if section_lines else None
-
-def generate_neural_report(results):
-    """Generate neural report for download"""
-    report = f"""# CYBERMED NEURAL ANALYSIS REPORT
-Generated: {results['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}
-Mode: {results['mode'].upper()}
-Neural Confidence: {results['neural_confidence']:.1%}
-Quantum Coherence: {results['quantum_coherence']:.1%}
-
-## EXECUTIVE SUMMARY
-Product Analysis Complete
-- Reviews Analyzed: {results['reviews_analyzed']}
-- Overall Neural Score: {results['advanced_metrics']['overall_score']}/100
-- Risk Level: {results['advanced_metrics']['risk_level']}
-- Market Position: {results['advanced_metrics']['market_position']}
-
-## NEURAL NETWORK ANALYSIS
-{results['analysis']}
-
-## PERFORMANCE METRICS
-- Quality Score: {results['advanced_metrics']['quality_score']:.1f}%
-- Volume Score: {results['advanced_metrics']['volume_score']:.1f}%
-- Consistency Score: {results['advanced_metrics']['consistency_score']:.1f}%
-- Trend Score: {results['advanced_metrics']['trend_score']:.1f}%
-- Opportunity Index: {results['advanced_metrics']['opportunity_index']:.1f}%
-
-## RECOMMENDATIONS
-[Based on neural analysis - implement within 30-day window for optimal results]
-
----
-CYBERMED NEURAL ANALYZER v{APP_CONFIG['version']}
-"""
-    
-    st.download_button(
-        "💾 DOWNLOAD NEURAL REPORT",
-        data=report,
-        file_name=f"cybermed_neural_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
-        mime="text/markdown",
-        use_container_width=True
-    )
-
-def generate_quantum_export(results):
-    """Generate quantum data export"""
-    quantum_data = {
-        "metadata": {
-            "timestamp": results['timestamp'].isoformat(),
-            "version": APP_CONFIG['version'],
-            "mode": results['mode'],
-            "quantum_coherence": results['quantum_coherence'],
-            "neural_confidence": results['neural_confidence']
-        },
-        "metrics": results['advanced_metrics'],
-        "analysis": {
-            "raw": results['analysis'],
-            "processed": {
-                "threats": extract_section(results['analysis'], "THREAT") or [],
-                "opportunities": extract_section(results['analysis'], "OPPORTUNIT") or [],
-                "insights": extract_section(results['analysis'], "INSIGHT") or []
-            }
-        },
-        "quantum_states": {
-            "superposition": random.random(),
-            "entanglement": random.random(),
-            "decoherence": random.random()
-        }
-    }
-    
-    st.download_button(
-        "💾 DOWNLOAD QUANTUM DATA",
-        data=json.dumps(quantum_data, indent=2, default=str),
-        file_name=f"cybermed_quantum_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-        mime="application/json",
-        use_container_width=True
-    )
-
-def generate_holographic_visualization(results):
-    """Generate holographic visualization (placeholder for advanced viz)"""
-    st.info("🎨 Holographic visualization export coming in version X.1 - will include 3D interactive neural network topology and quantum probability clouds")
-
-def generate_ai_report(results, stats, product_info):
-    """Generate formatted AI report for export"""
-    mode_title = "Quality & Regulatory Analysis" if results.get('mode') == 'quality' else "Amazon Listing Optimization Analysis"
-    
-    report = f"""# {mode_title} Report
-Generated: {results['timestamp'].strftime('%B %d, %Y at %I:%M %p')}
-
-## Product Information
-- **ASIN**: {product_info.get('asin', 'Unknown')}
-- **Total Reviews Analyzed**: {results.get('reviews_analyzed', 0)}
-- **Average Rating**: {stats.get('average_rating', 0)}/5
-- **Verified Reviews**: {stats.get('verified_count', 0)}
-- **Low Ratings (1-2 stars)**: {stats.get('1_2_star_percentage', 0)}%
-
-## AI Analysis
-
-{results.get('analysis', 'No analysis available')}
-
-## Rating Distribution
-"""
-    
-    if stats.get('rating_distribution'):
-        for rating in range(5, 0, -1):
-            count = stats['rating_distribution'].get(rating, 0)
-            percentage = (count / stats.get('total_reviews', 1)) * 100 if stats.get('total_reviews', 0) > 0 else 0
-            report += f"- **{rating} stars**: {count} reviews ({percentage:.1f}%)\n"
-    
-    report += """
-## Next Steps
-- Review all findings and prioritize actions
-- Implement recommended improvements
-- Monitor results and iterate
-
----
-Generated by CyberMed Neural Analyzer v{APP_CONFIG['version']}
-"""
-    
-    return report
 
 def check_ai_status():
     """Check AI availability"""
@@ -2381,74 +920,836 @@ def check_ai_status():
     except:
         return False
 
-def reset_analysis():
-    """Reset analysis state"""
-    st.session_state.uploaded_data = None
-    st.session_state.analysis_results = None
-    st.session_state.current_view = 'dashboard'
-    st.session_state.processing = False
-    st.session_state.basic_stats = None
-    st.session_state.advanced_metrics = None
+def display_header():
+    """Display cyberpunk-themed header"""
+    st.markdown("""
+    <div class="cyber-header">
+        <h1 style="font-size: 3em; margin: 0; z-index: 2; position: relative;">
+            VIVE HEALTH REVIEW INTELLIGENCE
+        </h1>
+        <p style="font-family: 'Rajdhani', sans-serif; font-size: 1.2em; margin: 0.5rem 0 0 0; 
+                  color: {primary}; text-transform: uppercase; letter-spacing: 3px; z-index: 2; position: relative;">
+            Advanced Amazon Listing Optimization Engine
+        </p>
+    </div>
+    """.format(primary=COLORS['primary']), unsafe_allow_html=True)
+    
+    # Quick actions bar
+    col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
+    
+    with col1:
+        if st.button("🔄 New Analysis", use_container_width=True):
+            for key in st.session_state.keys():
+                if key not in ['ai_analyzer']:
+                    st.session_state[key] = None
+            st.session_state.current_view = 'upload'
+            st.rerun()
+    
+    with col2:
+        st.selectbox(
+            "⏱️ Timeframe",
+            options=['all', '30d', '90d', '180d', '365d'],
+            key='selected_timeframe',
+            format_func=lambda x: {
+                'all': 'All Time',
+                '30d': 'Last 30 Days',
+                '90d': 'Last 90 Days',
+                '180d': 'Last 6 Months',
+                '365d': 'Last Year'
+            }[x]
+        )
+    
+    with col3:
+        st.selectbox(
+            "⭐ Rating Filter",
+            options=['all', '5', '4', '3', '2', '1', 'positive', 'negative'],
+            key='filter_rating',
+            format_func=lambda x: {
+                'all': 'All Ratings',
+                '5': '5 Stars Only',
+                '4': '4 Stars Only',
+                '3': '3 Stars Only',
+                '2': '2 Stars Only',
+                '1': '1 Star Only',
+                'positive': '4-5 Stars',
+                'negative': '1-2 Stars'
+            }[x]
+        )
+    
+    with col4:
+        st.selectbox(
+            "🎯 Analysis Depth",
+            options=['quick', 'standard', 'comprehensive'],
+            key='analysis_depth',
+            format_func=lambda x: x.title()
+        )
+
+def handle_file_upload():
+    """Cyberpunk-themed file upload interface"""
+    st.markdown("""
+    <div class="neon-box" style="margin-top: 2rem;">
+        <h2 style="color: {primary}; margin-top: 0;">📊 HELIUM 10 DATA IMPORT</h2>
+        <p style="color: {text}; opacity: 0.8;">Upload your Amazon review export for deep analysis</p>
+    </div>
+    """.format(primary=COLORS['primary'], text=COLORS['text']), unsafe_allow_html=True)
+    
+    uploaded_file = st.file_uploader(
+        "Drop your review file here",
+        type=['csv', 'xlsx', 'xls'],
+        help="Supported: Helium 10 review exports (CSV/Excel)"
+    )
+    
+    if uploaded_file:
+        try:
+            # Read file with progress
+            with st.spinner("🔄 Initializing data matrix..."):
+                if uploaded_file.name.endswith('.csv'):
+                    df = pd.read_csv(uploaded_file)
+                else:
+                    df = pd.read_excel(uploaded_file)
+            
+            # Validate columns
+            required_cols = ['Title', 'Body', 'Rating']
+            missing = [col for col in required_cols if col not in df.columns]
+            
+            if missing:
+                st.error(f"❌ Missing required columns: {', '.join(missing)}")
+                st.info("Required: Title, Body, Rating, Date (optional), Verified (optional)")
+                return
+            
+            # Apply filters
+            df_filtered = apply_filters(df)
+            
+            # Process with progress indicator
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            # Step 1: Basic processing
+            status_text.text("🔍 Analyzing review patterns...")
+            progress_bar.progress(20)
+            
+            # Calculate metrics
+            status_text.text("📊 Computing advanced metrics...")
+            metrics = calculate_advanced_metrics(df_filtered)
+            progress_bar.progress(40)
+            
+            if not metrics:
+                st.error("❌ Failed to calculate metrics")
+                return
+            
+            # Store data
+            product_info = {
+                'asin': df['Variation'].iloc[0] if 'Variation' in df.columns else 'Unknown',
+                'total_reviews': len(df),
+                'filtered_reviews': len(df_filtered)
+            }
+            
+            st.session_state.uploaded_data = {
+                'df': df,
+                'df_filtered': df_filtered,
+                'product_info': product_info,
+                'metrics': metrics
+            }
+            
+            # Show preview metrics
+            status_text.text("✅ Analysis ready!")
+            progress_bar.progress(100)
+            
+            # Display key metrics in cyberpunk style
+            st.markdown("<br>", unsafe_allow_html=True)
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                score = metrics['listing_health_score']['total_score']
+                color = COLORS['success'] if score >= 70 else COLORS['warning'] if score >= 50 else COLORS['danger']
+                st.markdown(f"""
+                <div class="metric-card">
+                    <h3 style="color: {color}; font-size: 2.5em; margin: 0;">{score:.0f}</h3>
+                    <p style="margin: 0; text-transform: uppercase;">Health Score</p>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with col2:
+                st.markdown(f"""
+                <div class="metric-card">
+                    <h3 style="color: {COLORS['primary']}; font-size: 2.5em; margin: 0;">
+                        {metrics['basic_stats']['average_rating']}/5
+                    </h3>
+                    <p style="margin: 0; text-transform: uppercase;">Avg Rating</p>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with col3:
+                sentiment = metrics['sentiment_breakdown']
+                positive_pct = (sentiment['positive'] / sum(sentiment.values()) * 100) if sum(sentiment.values()) > 0 else 0
+                st.markdown(f"""
+                <div class="metric-card">
+                    <h3 style="color: {COLORS['success']}; font-size: 2.5em; margin: 0;">
+                        {positive_pct:.0f}%
+                    </h3>
+                    <p style="margin: 0; text-transform: uppercase;">Positive</p>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with col4:
+                trend = metrics['temporal_trends'].get('trend', 'stable')
+                trend_icon = '📈' if trend == 'improving' else '📉' if trend == 'declining' else '➡️'
+                st.markdown(f"""
+                <div class="metric-card">
+                    <h3 style="font-size: 2.5em; margin: 0;">{trend_icon}</h3>
+                    <p style="margin: 0; text-transform: uppercase;">{trend}</p>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            # Quick insights
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.info(f"""
+            🎯 **Quick Insights**: Analyzed {len(df_filtered)} reviews 
+            • Top issue: {max(metrics['issue_categories'].items(), key=lambda x: x[1])[0].replace('_', ' ').title()} 
+            • Verified reviews: {metrics['basic_stats']['verified_count']} 
+            • Date range: {metrics['basic_stats'].get('date_range', {}).get('days_covered', 'N/A')} days
+            """)
+            
+            # Action buttons
+            st.markdown("<br>", unsafe_allow_html=True)
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("🚀 RUN AI DEEP ANALYSIS", type="primary", use_container_width=True):
+                    with st.spinner("🤖 AI analyzing reviews... This may take 1-2 minutes"):
+                        ai_results = run_comprehensive_ai_analysis(df_filtered, metrics, product_info)
+                        
+                        if ai_results:
+                            st.session_state.analysis_results = ai_results
+                            st.session_state.current_view = 'results'
+                            st.rerun()
+                        else:
+                            st.error("❌ AI analysis failed. Please try again.")
+            
+            with col2:
+                if st.button("📊 VIEW DETAILED METRICS", use_container_width=True):
+                    st.session_state.current_view = 'metrics'
+                    st.rerun()
+            
+        except Exception as e:
+            st.error(f"❌ Error processing file: {str(e)}")
+            st.info(f"Need help? Contact {APP_CONFIG['support_email']}")
+
+def apply_filters(df: pd.DataFrame) -> pd.DataFrame:
+    """Apply selected filters to dataframe"""
+    df_filtered = df.copy()
+    
+    # Time filter
+    if st.session_state.selected_timeframe != 'all' and 'Date' in df.columns:
+        df_filtered['parsed_date'] = df_filtered['Date'].apply(parse_amazon_date)
+        df_filtered['parsed_date'] = pd.to_datetime(df_filtered['parsed_date'])
+        
+        days_map = {'30d': 30, '90d': 90, '180d': 180, '365d': 365}
+        if st.session_state.selected_timeframe in days_map:
+            cutoff_date = datetime.now() - timedelta(days=days_map[st.session_state.selected_timeframe])
+            df_filtered = df_filtered[df_filtered['parsed_date'] >= cutoff_date]
+    
+    # Rating filter
+    if st.session_state.filter_rating != 'all':
+        if st.session_state.filter_rating in ['1', '2', '3', '4', '5']:
+            df_filtered = df_filtered[df_filtered['Rating'] == int(st.session_state.filter_rating)]
+        elif st.session_state.filter_rating == 'positive':
+            df_filtered = df_filtered[df_filtered['Rating'] >= 4]
+        elif st.session_state.filter_rating == 'negative':
+            df_filtered = df_filtered[df_filtered['Rating'] <= 2]
+    
+    return df_filtered
+
+def display_results():
+    """Display comprehensive analysis results"""
+    if not st.session_state.analysis_results or not st.session_state.uploaded_data:
+        st.error("No results available")
+        return
+    
+    results = st.session_state.analysis_results
+    metrics = st.session_state.uploaded_data['metrics']
+    
+    # Results header
+    st.markdown(f"""
+    <div class="neon-box" style="background: linear-gradient(135deg, {COLORS['success']}20 0%, {COLORS['primary']}20 100%);">
+        <h2 style="color: {COLORS['success']}; margin: 0;">✅ ANALYSIS COMPLETE</h2>
+        <p style="margin: 0.5rem 0 0 0;">
+            Analyzed {results['reviews_analyzed']} reviews • 
+            Generated {results['timestamp'].strftime('%B %d, %Y at %I:%M %p')}
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Create tabs for different insights
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "🎯 AI Insights", 
+        "📊 Metrics Dashboard", 
+        "💡 Quick Wins", 
+        "🏭 Quality Report",
+        "📥 Export"
+    ])
+    
+    with tab1:
+        display_ai_insights(results['analysis'])
+    
+    with tab2:
+        display_metrics_dashboard(metrics)
+    
+    with tab3:
+        display_quick_wins(results['analysis'])
+    
+    with tab4:
+        display_quality_report(results['analysis'], metrics)
+    
+    with tab5:
+        display_export_options(results, metrics)
+
+def display_ai_insights(analysis: str):
+    """Display AI insights in structured format"""
+    st.markdown(f"""
+    <div class="neon-box">
+        <h3 style="color: {COLORS['primary']};">🤖 AI LISTING OPTIMIZATION ANALYSIS</h3>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Parse and display sections
+    sections = {
+        'LISTING OPTIMIZATION PRIORITIES': {'icon': '🎯', 'color': COLORS['primary'], 'priority': 'high'},
+        'COMPETITIVE POSITIONING': {'icon': '🏆', 'color': COLORS['accent'], 'priority': 'high'},
+        'IMAGE/VIDEO RECOMMENDATIONS': {'icon': '📸', 'color': COLORS['secondary'], 'priority': 'medium'},
+        'CUSTOMER OBJECTION HANDLING': {'icon': '🛡️', 'color': COLORS['warning'], 'priority': 'high'},
+        'QUALITY IMPROVEMENT PRIORITIES': {'icon': '🏭', 'color': COLORS['danger'], 'priority': 'high'},
+        'QUICK WINS': {'icon': '⚡', 'color': COLORS['success'], 'priority': 'medium'}
+    }
+    
+    for section, config in sections.items():
+        if section.upper() in analysis.upper():
+            priority_class = f"priority-{config['priority']}"
+            
+            st.markdown(f"""
+            <div class="neon-box {priority_class}" style="margin-top: 1rem;">
+                <h4 style="color: {config['color']}; margin-top: 0;">
+                    {config['icon']} {section}
+                </h4>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Extract section content
+            start = analysis.upper().find(section.upper())
+            if start != -1:
+                end = len(analysis)
+                for next_section in sections:
+                    next_pos = analysis.upper().find(next_section.upper(), start + len(section))
+                    if next_pos > 0 and next_pos < end:
+                        end = next_pos
+                
+                content = analysis[start + len(section):end].strip()
+                
+                # Format content based on priority
+                if config['priority'] == 'high':
+                    st.warning(content)
+                else:
+                    st.info(content)
+
+def display_metrics_dashboard(metrics: Dict[str, Any]):
+    """Display interactive metrics dashboard"""
+    st.markdown(f"""
+    <div class="neon-box">
+        <h3 style="color: {COLORS['primary']};">📊 PERFORMANCE METRICS DASHBOARD</h3>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Create visualizations
+    figures = create_visualizations(st.session_state.uploaded_data['df_filtered'], metrics)
+    
+    # Display in grid
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if 'rating_radar' in figures:
+            st.plotly_chart(figures['rating_radar'], use_container_width=True)
+        
+        if 'issues' in figures:
+            st.plotly_chart(figures['issues'], use_container_width=True)
+    
+    with col2:
+        if 'sentiment' in figures:
+            st.plotly_chart(figures['sentiment'], use_container_width=True)
+        
+        if 'trend' in figures:
+            st.plotly_chart(figures['trend'], use_container_width=True)
+    
+    # Key metrics cards
+    st.markdown("### 🎯 Key Performance Indicators")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    health_score = metrics['listing_health_score']
+    
+    with col1:
+        color = COLORS['success'] if health_score['grade'] in ['A', 'B'] else COLORS['warning'] if health_score['grade'] == 'C' else COLORS['danger']
+        st.markdown(f"""
+        <div class="metric-card" style="border-color: {color};">
+            <h2 style="color: {color}; margin: 0;">{health_score['grade']}</h2>
+            <p style="margin: 0;">Overall Grade</p>
+            <small>{health_score['status']}</small>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        keyword_count = len(metrics['keyword_analysis']['positive_keywords'])
+        st.markdown(f"""
+        <div class="metric-card">
+            <h2 style="color: {COLORS['primary']}; margin: 0;">{keyword_count}</h2>
+            <p style="margin: 0;">Keywords Found</p>
+            <small>Opportunity keywords</small>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        issue_count = sum(1 for v in metrics['issue_categories'].values() if v > 5)
+        st.markdown(f"""
+        <div class="metric-card">
+            <h2 style="color: {COLORS['warning']}; margin: 0;">{issue_count}</h2>
+            <p style="margin: 0;">Major Issues</p>
+            <small>Need attention</small>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col4:
+        competitor_count = len(metrics['competitor_mentions'])
+        st.markdown(f"""
+        <div class="metric-card">
+            <h2 style="color: {COLORS['secondary']}; margin: 0;">{competitor_count}</h2>
+            <p style="margin: 0;">Competitor Mentions</p>
+            <small>In reviews</small>
+        </div>
+        """, unsafe_allow_html=True)
+
+def display_quick_wins(analysis: str):
+    """Extract and display quick win recommendations"""
+    st.markdown(f"""
+    <div class="neon-box">
+        <h3 style="color: {COLORS['success']};">⚡ QUICK WINS - IMPLEMENT TODAY</h3>
+        <p style="opacity: 0.8;">High-impact changes you can make immediately</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Extract quick wins section
+    if "QUICK WINS" in analysis.upper():
+        start = analysis.upper().find("QUICK WINS")
+        end = len(analysis)
+        
+        content = analysis[start:end]
+        
+        # Create actionable cards
+        st.markdown("""
+        <div class="neon-box priority-high" style="margin-top: 1rem;">
+            <h4 style="color: {}; margin-top: 0;">🚀 Immediate Actions</h4>
+        </div>
+        """.format(COLORS['success']), unsafe_allow_html=True)
+        
+        st.success(content)
+    
+    # Add implementation checklist
+    st.markdown("### ✅ Implementation Checklist")
+    
+    checklist_items = [
+        "Update product title with top keywords",
+        "Revise first 3 bullet points",
+        "Add FAQ section to listing",
+        "Update main product image",
+        "Respond to recent negative reviews",
+        "Adjust pricing if recommended",
+        "Update A+ content",
+        "Add comparison chart"
+    ]
+    
+    for item in checklist_items:
+        st.checkbox(item)
+
+def display_quality_report(analysis: str, metrics: Dict[str, Any]):
+    """Display quality-focused report for internal team"""
+    st.markdown(f"""
+    <div class="neon-box">
+        <h3 style="color: {COLORS['danger']};">🏭 QUALITY TEAM REPORT</h3>
+        <p style="opacity: 0.8;">Product improvement priorities based on customer feedback</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Issue severity breakdown
+    issues = metrics['issue_categories']
+    
+    # Sort by severity
+    sorted_issues = sorted(issues.items(), key=lambda x: x[1], reverse=True)
+    
+    # Display top issues
+    st.markdown("### 🔴 Critical Issues Requiring Attention")
+    
+    for issue, count in sorted_issues[:5]:
+        if count > 0:
+            severity = 'HIGH' if count > 20 else 'MEDIUM' if count > 10 else 'LOW'
+            color = COLORS['danger'] if severity == 'HIGH' else COLORS['warning'] if severity == 'MEDIUM' else COLORS['success']
+            
+            st.markdown(f"""
+            <div class="neon-box" style="border-left: 4px solid {color}; margin-top: 0.5rem;">
+                <h4 style="color: {color}; margin: 0;">
+                    {issue.replace('_', ' ').title()} - {count} mentions
+                </h4>
+                <p style="margin: 0.5rem 0 0 0; opacity: 0.8;">Severity: {severity}</p>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    # Extract quality improvements from AI analysis
+    if "QUALITY IMPROVEMENT PRIORITIES" in analysis.upper():
+        st.markdown("### 🔧 AI-Recommended Product Improvements")
+        
+        start = analysis.upper().find("QUALITY IMPROVEMENT PRIORITIES")
+        end = analysis.find("\n\n", start + 50)
+        if end == -1:
+            end = len(analysis)
+        
+        quality_content = analysis[start:end]
+        st.warning(quality_content)
+    
+    # Add quality metrics
+    st.markdown("### 📊 Quality Metrics")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        defect_rate = (sum(1 for v in issues.values() if v > 0) / len(issues)) * 100
+        st.metric("Issue Coverage", f"{defect_rate:.1f}%", help="% of issue categories with complaints")
+    
+    with col2:
+        return_indicator = metrics['basic_stats']['1_2_star_percentage']
+        st.metric("Low Rating %", f"{return_indicator}%", help="Potential return indicator")
+    
+    with col3:
+        quality_score = metrics['review_quality_scores']['avg_quality_score']
+        st.metric("Review Quality", f"{quality_score:.1f}/10", help="Average review detail level")
+
+def display_export_options(results: Dict[str, Any], metrics: Dict[str, Any]):
+    """Display export options with multiple formats"""
+    st.markdown(f"""
+    <div class="neon-box">
+        <h3 style="color: {COLORS['primary']};">📥 EXPORT ANALYSIS RESULTS</h3>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        # Executive summary
+        executive_summary = generate_executive_summary(results, metrics)
+        st.download_button(
+            "📄 Executive Summary",
+            data=executive_summary,
+            file_name=f"executive_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
+            mime="text/markdown",
+            use_container_width=True,
+            help="High-level overview for management"
+        )
+    
+    with col2:
+        # Full analysis report
+        full_report = generate_full_report(results, metrics)
+        st.download_button(
+            "📊 Full Analysis Report",
+            data=full_report,
+            file_name=f"listing_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
+            mime="text/markdown",
+            use_container_width=True,
+            help="Complete analysis with all details"
+        )
+    
+    with col3:
+        # Raw data export
+        export_data = {
+            'timestamp': results['timestamp'].isoformat(),
+            'metrics': metrics,
+            'ai_analysis': results['analysis'],
+            'product_info': st.session_state.uploaded_data['product_info']
+        }
+        
+        st.download_button(
+            "💾 Raw Data (JSON)",
+            data=json.dumps(export_data, indent=2, default=str),
+            file_name=f"raw_analysis_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+            mime="application/json",
+            use_container_width=True,
+            help="Complete data for further processing"
+        )
+    
+    # Quality team export
+    st.markdown("### 🏭 Quality Team Exports")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        quality_report = generate_quality_report(metrics, results['analysis'])
+        st.download_button(
+            "🔧 Quality Improvement Report",
+            data=quality_report,
+            file_name=f"quality_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
+            mime="text/markdown",
+            use_container_width=True
+        )
+    
+    with col2:
+        issue_csv = generate_issue_csv(metrics)
+        st.download_button(
+            "📋 Issue Tracking CSV",
+            data=issue_csv,
+            file_name=f"issue_tracking_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
+
+def generate_executive_summary(results: Dict[str, Any], metrics: Dict[str, Any]) -> str:
+    """Generate executive summary"""
+    health_score = metrics['listing_health_score']
+    
+    summary = f"""# Executive Summary - Amazon Listing Analysis
+Generated: {results['timestamp'].strftime('%B %d, %Y')}
+Product: {st.session_state.uploaded_data['product_info']['asin']}
+
+## Overall Performance
+- **Health Score**: {health_score['total_score']}/100 (Grade: {health_score['grade']})
+- **Status**: {health_score['status']}
+- **Reviews Analyzed**: {results['reviews_analyzed']}
+- **Average Rating**: {metrics['basic_stats']['average_rating']}/5
+
+## Key Findings
+1. **Sentiment**: {metrics['sentiment_breakdown']['positive']} positive vs {metrics['sentiment_breakdown']['negative']} negative reviews
+2. **Trend**: {metrics['temporal_trends'].get('trend', 'Unknown').title()}
+3. **Main Issues**: {', '.join([k.replace('_', ' ').title() for k, v in metrics['issue_categories'].items() if v > 5][:3])}
+
+## Top 3 Recommendations
+{results['analysis'][:500]}...
+
+## Next Steps
+1. Implement quick wins immediately
+2. Review full report for detailed insights
+3. Forward quality issues to product team
+"""
+    
+    return summary
+
+def generate_full_report(results: Dict[str, Any], metrics: Dict[str, Any]) -> str:
+    """Generate comprehensive report"""
+    report = f"""# Comprehensive Amazon Listing Analysis Report
+Generated: {results['timestamp'].strftime('%B %d, %Y at %I:%M %p')}
+Analyzed by: Vive Health Review Intelligence v{APP_CONFIG['version']}
+
+## Product Information
+- ASIN: {st.session_state.uploaded_data['product_info']['asin']}
+- Total Reviews: {st.session_state.uploaded_data['product_info']['total_reviews']}
+- Analyzed Reviews: {results['reviews_analyzed']}
+
+## Performance Metrics
+
+### Overall Health Score: {metrics['listing_health_score']['total_score']}/100 (Grade: {metrics['listing_health_score']['grade']})
+
+Component Scores:
+"""
+    
+    for component, score in metrics['listing_health_score']['components'].items():
+        report += f"- {component.replace('_', ' ').title()}: {score:.1f}\n"
+    
+    report += f"""
+
+### Rating Analysis
+- Average Rating: {metrics['basic_stats']['average_rating']}/5
+- Median Rating: {metrics['basic_stats']['median_rating']}/5
+- Standard Deviation: {metrics['basic_stats']['rating_std']}
+- 4-5 Star Percentage: {metrics['basic_stats']['4_5_star_percentage']}%
+- 1-2 Star Percentage: {metrics['basic_stats']['1_2_star_percentage']}%
+
+### Sentiment Analysis
+- Positive: {metrics['sentiment_breakdown']['positive']}
+- Negative: {metrics['sentiment_breakdown']['negative']}
+- Neutral: {metrics['sentiment_breakdown']['neutral']}
+- Mixed: {metrics['sentiment_breakdown']['mixed']}
+
+### Temporal Trends
+- Trend Direction: {metrics['temporal_trends'].get('trend', 'Unknown').title()}
+- Recent Performance: {metrics['temporal_trends'].get('recent_performance', 'N/A')}
+
+### Issue Categories
+"""
+    
+    for issue, count in sorted(metrics['issue_categories'].items(), key=lambda x: x[1], reverse=True):
+        if count > 0:
+            report += f"- {issue.replace('_', ' ').title()}: {count} mentions\n"
+    
+    report += f"""
+
+### Top Keywords
+**Positive Keywords:**
+{', '.join([f"{k[0]} ({k[1]})" for k in metrics['keyword_analysis']['positive_keywords'][:10]])}
+
+**Negative Keywords:**
+{', '.join([f"{k[0]} ({k[1]})" for k in metrics['keyword_analysis']['negative_keywords'][:10]])}
+
+## AI Analysis
+
+{results['analysis']}
+
+## Implementation Checklist
+- [ ] Update product title with recommended keywords
+- [ ] Revise bullet points based on customer feedback
+- [ ] Add missing information to description
+- [ ] Update A+ content to address concerns
+- [ ] Implement image/video recommendations
+- [ ] Set up FAQ section
+- [ ] Address quality issues with product team
+- [ ] Monitor performance after changes
+
+---
+Report generated by Vive Health Review Intelligence
+For support: {APP_CONFIG['support_email']}
+"""
+    
+    return report
+
+def generate_quality_report(metrics: Dict[str, Any], ai_analysis: str) -> str:
+    """Generate quality-focused report"""
+    report = f"""# Quality Improvement Report
+Generated: {datetime.now().strftime('%B %d, %Y')}
+
+## Issue Summary
+Total Issues Identified: {sum(metrics['issue_categories'].values())}
+
+### Issue Breakdown by Category
+"""
+    
+    for issue, count in sorted(metrics['issue_categories'].items(), key=lambda x: x[1], reverse=True):
+        if count > 0:
+            severity = 'CRITICAL' if count > 20 else 'HIGH' if count > 10 else 'MEDIUM' if count > 5 else 'LOW'
+            report += f"\n#### {issue.replace('_', ' ').title()}\n"
+            report += f"- Mentions: {count}\n"
+            report += f"- Severity: {severity}\n"
+            report += f"- Impact: {(count / metrics['basic_stats']['total_reviews'] * 100):.1f}% of reviews\n"
+    
+    # Extract quality section from AI analysis
+    if "QUALITY IMPROVEMENT PRIORITIES" in ai_analysis.upper():
+        start = ai_analysis.upper().find("QUALITY IMPROVEMENT PRIORITIES")
+        end = ai_analysis.find("\n\n", start + 50)
+        if end == -1:
+            end = len(ai_analysis)
+        
+        report += f"\n## AI-Recommended Improvements\n{ai_analysis[start:end]}\n"
+    
+    report += """
+## Action Items
+1. Review and prioritize critical issues
+2. Conduct root cause analysis
+3. Implement corrective actions
+4. Update quality control procedures
+5. Monitor customer feedback post-implementation
+
+## Quality Metrics
+"""
+    
+    report += f"- Average Review Quality Score: {metrics['review_quality_scores']['avg_quality_score']:.1f}/10\n"
+    report += f"- High Quality Reviews: {metrics['review_quality_scores']['high_quality_count']}\n"
+    report += f"- Low Quality Reviews: {metrics['review_quality_scores']['low_quality_count']}\n"
+    
+    return report
+
+def generate_issue_csv(metrics: Dict[str, Any]) -> str:
+    """Generate CSV for issue tracking"""
+    csv_data = "Category,Count,Severity,Percentage\n"
+    
+    total_reviews = metrics['basic_stats']['total_reviews']
+    
+    for issue, count in sorted(metrics['issue_categories'].items(), key=lambda x: x[1], reverse=True):
+        if count > 0:
+            severity = 'CRITICAL' if count > 20 else 'HIGH' if count > 10 else 'MEDIUM' if count > 5 else 'LOW'
+            percentage = (count / total_reviews * 100)
+            csv_data += f"{issue.replace('_', ' ').title()},{count},{severity},{percentage:.1f}%\n"
+    
+    return csv_data
+
+def display_metrics_view():
+    """Display detailed metrics view"""
+    if not st.session_state.uploaded_data:
+        st.error("No data available")
+        return
+    
+    metrics = st.session_state.uploaded_data['metrics']
+    
+    st.markdown(f"""
+    <div class="cyber-header" style="margin-bottom: 2rem;">
+        <h1 style="font-size: 2.5em;">DETAILED METRICS ANALYSIS</h1>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Create comprehensive visualizations
+    figures = create_visualizations(st.session_state.uploaded_data['df_filtered'], metrics)
+    
+    # Display all visualizations
+    for name, fig in figures.items():
+        st.plotly_chart(fig, use_container_width=True)
+    
+    # Detailed metrics tables
+    st.markdown("### 📊 Detailed Statistics")
+    
+    # Convert metrics to displayable format
+    stats_df = pd.DataFrame([
+        {'Metric': 'Total Reviews', 'Value': metrics['basic_stats']['total_reviews']},
+        {'Metric': 'Average Rating', 'Value': f"{metrics['basic_stats']['average_rating']}/5"},
+        {'Metric': 'Median Rating', 'Value': f"{metrics['basic_stats']['median_rating']}/5"},
+        {'Metric': 'Rating Std Dev', 'Value': metrics['basic_stats']['rating_std']},
+        {'Metric': 'Verified Reviews', 'Value': metrics['basic_stats']['verified_count']},
+        {'Metric': '4-5 Star %', 'Value': f"{metrics['basic_stats']['4_5_star_percentage']}%"},
+        {'Metric': '1-2 Star %', 'Value': f"{metrics['basic_stats']['1_2_star_percentage']}%"}
+    ])
+    
+    st.dataframe(stats_df, use_container_width=True)
 
 def main():
     """Main application with cyberpunk theme"""
     st.set_page_config(
-        page_title="CyberMed Neural Analyzer",
-        page_icon="🧠",
+        page_title=APP_CONFIG['title'],
+        page_icon="🚀",
         layout="wide",
         initial_sidebar_state="collapsed"
     )
     
     # Inject cyberpunk CSS
-    inject_cyber_css()
+    inject_cyberpunk_css()
     
     # Initialize session state
     initialize_session_state()
     
-    # Navigation header
-    col1, col2, col3 = st.columns([1, 3, 1])
+    # Check AI status
+    if not check_ai_status():
+        st.error(f"❌ AI Service Unavailable. Contact {APP_CONFIG['support_email']}")
+        st.stop()
     
-    with col1:
-        if st.session_state.current_view != 'dashboard':
-            if st.button("◀ NEURAL HUB", use_container_width=True):
-                st.session_state.current_view = 'dashboard'
-                st.rerun()
+    # Display header
+    display_header()
     
-    with col3:
-        # System controls
-        controls = st.columns(3)
-        with controls[0]:
-            if st.button("🔄", help="Reset System"):
-                reset_analysis()
-                st.rerun()
-        with controls[1]:
-            if st.button("⚙️", help="Settings"):
-                st.info("Neural configuration panel coming in v.X.1")
-        with controls[2]:
-            if st.button("❓", help="Help"):
-                st.info(f"Contact Neural Support: {APP_CONFIG['support_email']}")
-    
-    # Main content router
-    if st.session_state.current_view == 'dashboard':
-        create_cyber_dashboard()
-    elif st.session_state.current_view == 'upload':
-        create_advanced_upload_interface()
+    # Main content based on view
+    if st.session_state.current_view == 'upload':
+        handle_file_upload()
     elif st.session_state.current_view == 'results':
-        display_advanced_results()
+        display_results()
+    elif st.session_state.current_view == 'metrics':
+        display_metrics_view()
     
     # Footer
-    st.markdown("<br><br>", unsafe_allow_html=True)
     st.markdown(f"""
-    <div style="text-align: center; color: {CYBER_COLORS['text_secondary']}; 
-                font-family: 'Orbitron', monospace; padding: 20px; 
-                border-top: 1px solid {CYBER_COLORS['grid']};">
-        <div>CYBERMED NEURAL ANALYZER v{APP_CONFIG['version']} // {APP_CONFIG['codename'].upper()}</div>
-        <div style="font-size: 0.8em; margin-top: 5px;">
-            QUANTUM ENHANCED // AI POWERED // FUTURE READY
-        </div>
-        <div style="font-size: 0.7em; margin-top: 10px;">
-            {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} // SYSTEM ONLINE
-        </div>
+    <div style="text-align: center; color: {COLORS['muted']}; padding: 2rem; margin-top: 4rem; 
+                border-top: 1px solid {COLORS['muted']}40;">
+        <p style="font-family: 'Rajdhani', sans-serif; letter-spacing: 2px; text-transform: uppercase;">
+            {APP_CONFIG['title']} • v{APP_CONFIG['version']}
+        </p>
+        <p style="font-size: 0.9em; opacity: 0.8;">
+            Powered by Advanced AI • Support: {APP_CONFIG['support_email']}
+        </p>
     </div>
     """, unsafe_allow_html=True)
 
