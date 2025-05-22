@@ -1,0 +1,47 @@
+# CyberMed Neural Analyzer Requirements
+# Python 3.8+ required
+
+# Core framework
+streamlit>=1.28.0
+
+# Data processing
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Visualization - REQUIRED for cyberpunk visualizations
+plotly>=5.17.0
+
+# Date/time handling
+python-dateutil>=2.8.2
+
+# Enhanced AI Analysis Module (custom - needs to be provided separately)
+# enhanced_ai_analysis
+
+# Optional but recommended for better performance
+# numba>=0.58.0
+# scipy>=1.11.0
+
+# For future API connectivity features
+# requests>=2.31.0
+# aiohttp>=3.8.5
+
+# For data validation
+# pydantic>=2.4.0
+
+# For enhanced logging
+# loguru>=0.7.2
+
+# For configuration management
+# python-dotenv>=1.0.0
+
+# For advanced text processing (future features)
+# textblob>=0.17.1
+
+# For caching and performance
+# streamlit-extras>=0.3.5
+
+# Development dependencies (optional)
+# pytest>=7.4.0
+# black>=23.9.1
+# flake8>=6.1.0
+# mypy>=1.5.1
