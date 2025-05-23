@@ -1,13 +1,13 @@
 """
-Enhanced AI Analysis Module - FIXED VERSION
+Enhanced AI Analysis Module - Amazon Listing Optimization Edition
 
-**STABLE AI INTEGRATION**
+**STABLE AI INTEGRATION FOR AMAZON SELLERS**
 
 Provides robust AI-powered analysis using OpenAI GPT-4o with comprehensive
-error handling and fallback mechanisms.
+error handling and Amazon-specific optimization focus.
 
 Author: Assistant
-Version: 4.0 - Production Stable
+Version: 5.0 - Amazon Optimization Edition
 """
 
 import logging
@@ -153,117 +153,165 @@ class APIClient:
         }
 
 class PromptTemplates:
-    """AI prompt templates for medical device analysis"""
+    """AI prompt templates optimized for Amazon listing analysis"""
     
     @staticmethod
     def create_review_analysis_prompt(product_info: Dict[str, Any], 
                                     review_summaries: List[str]) -> str:
-        """Create prompt for review analysis"""
+        """Create prompt for Amazon-specific review analysis"""
         
         product_name = product_info.get('name', 'Unknown Product')
-        product_category = product_info.get('category', 'Medical Device')
+        product_category = product_info.get('category', 'Amazon Product')
+        asin = product_info.get('asin', 'Unknown ASIN')
         
-        return f"""You are an expert medical device quality analyst. Analyze these customer reviews for actionable quality insights.
+        return f"""You are an elite Amazon listing optimization expert analyzing customer reviews for immediate listing improvements.
 
 PRODUCT: {product_name}
 CATEGORY: {product_category}
+ASIN: {asin}
 TOTAL REVIEWS: {len(review_summaries)}
 
 CUSTOMER REVIEWS:
 {chr(10).join(review_summaries)}
 
-Provide analysis in this EXACT format:
+Provide AMAZON-SPECIFIC analysis in this EXACT format:
 
-## OVERALL SENTIMENT
-[Positive/Negative/Mixed] with [confidence %]
+## TITLE OPTIMIZATION OPPORTUNITIES
+[Specific keywords from reviews that should be in title]
+[Exact new title suggestion - 200 chars max]
 
-## SAFETY CONCERNS  
-[List any safety issues - mark CRITICAL if severe]
+## BULLET POINT GAPS
+[Top 5 customer concerns not addressed in current bullets]
+[Specific language customers use that should be in bullets]
 
-## TOP QUALITY ISSUES
-1. [Most frequent issue with count]
-2. [Second most frequent issue with count]
-3. [Third most frequent issue with count]
+## A9 ALGORITHM INSIGHTS
+[Hidden keywords from reviews competitors likely miss]
+[Long-tail search terms customers actually use]
+[Backend search term recommendations]
 
-## EFFECTIVENESS CONCERNS
-[Any issues about product not working or being ineffective]
+## MAIN IMAGE REQUIREMENTS
+[Visual concerns mentioned in reviews]
+[What customers need to see to buy]
 
-## COMFORT & USABILITY ISSUES
-[Problems with ease of use, comfort, ergonomics]
+## CONVERSION KILLERS
+[Top 3 issues causing customers to not purchase]
+[Exact copy to address each concern]
 
-## IMMEDIATE ACTIONS NEEDED
-[Top 3 actions to take within 24-48 hours]
+## COMPETITOR ADVANTAGES
+[What competitors are mentioned and why]
+[How to position against them]
 
-## LISTING IMPROVEMENTS
-[Specific Amazon listing changes to prevent issues]
+## IMMEDIATE ACTIONS (DO TODAY)
+1. [Most impactful change - be specific]
+2. [Second priority - exact implementation]
+3. [Third priority - copy to use]
 
-## CUSTOMER EDUCATION NEEDS
-[What customers need to know to use product properly]
+## REVIEW RESPONSE TEMPLATES
+[Template for 1-2 star reviews]
+[Key phrases to use consistently]
 
-Focus on actionable insights that can improve customer satisfaction and safety."""
+Focus on actionable changes that will improve Best Seller Rank and conversion rate within 7 days."""
     
     @staticmethod
-    def create_risk_assessment_prompt(analysis_summary: str) -> str:
-        """Create prompt for risk assessment"""
+    def create_listing_optimization_prompt(metrics: Dict[str, Any], 
+                                         top_issues: List[str]) -> str:
+        """Create prompt for listing optimization recommendations"""
         
-        return f"""As a medical device risk management expert, assess the risk level based on this customer feedback analysis:
+        return f"""As an Amazon listing optimization expert, create specific listing improvements based on this data:
 
-ANALYSIS SUMMARY:
-{analysis_summary}
+METRICS:
+- Average Rating: {metrics.get('avg_rating', 'N/A')}/5
+- Negative Review %: {metrics.get('negative_pct', 'N/A')}%
+- Main Issues: {', '.join(top_issues[:5])}
 
-Provide assessment in this format:
+Provide EXACT copy for:
 
-## OVERALL RISK LEVEL
-[Critical/High/Medium/Low] - [justification]
+## NEW TITLE (200 chars max)
+[Include main keywords, brand, key feature, and size/count]
 
-## SAFETY RISK ASSESSMENT
-[Specific safety risks identified with severity]
+## OPTIMIZED BULLETS (5 bullets)
+• [Bullet 1 - Address biggest concern]
+• [Bullet 2 - Highlight unique benefit]
+• [Bullet 3 - Size/compatibility info]
+• [Bullet 4 - Quality/durability]
+• [Bullet 5 - Guarantee/support]
 
-## REGULATORY RISK
-[Any FDA or regulatory compliance concerns]
+## A+ CONTENT MODULES
+1. [Module type and content focus]
+2. [Module type and content focus]
+3. [Module type and content focus]
 
-## BUSINESS RISK
-[Impact on sales, reputation, customer satisfaction]
+## BACKEND KEYWORDS
+[Comma-separated list of 250 chars]
 
-## RISK MITIGATION PRIORITIES
-1. [Highest priority action]
-2. [Second priority action]  
-3. [Third priority action]
+## FAQ SECTION (Top 5)
+Q1: [Question]
+A1: [Answer]
+[Continue for Q2-Q5]
 
-## MONITORING RECOMMENDATIONS
-[What to track going forward]
+Be specific. Use emotional triggers. Address every major concern."""
+    
+    @staticmethod
+    def create_competitive_analysis_prompt(competitor_mentions: List[str],
+                                         product_strengths: List[str]) -> str:
+        """Create prompt for competitive positioning"""
+        
+        return f"""Analyze these competitor mentions from reviews and create differentiation strategy:
 
-Be specific about risk levels and recommended actions."""
+COMPETITOR MENTIONS:
+{chr(10).join(competitor_mentions[:10])}
+
+OUR STRENGTHS:
+{chr(10).join(product_strengths[:5])}
+
+Provide:
+
+## COMPETITIVE POSITIONING STATEMENT
+[2-3 sentences for product description]
+
+## COMPARISON CHART ELEMENTS
+[5 key differentiators to highlight]
+
+## COUNTER-MESSAGING
+[How to address each competitor advantage]
+
+## PRICING STRATEGY
+[Price positioning recommendations]
+
+## UNIQUE VALUE PROPS
+[Top 3 USPs to emphasize everywhere]
+
+Make it compelling and specific to Amazon buyers."""
 
 class ResponseParser:
-    """Parse and structure AI responses"""
+    """Parse and structure AI responses for Amazon optimization"""
     
     @staticmethod
     def parse_review_analysis(content: str) -> Dict[str, Any]:
         """Parse review analysis response"""
         
         parsed = {
-            'overall_sentiment': '',
-            'safety_concerns': [],
-            'top_quality_issues': [],
-            'effectiveness_concerns': '',
-            'comfort_usability_issues': '',
+            'title_optimization': '',
+            'bullet_gaps': [],
+            'a9_insights': '',
+            'image_requirements': '',
+            'conversion_killers': [],
+            'competitor_advantages': '',
             'immediate_actions': [],
-            'listing_improvements': '',
-            'customer_education': ''
+            'review_templates': ''
         }
         
         try:
             # Extract sections using regex
             sections = {
-                'overall_sentiment': r'## OVERALL SENTIMENT\s*\n(.*?)(?=## |$)',
-                'safety_concerns': r'## SAFETY CONCERNS\s*\n(.*?)(?=## |$)',
-                'top_quality_issues': r'## TOP QUALITY ISSUES\s*\n(.*?)(?=## |$)',
-                'effectiveness_concerns': r'## EFFECTIVENESS CONCERNS\s*\n(.*?)(?=## |$)',
-                'comfort_usability_issues': r'## COMFORT & USABILITY ISSUES\s*\n(.*?)(?=## |$)',
-                'immediate_actions': r'## IMMEDIATE ACTIONS NEEDED\s*\n(.*?)(?=## |$)',
-                'listing_improvements': r'## LISTING IMPROVEMENTS\s*\n(.*?)(?=## |$)',
-                'customer_education': r'## CUSTOMER EDUCATION NEEDS\s*\n(.*?)(?=## |$)'
+                'title_optimization': r'## TITLE OPTIMIZATION OPPORTUNITIES\s*\n(.*?)(?=## |$)',
+                'bullet_gaps': r'## BULLET POINT GAPS\s*\n(.*?)(?=## |$)',
+                'a9_insights': r'## A9 ALGORITHM INSIGHTS\s*\n(.*?)(?=## |$)',
+                'image_requirements': r'## MAIN IMAGE REQUIREMENTS\s*\n(.*?)(?=## |$)',
+                'conversion_killers': r'## CONVERSION KILLERS\s*\n(.*?)(?=## |$)',
+                'competitor_advantages': r'## COMPETITOR ADVANTAGES\s*\n(.*?)(?=## |$)',
+                'immediate_actions': r'## IMMEDIATE ACTIONS.*?\s*\n(.*?)(?=## |$)',
+                'review_templates': r'## REVIEW RESPONSE TEMPLATES\s*\n(.*?)(?=## |$)'
             }
             
             for section_name, pattern in sections.items():
@@ -272,7 +320,7 @@ class ResponseParser:
                     section_content = match.group(1).strip()
                     
                     # Parse lists for certain sections
-                    if section_name in ['safety_concerns', 'top_quality_issues', 'immediate_actions']:
+                    if section_name in ['bullet_gaps', 'conversion_killers', 'immediate_actions']:
                         # Extract numbered or bulleted lists
                         items = []
                         lines = section_content.split('\n')
@@ -294,26 +342,24 @@ class ResponseParser:
             return parsed
     
     @staticmethod
-    def parse_risk_assessment(content: str) -> Dict[str, Any]:
-        """Parse risk assessment response"""
+    def parse_listing_optimization(content: str) -> Dict[str, Any]:
+        """Parse listing optimization response"""
         
         parsed = {
-            'overall_risk_level': '',
-            'safety_risk_assessment': '',
-            'regulatory_risk': '',
-            'business_risk': '',
-            'risk_mitigation_priorities': [],
-            'monitoring_recommendations': ''
+            'new_title': '',
+            'optimized_bullets': [],
+            'a_plus_modules': [],
+            'backend_keywords': '',
+            'faq_section': []
         }
         
         try:
             sections = {
-                'overall_risk_level': r'## OVERALL RISK LEVEL\s*\n(.*?)(?=## |$)',
-                'safety_risk_assessment': r'## SAFETY RISK ASSESSMENT\s*\n(.*?)(?=## |$)',
-                'regulatory_risk': r'## REGULATORY RISK\s*\n(.*?)(?=## |$)',
-                'business_risk': r'## BUSINESS RISK\s*\n(.*?)(?=## |$)',
-                'risk_mitigation_priorities': r'## RISK MITIGATION PRIORITIES\s*\n(.*?)(?=## |$)',
-                'monitoring_recommendations': r'## MONITORING RECOMMENDATIONS\s*\n(.*?)(?=## |$)'
+                'new_title': r'## NEW TITLE.*?\s*\n(.*?)(?=## |$)',
+                'optimized_bullets': r'## OPTIMIZED BULLETS.*?\s*\n(.*?)(?=## |$)',
+                'a_plus_modules': r'## A\+ CONTENT MODULES\s*\n(.*?)(?=## |$)',
+                'backend_keywords': r'## BACKEND KEYWORDS\s*\n(.*?)(?=## |$)',
+                'faq_section': r'## FAQ SECTION.*?\s*\n(.*?)(?=## |$)'
             }
             
             for section_name, pattern in sections.items():
@@ -321,28 +367,49 @@ class ResponseParser:
                 if match:
                     section_content = match.group(1).strip()
                     
-                    if section_name == 'risk_mitigation_priorities':
-                        # Extract numbered list
+                    if section_name in ['optimized_bullets', 'a_plus_modules']:
+                        # Extract bullet points
                         items = []
                         lines = section_content.split('\n')
                         for line in lines:
                             line = line.strip()
-                            if line and line[0].isdigit():
-                                cleaned = re.sub(r'^\d+\.\s*', '', line).strip()
+                            if line and (line.startswith('•') or line.startswith('-') or line[0].isdigit()):
+                                cleaned = re.sub(r'^[•\-\d\.\s]+', '', line).strip()
                                 if cleaned:
                                     items.append(cleaned)
-                        parsed[section_name] = items if items else [section_content]
+                        parsed[section_name] = items
+                    elif section_name == 'faq_section':
+                        # Parse Q&A pairs
+                        qa_pairs = []
+                        lines = section_content.split('\n')
+                        current_q = None
+                        current_a = None
+                        
+                        for line in lines:
+                            line = line.strip()
+                            if line.startswith('Q') and ':' in line:
+                                if current_q and current_a:
+                                    qa_pairs.append({'question': current_q, 'answer': current_a})
+                                current_q = line.split(':', 1)[1].strip()
+                                current_a = None
+                            elif line.startswith('A') and ':' in line and current_q:
+                                current_a = line.split(':', 1)[1].strip()
+                        
+                        if current_q and current_a:
+                            qa_pairs.append({'question': current_q, 'answer': current_a})
+                        
+                        parsed[section_name] = qa_pairs
                     else:
                         parsed[section_name] = section_content
             
             return parsed
             
         except Exception as e:
-            logger.error(f"Error parsing risk assessment: {str(e)}")
+            logger.error(f"Error parsing listing optimization: {str(e)}")
             return parsed
 
 class EnhancedAIAnalyzer:
-    """Main AI analyzer class with robust error handling"""
+    """Main AI analyzer class optimized for Amazon listings"""
     
     def __init__(self):
         self.api_client = APIClient()
@@ -386,7 +453,7 @@ class EnhancedAIAnalyzer:
     
     def analyze_reviews_comprehensive(self, product_info: Dict[str, Any],
                                     reviews: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Comprehensive AI analysis of reviews"""
+        """Comprehensive AI analysis of reviews for Amazon optimization"""
         
         if not self.api_client.is_available():
             return {
@@ -411,9 +478,17 @@ class EnhancedAIAnalyzer:
                 product_info, review_summaries
             )
             
-            # Make API call
+            # Make API call with Amazon-specific system prompt
             response = self.api_client.call_api([
-                {"role": "system", "content": "You are an expert medical device quality analyst with deep knowledge of customer feedback analysis and risk assessment."},
+                {"role": "system", "content": """You are the top Amazon listing optimization expert with deep knowledge of:
+                - A9 algorithm and ranking factors
+                - Conversion rate optimization for Amazon
+                - Keyword research from customer language
+                - Competitive positioning on Amazon
+                - Review management strategies
+                
+                Always provide specific, actionable recommendations that can be implemented immediately.
+                Focus on changes that will improve BSR and conversion rate within days."""},
                 {"role": "user", "content": prompt}
             ])
             
@@ -448,22 +523,32 @@ class EnhancedAIAnalyzer:
                 'ai_analysis_available': False
             }
     
-    def assess_risk_level(self, analysis_summary: str) -> Dict[str, Any]:
-        """AI-powered risk assessment"""
+    def generate_listing_optimization(self, metrics: Dict[str, Any],
+                                    top_issues: List[str]) -> Dict[str, Any]:
+        """Generate specific listing optimization recommendations"""
         
         if not self.api_client.is_available():
             return {
                 'success': False,
-                'error': 'AI risk assessment not available'
+                'error': 'AI optimization not available'
             }
         
         try:
-            # Create risk assessment prompt
-            prompt = self.prompt_templates.create_risk_assessment_prompt(analysis_summary)
+            # Create optimization prompt
+            prompt = self.prompt_templates.create_listing_optimization_prompt(
+                metrics, top_issues
+            )
             
             # Make API call
             response = self.api_client.call_api([
-                {"role": "system", "content": "You are a medical device risk management expert specializing in customer feedback risk analysis."},
+                {"role": "system", "content": """You are an Amazon copywriting expert who writes listing copy that:
+                - Ranks on page 1 for target keywords
+                - Converts browsers into buyers
+                - Addresses customer objections preemptively
+                - Uses emotional triggers effectively
+                - Follows Amazon's style guidelines
+                
+                Every word must serve a purpose. Be specific and compelling."""},
                 {"role": "user", "content": prompt}
             ])
             
@@ -474,19 +559,68 @@ class EnhancedAIAnalyzer:
                 }
             
             # Parse response
-            risk_results = self.response_parser.parse_risk_assessment(response['result'])
+            optimization_results = self.response_parser.parse_listing_optimization(response['result'])
             
             # Add metadata
-            risk_results.update({
+            optimization_results.update({
                 'success': True,
-                'analysis_timestamp': datetime.now().isoformat(),
+                'generation_timestamp': datetime.now().isoformat(),
                 'model_used': response.get('model', 'gpt-4o')
             })
             
-            return risk_results
+            return optimization_results
             
         except Exception as e:
-            logger.error(f"Error in risk assessment: {str(e)}")
+            logger.error(f"Error in listing optimization: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    def analyze_competitive_position(self, competitor_mentions: List[str],
+                                   product_strengths: List[str]) -> Dict[str, Any]:
+        """Analyze competitive positioning"""
+        
+        if not self.api_client.is_available():
+            return {
+                'success': False,
+                'error': 'AI competitive analysis not available'
+            }
+        
+        try:
+            # Create competitive analysis prompt
+            prompt = self.prompt_templates.create_competitive_analysis_prompt(
+                competitor_mentions, product_strengths
+            )
+            
+            # Make API call
+            response = self.api_client.call_api([
+                {"role": "system", "content": """You are an Amazon competitive strategy expert who understands:
+                - How to differentiate products on Amazon
+                - Price-value positioning
+                - Creating compelling comparison content
+                - Winning the Buy Box
+                - Building brand loyalty on Amazon
+                
+                Create strategies that make competitors irrelevant."""},
+                {"role": "user", "content": prompt}
+            ])
+            
+            if not response['success']:
+                return {
+                    'success': False,
+                    'error': response['error']
+                }
+            
+            # For now, return raw response (can add parser later)
+            return {
+                'success': True,
+                'analysis': response['result'],
+                'timestamp': datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in competitive analysis: {str(e)}")
             return {
                 'success': False,
                 'error': str(e)
