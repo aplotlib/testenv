@@ -1,511 +1,378 @@
 """
 Amazon Review Analyzer - Advanced Listing Optimization Engine
-Vive Health | Cyberpunk Edition v7.0
-AI-powered deep review analysis for Amazon listing managers
+Vive Health | Cyberpunk Edition v8.0
 """
 
 import streamlit as st
 import pandas as pd
 import numpy as np
-import json
 import logging
 from datetime import datetime, timedelta
 import io
 from typing import Dict, List, Any, Optional, Tuple
 import re
 from collections import Counter, defaultdict
-# Using Streamlit's built-in visualization capabilities instead of external libraries
+from io import BytesIO
 
-# Configure logging
+# Import handling with fallbacks
+try:
+    import xlsxwriter
+    EXCEL_AVAILABLE = True
+except ImportError:
+    EXCEL_AVAILABLE = False
+
+try:
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import letter
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.lib.enums import TA_CENTER
+    PDF_AVAILABLE = True
+except ImportError:
+    PDF_AVAILABLE = False
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Import AI modules
 try:
     import enhanced_ai_analysis
     AI_AVAILABLE = True
 except ImportError:
     AI_AVAILABLE = False
+    logger.warning("AI module not available")
 
-# Application configuration
+# Configuration
 APP_CONFIG = {
     'title': 'Vive Health Review Intelligence',
-    'version': '7.0 Cyberpunk',
-    'description': 'Advanced AI-powered Amazon review analysis',
+    'version': '8.0',
     'company': 'Vive Health',
     'support_email': 'alexander.popoff@vivehealth.com'
 }
 
-# Cyberpunk color scheme
 COLORS = {
-    'primary': '#00D9FF',      # Cyan
-    'secondary': '#FF006E',    # Hot pink
-    'accent': '#FFB700',       # Gold
-    'success': '#00F5A0',      # Neon green
-    'warning': '#FF6B35',      # Orange
-    'danger': '#FF0054',       # Red
-    'dark': '#0A0A0F',         # Deep black
-    'light': '#1A1A2E',        # Dark blue
-    'text': '#E0E0E0',         # Light gray
-    'muted': '#666680'         # Muted purple
+    'primary': '#00D9FF', 'secondary': '#FF006E', 'accent': '#FFB700',
+    'success': '#00F5A0', 'warning': '#FF6B35', 'danger': '#FF0054',
+    'dark': '#0A0A0F', 'light': '#1A1A2E', 'text': '#E0E0E0', 'muted': '#666680'
 }
 
 def initialize_session_state():
-    """Initialize session state with advanced features"""
+    """Initialize session state"""
     defaults = {
-        'uploaded_data': None,
-        'analysis_results': None,
-        'current_view': 'upload',
-        'processing': False,
-        'ai_analyzer': None,
-        'competitor_insights': None,
-        'keyword_opportunities': None,
-        'sentiment_analysis': None,
-        'review_clusters': None,
-        'quality_issues': None,
-        'listing_score': None,
-        'improvement_priority': None,
-        'selected_timeframe': 'all',
-        'filter_rating': 'all',
-        'analysis_depth': 'comprehensive',
-        'chat_messages': [],
-        'show_ai_chat': False
+        'uploaded_data': None, 'analysis_results': None, 'current_view': 'upload',
+        'processing': False, 'ai_analyzer': None, 'chat_messages': [],
+        'show_ai_chat': False, 'selected_timeframe': 'all', 'filter_rating': 'all',
+        'analysis_depth': 'comprehensive', 'use_listing_details': False,
+        'listing_details': {
+            'title': '', 'bullet_points': ['', '', '', '', ''], 'description': '',
+            'backend_keywords': '', 'brand': '', 'category': ''
+        }
     }
-    
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
 
 def inject_cyberpunk_css():
-    """Inject cyberpunk-themed CSS"""
+    """Inject minimal cyberpunk CSS"""
     st.markdown(f"""
     <style>
-    /* Cyberpunk Theme */
     @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600;700&display=swap');
     
-    /* Global styles */
-    .stApp {{
-        background: linear-gradient(135deg, {COLORS['dark']} 0%, {COLORS['light']} 100%);
-        color: {COLORS['text']};
+    :root {{
+        --primary: {COLORS['primary']}; --secondary: {COLORS['secondary']};
+        --accent: {COLORS['accent']}; --success: {COLORS['success']};
+        --warning: {COLORS['warning']}; --danger: {COLORS['danger']};
+        --dark: {COLORS['dark']}; --light: {COLORS['light']};
+        --text: {COLORS['text']}; --muted: {COLORS['muted']};
     }}
     
-    /* Headers */
-    h1, h2, h3 {{
-        font-family: 'Orbitron', monospace;
-        text-transform: uppercase;
-        letter-spacing: 2px;
+    html, body, .stApp {{
+        background: linear-gradient(135deg, var(--dark) 0%, var(--light) 100%);
+        color: var(--text); font-family: 'Rajdhani', sans-serif;
     }}
+    
+    h1, h2, h3 {{ font-family: 'Orbitron', sans-serif; text-transform: uppercase; letter-spacing: 0.1em; }}
     
     h1 {{
-        background: linear-gradient(90deg, {COLORS['primary']} 0%, {COLORS['secondary']} 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        text-shadow: 0 0 30px {COLORS['primary']}40;
+        background: linear-gradient(90deg, var(--primary) 0%, var(--secondary) 100%);
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        text-shadow: 0 0 30px rgba(0, 217, 255, 0.4);
     }}
     
-    /* Neon glow effect */
     .neon-box {{
-        background: {COLORS['dark']}90;
-        border: 1px solid {COLORS['primary']};
-        border-radius: 10px;
-        padding: 1.5rem;
-        box-shadow: 
-            0 0 20px {COLORS['primary']}40,
-            inset 0 0 20px {COLORS['primary']}10;
-        backdrop-filter: blur(10px);
+        background: rgba(10, 10, 15, 0.9); border: 1px solid var(--primary);
+        border-radius: 10px; padding: 1.5rem;
+        box-shadow: 0 0 20px rgba(0, 217, 255, 0.4), inset 0 0 20px rgba(0, 217, 255, 0.1);
     }}
     
-    /* AI Chat styles */
-    .ai-chat-container {{
-        background: {COLORS['dark']}95;
-        border: 2px solid {COLORS['primary']};
-        border-radius: 15px;
-        padding: 1.5rem;
-        margin: 1rem 0;
-        box-shadow: 
-            0 0 30px {COLORS['primary']}50,
-            inset 0 0 20px {COLORS['primary']}20;
-    }}
-    
-    .chat-message {{
-        margin: 0.5rem 0;
-        padding: 0.75rem 1rem;
-        border-radius: 10px;
-        animation: fadeIn 0.3s ease;
-    }}
-    
-    .user-message {{
-        background: {COLORS['light']}80;
-        border-left: 3px solid {COLORS['secondary']};
-        margin-left: 2rem;
-    }}
-    
-    .ai-message {{
-        background: {COLORS['dark']}80;
-        border-left: 3px solid {COLORS['primary']};
-        margin-right: 2rem;
-    }}
-    
-    @keyframes fadeIn {{
-        from {{ opacity: 0; transform: translateY(10px); }}
-        to {{ opacity: 1; transform: translateY(0); }}
-    }}
-    
-    /* Buttons */
     .stButton > button {{
-        font-family: 'Rajdhani', sans-serif;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        background: linear-gradient(135deg, {COLORS['primary']} 0%, {COLORS['secondary']} 100%);
-        color: {COLORS['dark']};
-        border: none;
-        padding: 0.75rem 2rem;
-        border-radius: 5px;
-        transition: all 0.3s ease;
-        box-shadow: 0 4px 15px {COLORS['primary']}40;
+        font-family: 'Rajdhani', sans-serif; font-weight: 600;
+        background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+        color: var(--dark); border: none; padding: 0.75rem 2rem;
+        border-radius: 5px; transition: all 0.3s ease;
+        box-shadow: 0 4px 15px rgba(0, 217, 255, 0.4);
     }}
     
     .stButton > button:hover {{
-        transform: translateY(-2px);
-        box-shadow: 
-            0 6px 25px {COLORS['primary']}60,
-            0 0 30px {COLORS['primary']}40;
-    }}
-    
-    /* Primary button */
-    .stButton > button[kind="primary"] {{
-        background: linear-gradient(135deg, {COLORS['success']} 0%, {COLORS['primary']} 100%);
-        box-shadow: 0 4px 15px {COLORS['success']}40;
-    }}
-    
-    /* Metrics */
-    [data-testid="metric-container"] {{
-        background: {COLORS['light']}90;
-        border: 1px solid {COLORS['primary']}50;
-        padding: 1rem;
-        border-radius: 8px;
-        box-shadow: 
-            0 0 15px {COLORS['primary']}20,
-            inset 0 0 10px {COLORS['primary']}10;
-        backdrop-filter: blur(5px);
-    }}
-    
-    [data-testid="metric-container"] [data-testid="metric-value"] {{
-        font-family: 'Orbitron', monospace;
-        color: {COLORS['primary']};
-        text-shadow: 0 0 10px {COLORS['primary']}60;
-    }}
-    
-    /* File uploader */
-    [data-testid="stFileUploader"] {{
-        background: {COLORS['dark']}80;
-        padding: 2rem;
-        border-radius: 10px;
-        border: 2px dashed {COLORS['primary']};
-        transition: all 0.3s ease;
-    }}
-    
-    [data-testid="stFileUploader"]:hover {{
-        border-color: {COLORS['secondary']};
-        box-shadow: 0 0 30px {COLORS['secondary']}40;
-        background: {COLORS['dark']}95;
-    }}
-    
-    /* Selectbox & inputs */
-    .stSelectbox > div > div,
-    .stTextInput > div > div > input {{
-        background: {COLORS['dark']}80 !important;
-        border: 1px solid {COLORS['primary']}50 !important;
-        color: {COLORS['text']} !important;
-        border-radius: 5px;
-    }}
-    
-    /* Progress bars */
-    .stProgress > div > div > div {{
-        background: linear-gradient(90deg, {COLORS['primary']} 0%, {COLORS['secondary']} 100%);
-        box-shadow: 0 0 20px {COLORS['primary']}60;
-    }}
-    
-    /* Expanders */
-    .streamlit-expanderHeader {{
-        background: {COLORS['light']}80;
-        border: 1px solid {COLORS['primary']}30;
-        border-radius: 8px;
-        font-family: 'Rajdhani', sans-serif;
-        font-weight: 600;
-        letter-spacing: 1px;
-    }}
-    
-    /* Info/Warning/Error boxes */
-    .stAlert {{
-        background: {COLORS['dark']}90;
-        border-left: 4px solid {COLORS['primary']};
-        border-radius: 5px;
-    }}
-    
-    /* Tabs */
-    .stTabs [data-baseweb="tab-list"] {{
-        background: {COLORS['dark']}80;
-        border-radius: 10px;
-        padding: 5px;
-    }}
-    
-    .stTabs [data-baseweb="tab"] {{
-        color: {COLORS['text']};
-        font-family: 'Rajdhani', sans-serif;
-        font-weight: 600;
-        letter-spacing: 1px;
-    }}
-    
-    .stTabs [aria-selected="true"] {{
-        background: linear-gradient(135deg, {COLORS['primary']} 0%, {COLORS['secondary']} 100%);
-        color: {COLORS['dark']};
-    }}
-    
-    /* Custom classes */
-    .cyber-header {{
-        background: linear-gradient(135deg, {COLORS['primary']}20 0%, {COLORS['secondary']}20 100%);
-        border: 1px solid {COLORS['primary']}50;
-        border-radius: 15px;
-        padding: 2rem;
-        text-align: center;
-        box-shadow: 
-            0 0 40px {COLORS['primary']}30,
-            inset 0 0 40px {COLORS['primary']}10;
-        backdrop-filter: blur(10px);
-        position: relative;
-        overflow: hidden;
-    }}
-    
-    .cyber-header::before {{
-        content: '';
-        position: absolute;
-        top: -50%;
-        left: -50%;
-        width: 200%;
-        height: 200%;
-        background: repeating-linear-gradient(
-            45deg,
-            transparent,
-            transparent 10px,
-            {COLORS['primary']}10 10px,
-            {COLORS['primary']}10 20px
-        );
-        animation: scan 10s linear infinite;
-    }}
-    
-    @keyframes scan {{
-        0% {{ transform: translate(0, 0); }}
-        100% {{ transform: translate(50px, 50px); }}
+        transform: translateY(-2px); box-shadow: 0 6px 25px rgba(0, 217, 255, 0.6);
     }}
     
     .metric-card {{
-        background: {COLORS['light']}80;
-        border: 1px solid {COLORS['primary']}40;
-        border-radius: 10px;
-        padding: 1.5rem;
-        text-align: center;
-        transition: all 0.3s ease;
-        box-shadow: 0 0 20px {COLORS['primary']}20;
+        background: rgba(26, 26, 46, 0.8); border: 1px solid rgba(0, 217, 255, 0.4);
+        border-radius: 10px; padding: 1.5rem; text-align: center;
+        transition: all 0.3s ease; cursor: pointer;
     }}
     
-    .metric-card:hover {{
-        transform: translateY(-5px);
-        box-shadow: 
-            0 5px 30px {COLORS['primary']}40,
-            0 0 40px {COLORS['primary']}30;
-        border-color: {COLORS['secondary']};
+    .metric-card:hover {{ transform: translateY(-5px) scale(1.02); }}
+    
+    .cyber-header {{
+        background: linear-gradient(135deg, rgba(0, 217, 255, 0.2) 0%, rgba(255, 0, 110, 0.2) 100%);
+        border: 1px solid rgba(0, 217, 255, 0.5); border-radius: 15px;
+        padding: 2rem; text-align: center; position: relative; overflow: hidden;
     }}
     
-    .priority-high {{
-        border-left: 4px solid {COLORS['danger']};
-        box-shadow: 0 0 20px {COLORS['danger']}40;
-    }}
+    .chat-message {{ margin: 0.5rem 0; padding: 1rem; border-radius: 10px; }}
+    .user-message {{ background: rgba(255, 0, 110, 0.1); border-left: 3px solid var(--secondary); }}
+    .ai-message {{ background: rgba(0, 217, 255, 0.1); border-left: 3px solid var(--primary); }}
     
-    .priority-medium {{
-        border-left: 4px solid {COLORS['warning']};
-        box-shadow: 0 0 20px {COLORS['warning']}40;
-    }}
+    .priority-high {{ border-left: 4px solid var(--danger); }
+    .priority-medium {{ border-left: 4px solid var(--warning); }}
+    .priority-low {{ border-left: 4px solid var(--success); }}
     
-    .priority-low {{
-        border-left: 4px solid {COLORS['success']};
-        box-shadow: 0 0 20px {COLORS['success']}40;
-    }}
-    
-    /* Scrollbar */
-    ::-webkit-scrollbar {{
-        width: 10px;
-        background: {COLORS['dark']};
-    }}
-    
-    ::-webkit-scrollbar-thumb {{
-        background: linear-gradient(180deg, {COLORS['primary']} 0%, {COLORS['secondary']} 100%);
-        border-radius: 5px;
-    }}
-    
-    /* Hide Streamlit branding */
-    #MainMenu, footer, header {{
-        visibility: hidden;
-    }}
+    #MainMenu, footer, header {{ visibility: hidden; }}
     </style>
     """, unsafe_allow_html=True)
 
-def display_ai_chat():
-    """Display standalone AI chat interface for Amazon listing optimization"""
-    st.markdown(f"""
-    <div class="ai-chat-container">
-        <h3 style="color: {COLORS['primary']}; margin-top: 0;">
-            🤖 AI LISTING OPTIMIZATION ASSISTANT
-        </h3>
-        <p style="opacity: 0.8; margin-bottom: 1rem;">
-            Ask me anything about Amazon listing optimization, keywords, or strategy
+def check_ai_status():
+    """Check AI availability"""
+    if not AI_AVAILABLE:
+        return False
+    try:
+        if st.session_state.ai_analyzer is None:
+            st.session_state.ai_analyzer = enhanced_ai_analysis.EnhancedAIAnalyzer()
+        status = st.session_state.ai_analyzer.get_api_status()
+        return status.get('available', False)
+    except Exception as e:
+        logger.error(f"Error checking AI status: {e}")
+        return False
+
+def display_header():
+    """Display header with navigation"""
+    st.markdown("""
+    <div class="cyber-header">
+        <h1 style="font-size: 3em; margin: 0;">VIVE HEALTH REVIEW INTELLIGENCE</h1>
+        <p style="color: var(--primary); text-transform: uppercase; letter-spacing: 3px;">
+            Advanced Amazon Listing Optimization Engine
         </p>
     </div>
     """, unsafe_allow_html=True)
     
-    # Display chat messages
-    for message in st.session_state.chat_messages:
-        if message["role"] == "user":
-            st.markdown(f"""
-            <div class="chat-message user-message">
-                <strong>You:</strong> {message["content"]}
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            st.markdown(f"""
-            <div class="chat-message ai-message">
-                <strong>AI Assistant:</strong> {message["content"]}
-            </div>
-            """, unsafe_allow_html=True)
+    # Quick actions bar
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
     
-    # Chat input
-    user_input = st.text_input("💬 Ask about Amazon listings, keywords, optimization strategies...", 
-                               key="chat_input", 
-                               placeholder="e.g., 'How do I optimize my title for mobility aids?'")
+    with col1:
+        if st.button("💬 AI CHAT", use_container_width=True, type="primary"):
+            st.session_state.show_ai_chat = not st.session_state.show_ai_chat
+            st.rerun()
     
-    if user_input and st.button("Send", type="primary"):
-        # Add user message
-        st.session_state.chat_messages.append({"role": "user", "content": user_input})
-        
-        # Get AI response
-        with st.spinner("🤖 AI thinking..."):
-            response = get_ai_chat_response(user_input)
-            st.session_state.chat_messages.append({"role": "assistant", "content": response})
-        
-        st.rerun()
+    with col2:
+        if st.button("🔄 New Analysis", use_container_width=True):
+            for key in ['uploaded_data', 'analysis_results', 'current_view']:
+                st.session_state[key] = None if key != 'current_view' else 'upload'
+            st.session_state.show_ai_chat = False
+            st.rerun()
     
-    # Clear chat button
-    if st.button("🔄 Clear Chat"):
-        st.session_state.chat_messages = []
-        st.rerun()
+    if st.session_state.uploaded_data:
+        with col3:
+            view_options = {'metrics': '📊 Metrics', 'ai_results': '🤖 AI Analysis', 'comprehensive': '🎯 Full Report'}
+            if not st.session_state.analysis_results:
+                view_options.pop('ai_results', None)
+                view_options.pop('comprehensive', None)
+            
+            if st.session_state.current_view != 'upload':
+                selected_view = st.selectbox("📍 View", options=list(view_options.keys()),
+                                           format_func=lambda x: view_options[x], key='view_selector')
+                if selected_view != st.session_state.current_view:
+                    st.session_state.current_view = selected_view
+                    st.rerun()
+    
+    with col4:
+        st.selectbox("⏱️ Timeframe", options=['all', '30d', '90d', '180d', '365d'],
+                    key='selected_timeframe', format_func=lambda x: {
+                        'all': 'All Time', '30d': 'Last 30 Days', '90d': 'Last 90 Days',
+                        '180d': 'Last 6 Months', '365d': 'Last Year'
+                    }[x])
+    
+    with col5:
+        st.selectbox("⭐ Rating Filter", options=['all', '5', '4', '3', '2', '1', 'positive', 'negative'],
+                    key='filter_rating', format_func=lambda x: {
+                        'all': 'All Ratings', '5': '5 Stars Only', '4': '4 Stars Only',
+                        '3': '3 Stars Only', '2': '2 Stars Only', '1': '1 Star Only',
+                        'positive': '4-5 Stars', 'negative': '1-2 Stars'
+                    }[x])
+    
+    with col6:
+        st.selectbox("🎯 Analysis Depth", options=['quick', 'standard', 'comprehensive'],
+                    key='analysis_depth', format_func=lambda x: x.title())
 
 def get_ai_chat_response(user_input: str) -> str:
     """Get AI response for chat"""
     if not check_ai_status():
-        return "AI service is currently unavailable. Please check your API configuration."
+        return "AI service is currently unavailable."
     
     try:
-        # Prepare optimized prompt for Amazon listing help
-        system_prompt = """You are an expert Amazon listing optimization specialist with deep knowledge of:
-        - Amazon SEO and A9 algorithm
-        - Keyword research and placement strategies
-        - Title optimization for maximum visibility
-        - Bullet point writing that converts
-        - Backend search terms optimization
-        - Image and A+ content strategies
-        - Competitor analysis techniques
-        - Review management and response strategies
-        
-        Provide specific, actionable advice that will immediately improve Amazon listings.
-        Focus on conversion rate optimization and reducing negative reviews.
-        Be concise but comprehensive. Use examples when helpful."""
+        system_prompt = """You are an expert Amazon listing optimization specialist.
+        Provide specific, actionable advice for improving Amazon listings, focusing on
+        conversion rate optimization and reducing negative reviews. Be concise but comprehensive."""
         
         result = st.session_state.ai_analyzer.api_client.call_api([
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_input}
         ], max_tokens=800, temperature=0.7)
         
-        if result['success']:
-            return result['result']
-        else:
-            return f"I encountered an error: {result.get('error', 'Unknown error')}. Please try again."
-            
+        return result['result'] if result['success'] else f"Error: {result.get('error', 'Unknown')}"
     except Exception as e:
         logger.error(f"Chat error: {e}")
-        return "I'm having trouble processing your request. Please try again."
+        return "Error processing request. Please try again."
 
-def display_helium_10_instructions():
-    """Display Helium 10 import instructions"""
-    with st.expander("📚 How to Export Reviews from Helium 10", expanded=False):
-        st.markdown(f"""
-        <div style="background: {COLORS['dark']}90; padding: 1rem; border-radius: 10px; border: 1px solid {COLORS['accent']}50;">
-        
-        ### Quick Steps to Export Reviews:
-        
-        1. **Login to Helium 10** → Go to Review Insights tool
-        2. **Select your ASIN** → Choose the product to analyze  
-        3. **Set date range** → We recommend last 6-12 months
-        4. **Click "Export"** → Choose CSV or Excel format
-        5. **Upload here** → Drag & drop the file below
-        
-        ### Required Columns:
-        - **Title** - Review headline
-        - **Body** - Full review text  
-        - **Rating** - Star rating (1-5)
-        - **Date** - Review date (optional but recommended)
-        - **Verified** - Verified purchase status (optional)
-        
-        ### Pro Tips:
-        - Export all reviews, not just negative ones
-        - Include at least 100 reviews for best AI insights
-        - Recent reviews (last 90 days) are most valuable
-        
-        </div>
-        """, unsafe_allow_html=True)
+def display_ai_chat():
+    """Display AI chat interface"""
+    st.markdown("""
+    <div class="neon-box">
+        <h3 style="color: var(--primary);">🤖 AI LISTING OPTIMIZATION ASSISTANT</h3>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Display messages
+    for message in st.session_state.chat_messages:
+        msg_class = "user-message" if message["role"] == "user" else "ai-message"
+        role = "You" if message["role"] == "user" else "AI Assistant"
+        st.markdown(f'<div class="chat-message {msg_class}"><strong>{role}:</strong> {message["content"]}</div>',
+                   unsafe_allow_html=True)
+    
+    # Input
+    col1, col2 = st.columns([5, 1])
+    with col1:
+        user_input = st.text_input("💬 Ask about Amazon listings...", key="chat_input", label_visibility="collapsed")
+    with col2:
+        send_button = st.button("Send", type="primary", use_container_width=True)
+    
+    if user_input and send_button:
+        st.session_state.chat_messages.extend([
+            {"role": "user", "content": user_input},
+            {"role": "assistant", "content": get_ai_chat_response(user_input)}
+        ])
+        st.rerun()
+    
+    if st.session_state.chat_messages:
+        if st.button("🔄 Clear Chat"):
+            st.session_state.chat_messages = []
+            st.rerun()
 
-def calculate_advanced_metrics(df: pd.DataFrame) -> Dict[str, Any]:
-    """Calculate advanced metrics from review data"""
+def display_listing_details_form():
+    """Display optional listing details form"""
+    st.markdown('<p style="color: #FFB700;">💡 Providing listing details enables targeted AI recommendations</p>',
+               unsafe_allow_html=True)
+    
+    if st.checkbox("Include listing details in AI analysis", value=st.session_state.use_listing_details):
+        st.session_state.use_listing_details = True
+        
+        st.text_input("Product Title", value=st.session_state.listing_details['title'],
+                     max_chars=200, key="listing_title")
+        st.session_state.listing_details['title'] = st.session_state.listing_title
+        
+        st.markdown("**Bullet Points**")
+        for i in range(5):
+            bullet = st.text_input(f"Bullet Point {i+1}",
+                                 value=st.session_state.listing_details['bullet_points'][i],
+                                 max_chars=500, key=f"bullet_{i}")
+            st.session_state.listing_details['bullet_points'][i] = bullet
+        
+        st.text_area("Product Description", value=st.session_state.listing_details['description'],
+                    height=150, max_chars=2000, key="listing_description")
+        st.session_state.listing_details['description'] = st.session_state.listing_description
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            backend = st.text_area("Backend Search Terms",
+                                 value=st.session_state.listing_details['backend_keywords'],
+                                 height=100, max_chars=250, key="backend_keywords")
+            st.session_state.listing_details['backend_keywords'] = backend
+            
+            brand = st.text_input("Brand Name", value=st.session_state.listing_details['brand'],
+                                key="brand_name")
+            st.session_state.listing_details['brand'] = brand
+        
+        with col2:
+            category = st.text_input("Product Category",
+                                   value=st.session_state.listing_details['category'],
+                                   key="product_category")
+            st.session_state.listing_details['category'] = category
+            
+            filled_bullets = sum(1 for b in st.session_state.listing_details['bullet_points'] if b.strip())
+            st.info(f"✅ {filled_bullets}/5 bullet points provided")
+    else:
+        st.session_state.use_listing_details = False
+
+def parse_amazon_date(date_string):
+    """Parse Amazon review dates"""
     try:
-        metrics = {
-            'basic_stats': calculate_basic_stats(df),
-            'sentiment_breakdown': analyze_sentiment_patterns(df),
-            'keyword_analysis': extract_keywords(df),
-            'temporal_trends': analyze_temporal_trends(df),
-            'verified_vs_unverified': analyze_verification_impact(df),
-            'review_quality_scores': calculate_review_quality(df),
-            'issue_categories': categorize_issues(df),
-            'competitor_mentions': find_competitor_mentions(df)
-        }
-        
-        # Calculate overall listing health score
-        metrics['listing_health_score'] = calculate_listing_health_score(metrics)
-        
-        return metrics
-        
-    except Exception as e:
-        logger.error(f"Error calculating advanced metrics: {e}")
+        if pd.isna(date_string) or not date_string:
+            return None
+        date_part = str(date_string).split("on ")[-1] if "on " in str(date_string) else str(date_string)
+        for fmt in ['%B %d, %Y', '%b %d, %Y', '%m/%d/%Y', '%Y-%m-%d']:
+            try:
+                return datetime.strptime(date_part.strip(), fmt).date()
+            except:
+                continue
+        return pd.to_datetime(date_part, errors='coerce').date()
+    except:
         return None
 
-def analyze_sentiment_patterns(df: pd.DataFrame) -> Dict[str, Any]:
-    """Analyze sentiment patterns in reviews"""
+def calculate_basic_stats(df):
+    """Calculate basic statistics"""
+    try:
+        ratings = df['Rating'].dropna()
+        rating_counts = ratings.value_counts().sort_index().to_dict()
+        
+        stats = {
+            'total_reviews': len(df),
+            'average_rating': round(ratings.mean(), 2),
+            'rating_distribution': rating_counts,
+            'verified_count': sum(df['Verified'] == 'yes') if 'Verified' in df.columns else 0,
+            '1_2_star_percentage': round((sum(ratings <= 2) / len(ratings)) * 100, 1) if len(ratings) > 0 else 0,
+            '4_5_star_percentage': round((sum(ratings >= 4) / len(ratings)) * 100, 1) if len(ratings) > 0 else 0,
+            'median_rating': ratings.median(),
+            'rating_std': round(ratings.std(), 2)
+        }
+        
+        if 'Date' in df.columns:
+            df['parsed_date'] = df['Date'].apply(parse_amazon_date)
+            valid_dates = df['parsed_date'].dropna()
+            if len(valid_dates) > 0:
+                stats['date_range'] = {
+                    'earliest': valid_dates.min(),
+                    'latest': valid_dates.max(),
+                    'days_covered': (valid_dates.max() - valid_dates.min()).days
+                }
+        
+        return stats
+    except Exception as e:
+        logger.error(f"Stats calculation error: {e}")
+        return None
+
+def analyze_sentiment_patterns(df):
+    """Analyze sentiment in reviews"""
     sentiments = {
-        'positive_keywords': ['love', 'great', 'excellent', 'perfect', 'amazing', 'best', 'wonderful', 'fantastic', 'quality', 'recommend'],
-        'negative_keywords': ['hate', 'terrible', 'awful', 'worst', 'horrible', 'poor', 'cheap', 'broken', 'disappointed', 'waste'],
-        'neutral_keywords': ['okay', 'fine', 'average', 'decent', 'alright', 'satisfactory']
+        'positive_keywords': ['love', 'great', 'excellent', 'perfect', 'amazing', 'best', 'wonderful', 'quality'],
+        'negative_keywords': ['hate', 'terrible', 'awful', 'worst', 'horrible', 'poor', 'cheap', 'broken']
     }
     
-    results = {
-        'positive': 0,
-        'negative': 0,
-        'neutral': 0,
-        'mixed': 0
-    }
+    results = {'positive': 0, 'negative': 0, 'neutral': 0, 'mixed': 0}
     
     for _, row in df.iterrows():
         if pd.isna(row.get('Body')):
             continue
-            
         text = str(row['Body']).lower()
         pos_count = sum(1 for word in sentiments['positive_keywords'] if word in text)
         neg_count = sum(1 for word in sentiments['negative_keywords'] if word in text)
@@ -521,22 +388,19 @@ def analyze_sentiment_patterns(df: pd.DataFrame) -> Dict[str, Any]:
     
     return results
 
-def extract_keywords(df: pd.DataFrame, top_n: int = 20) -> Dict[str, List[Tuple[str, int]]]:
-    """Extract top keywords and phrases from reviews"""
+def extract_keywords(df, top_n=20):
+    """Extract keywords from reviews"""
     positive_reviews = df[df['Rating'] >= 4]['Body'].dropna()
     negative_reviews = df[df['Rating'] <= 2]['Body'].dropna()
     
     def get_keywords(texts):
         all_words = []
         for text in texts:
-            # Simple keyword extraction - can be enhanced with NLP
             words = re.findall(r'\b[a-z]+\b', str(text).lower())
             all_words.extend(words)
         
-        # Filter common words
-        stopwords = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'is', 'was', 'are', 'were', 'it', 'this', 'that', 'have', 'has', 'had', 'be', 'been', 'being', 'i', 'me', 'my', 'we', 'our', 'you', 'your'}
+        stopwords = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'is', 'was', 'it', 'this', 'that', 'have', 'has', 'i', 'my', 'your'}
         filtered_words = [w for w in all_words if w not in stopwords and len(w) > 3]
-        
         return Counter(filtered_words).most_common(top_n)
     
     return {
@@ -544,7 +408,7 @@ def extract_keywords(df: pd.DataFrame, top_n: int = 20) -> Dict[str, List[Tuple[
         'negative_keywords': get_keywords(negative_reviews)
     }
 
-def analyze_temporal_trends(df: pd.DataFrame) -> Dict[str, Any]:
+def analyze_temporal_trends(df):
     """Analyze rating trends over time"""
     if 'Date' not in df.columns:
         return {}
@@ -555,14 +419,10 @@ def analyze_temporal_trends(df: pd.DataFrame) -> Dict[str, Any]:
     if len(df_with_dates) == 0:
         return {}
     
-    # Group by month
     df_with_dates['month'] = pd.to_datetime(df_with_dates['parsed_date']).dt.to_period('M')
     monthly_avg = df_with_dates.groupby('month')['Rating'].agg(['mean', 'count'])
-    
-    # Convert Period index to strings for JSON compatibility
     monthly_avg.index = monthly_avg.index.astype(str)
     
-    # Detect trend
     if len(monthly_avg) > 1:
         ratings = monthly_avg['mean'].values
         trend = 'improving' if ratings[-1] > ratings[0] else 'declining' if ratings[-1] < ratings[0] else 'stable'
@@ -575,7 +435,60 @@ def analyze_temporal_trends(df: pd.DataFrame) -> Dict[str, Any]:
         'recent_performance': monthly_avg.tail(3)['mean'].mean() if len(monthly_avg) >= 3 else None
     }
 
-def analyze_verification_impact(df: pd.DataFrame) -> Dict[str, Any]:
+def categorize_issues(df):
+    """Categorize issues from negative reviews"""
+    categories = {
+        'quality': ['quality', 'cheap', 'flimsy', 'broken', 'defect', 'poor'],
+        'size_fit': ['size', 'fit', 'small', 'large', 'tight', 'loose'],
+        'shipping': ['shipping', 'package', 'delivery', 'damaged', 'late'],
+        'functionality': ['work', 'function', 'feature', 'button', 'operate'],
+        'value': ['price', 'expensive', 'value', 'worth', 'money'],
+        'durability': ['last', 'durable', 'broke', 'wear', 'tear'],
+        'instructions': ['instructions', 'manual', 'setup', 'confusing'],
+        'customer_service': ['service', 'support', 'response', 'help']
+    }
+    
+    issue_counts = {cat: 0 for cat in categories}
+    negative_reviews = df[df['Rating'] <= 3]['Body'].dropna()
+    
+    for review in negative_reviews:
+        review_lower = str(review).lower()
+        for category, keywords in categories.items():
+            if any(keyword in review_lower for keyword in keywords):
+                issue_counts[category] += 1
+    
+    return issue_counts
+
+def calculate_review_quality(df):
+    """Calculate review quality scores"""
+    quality_scores = []
+    
+    for _, row in df.iterrows():
+        if pd.isna(row.get('Body')):
+            continue
+        body = str(row['Body'])
+        score = 0
+        
+        word_count = len(body.split())
+        if word_count > 50: score += 3
+        elif word_count > 20: score += 2
+        elif word_count > 10: score += 1
+        
+        detail_keywords = ['size', 'color', 'material', 'quality', 'feature']
+        score += sum(1 for keyword in detail_keywords if keyword in body.lower())
+        
+        if any(phrase in body.lower() for phrase in ['pros:', 'cons:', 'update:']):
+            score += 2
+        
+        quality_scores.append(score)
+    
+    return {
+        'avg_quality_score': np.mean(quality_scores) if quality_scores else 0,
+        'high_quality_count': sum(1 for s in quality_scores if s >= 5),
+        'low_quality_count': sum(1 for s in quality_scores if s <= 2)
+    }
+
+def analyze_verification_impact(df):
     """Compare verified vs unverified reviews"""
     if 'Verified' not in df.columns:
         return {}
@@ -587,641 +500,73 @@ def analyze_verification_impact(df: pd.DataFrame) -> Dict[str, Any]:
         'verified_avg_rating': verified['Rating'].mean() if len(verified) > 0 else None,
         'unverified_avg_rating': unverified['Rating'].mean() if len(unverified) > 0 else None,
         'verified_count': len(verified),
-        'unverified_count': len(unverified),
-        'verification_impact': 'positive' if len(verified) > 0 and len(unverified) > 0 and verified['Rating'].mean() > unverified['Rating'].mean() else 'negative'
+        'unverified_count': len(unverified)
     }
 
-def calculate_review_quality(df: pd.DataFrame) -> Dict[str, Any]:
-    """Calculate quality scores for reviews"""
-    quality_scores = []
-    
-    for _, row in df.iterrows():
-        if pd.isna(row.get('Body')):
-            continue
-            
-        body = str(row['Body'])
-        score = 0
-        
-        # Length score
-        word_count = len(body.split())
-        if word_count > 50:
-            score += 3
-        elif word_count > 20:
-            score += 2
-        elif word_count > 10:
-            score += 1
-        
-        # Detail score (mentions specific features)
-        detail_keywords = ['size', 'color', 'material', 'quality', 'feature', 'function', 'use', 'compare']
-        score += sum(1 for keyword in detail_keywords if keyword in body.lower())
-        
-        # Helpfulness indicators
-        if any(phrase in body.lower() for phrase in ['pros:', 'cons:', 'update:', 'edit:']):
-            score += 2
-        
-        quality_scores.append(score)
-    
-    return {
-        'avg_quality_score': np.mean(quality_scores) if quality_scores else 0,
-        'high_quality_count': sum(1 for s in quality_scores if s >= 5),
-        'low_quality_count': sum(1 for s in quality_scores if s <= 2)
-    }
-
-def categorize_issues(df: pd.DataFrame) -> Dict[str, int]:
-    """Categorize common issues mentioned in reviews"""
-    categories = {
-        'quality': ['quality', 'cheap', 'flimsy', 'broken', 'defect', 'poor', 'material'],
-        'size_fit': ['size', 'fit', 'small', 'large', 'tight', 'loose', 'measurement'],
-        'shipping': ['shipping', 'package', 'delivery', 'damaged', 'late', 'box'],
-        'functionality': ['work', 'function', 'feature', 'button', 'mechanism', 'operate'],
-        'value': ['price', 'expensive', 'value', 'worth', 'money', 'cost'],
-        'durability': ['last', 'durable', 'broke', 'wear', 'tear', 'months', 'weeks'],
-        'instructions': ['instructions', 'manual', 'setup', 'install', 'confusing', 'unclear'],
-        'customer_service': ['service', 'support', 'response', 'help', 'contact']
-    }
-    
-    issue_counts = {cat: 0 for cat in categories}
-    
-    negative_reviews = df[df['Rating'] <= 3]['Body'].dropna()
-    
-    for review in negative_reviews:
-        review_lower = str(review).lower()
-        for category, keywords in categories.items():
-            if any(keyword in review_lower for keyword in keywords):
-                issue_counts[category] += 1
-    
-    return issue_counts
-
-def find_competitor_mentions(df: pd.DataFrame) -> Dict[str, int]:
-    """Find mentions of competitors or competitor products"""
-    # Common competitor indicators
-    competitor_patterns = [
-        r'better than\s+\w+',
-        r'worse than\s+\w+',
-        r'compared to\s+\w+',
-        r'unlike\s+\w+',
-        r'switch from\s+\w+',
-        r'instead of\s+\w+',
-        r'[A-Z]\w+\s+brand',
-        r'[A-Z]\w+\s+version'
-    ]
-    
+def find_competitor_mentions(df):
+    """Find competitor mentions in reviews"""
+    patterns = [r'better than\s+\w+', r'compared to\s+\w+', r'switch from\s+\w+']
     mentions = []
     
     for _, row in df.iterrows():
         if pd.isna(row.get('Body')):
             continue
-            
         text = str(row['Body'])
-        for pattern in competitor_patterns:
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            mentions.extend(matches)
+        for pattern in patterns:
+            mentions.extend(re.findall(pattern, text, re.IGNORECASE))
     
     return Counter(mentions).most_common(10)
 
-def calculate_listing_health_score(metrics: Dict[str, Any]) -> Dict[str, Any]:
-    """Calculate overall listing health score"""
-    score_components = {
-        'rating_score': 0,
-        'review_volume_score': 0,
-        'sentiment_score': 0,
-        'trend_score': 0,
-        'quality_score': 0,
-        'issue_score': 0
+def calculate_listing_health_score(metrics):
+    """Calculate overall health score"""
+    components = {
+        'rating_score': (metrics['basic_stats']['average_rating'] / 5) * 25,
+        'review_volume_score': min((metrics['basic_stats']['total_reviews'] / 100) * 15, 15),
+        'sentiment_score': (metrics['sentiment_breakdown']['positive'] / sum(metrics['sentiment_breakdown'].values()) * 20) if sum(metrics['sentiment_breakdown'].values()) > 0 else 0,
+        'trend_score': 15 if metrics['temporal_trends'].get('trend') == 'improving' else 10 if metrics['temporal_trends'].get('trend') == 'stable' else 5,
+        'quality_score': min((metrics['review_quality_scores'].get('avg_quality_score', 0) / 8) * 15, 15),
+        'issue_score': max(10 - (sum(metrics['issue_categories'].values()) / metrics['basic_stats']['total_reviews'] * 50), 0)
     }
     
-    # Rating score (0-25)
-    avg_rating = metrics['basic_stats']['average_rating']
-    score_components['rating_score'] = (avg_rating / 5) * 25
-    
-    # Review volume score (0-15)
-    total_reviews = metrics['basic_stats']['total_reviews']
-    if total_reviews >= 1000:
-        score_components['review_volume_score'] = 15
-    elif total_reviews >= 500:
-        score_components['review_volume_score'] = 12
-    elif total_reviews >= 100:
-        score_components['review_volume_score'] = 8
-    else:
-        score_components['review_volume_score'] = 5
-    
-    # Sentiment score (0-20)
-    sentiment = metrics['sentiment_breakdown']
-    total_sentiment = sum(sentiment.values())
-    if total_sentiment > 0:
-        positive_ratio = sentiment['positive'] / total_sentiment
-        score_components['sentiment_score'] = positive_ratio * 20
-    
-    # Trend score (0-15)
-    trend = metrics['temporal_trends'].get('trend', 'stable')
-    if trend == 'improving':
-        score_components['trend_score'] = 15
-    elif trend == 'stable':
-        score_components['trend_score'] = 10
-    else:
-        score_components['trend_score'] = 5
-    
-    # Quality score (0-15)
-    review_quality = metrics['review_quality_scores'].get('avg_quality_score', 0)
-    score_components['quality_score'] = min((review_quality / 8) * 15, 15)
-    
-    # Issue score (0-10) - inverse scoring
-    issues = metrics['issue_categories']
-    total_issues = sum(issues.values())
-    issue_ratio = total_issues / max(metrics['basic_stats']['total_reviews'], 1)
-    score_components['issue_score'] = max(10 - (issue_ratio * 50), 0)
-    
-    total_score = sum(score_components.values())
+    total_score = sum(components.values())
     
     return {
         'total_score': round(total_score, 1),
-        'components': score_components,
+        'components': components,
         'grade': 'A' if total_score >= 85 else 'B' if total_score >= 70 else 'C' if total_score >= 55 else 'D' if total_score >= 40 else 'F',
         'status': 'Excellent' if total_score >= 85 else 'Good' if total_score >= 70 else 'Needs Improvement' if total_score >= 55 else 'Poor' if total_score >= 40 else 'Critical'
     }
 
-def parse_amazon_date(date_string):
-    """Parse Amazon review date formats"""
+def calculate_advanced_metrics(df):
+    """Calculate all advanced metrics"""
     try:
-        if pd.isna(date_string) or not date_string:
-            return None
-            
-        if "on " in str(date_string):
-            date_part = str(date_string).split("on ")[-1]
-        else:
-            date_part = str(date_string)
-        
-        # Try common formats
-        for fmt in ['%B %d, %Y', '%b %d, %Y', '%m/%d/%Y', '%Y-%m-%d']:
-            try:
-                return datetime.strptime(date_part.strip(), fmt).date()
-            except:
-                continue
-        
-        return pd.to_datetime(date_part, errors='coerce').date()
-        
-    except:
-        return None
-
-def calculate_basic_stats(df):
-    """Calculate basic statistics"""
-    try:
-        ratings = df['Rating'].dropna()
-        
-        # Rating distribution
-        rating_counts = ratings.value_counts().sort_index().to_dict()
-        
-        # Basic metrics
-        stats = {
-            'total_reviews': len(df),
-            'average_rating': round(ratings.mean(), 2),
-            'rating_distribution': rating_counts,
-            'verified_count': sum(df['Verified'] == 'yes') if 'Verified' in df.columns else 0,
-            '1_2_star_percentage': round((sum(ratings <= 2) / len(ratings)) * 100, 1) if len(ratings) > 0 else 0,
-            '4_5_star_percentage': round((sum(ratings >= 4) / len(ratings)) * 100, 1) if len(ratings) > 0 else 0,
-            'median_rating': ratings.median(),
-            'rating_std': round(ratings.std(), 2)
+        metrics = {
+            'basic_stats': calculate_basic_stats(df),
+            'sentiment_breakdown': analyze_sentiment_patterns(df),
+            'keyword_analysis': extract_keywords(df),
+            'temporal_trends': analyze_temporal_trends(df),
+            'verified_vs_unverified': analyze_verification_impact(df),
+            'review_quality_scores': calculate_review_quality(df),
+            'issue_categories': categorize_issues(df),
+            'competitor_mentions': find_competitor_mentions(df)
         }
-        
-        # Date range if available
-        if 'Date' in df.columns:
-            df['parsed_date'] = df['Date'].apply(parse_amazon_date)
-            valid_dates = df['parsed_date'].dropna()
-            if len(valid_dates) > 0:
-                stats['date_range'] = {
-                    'earliest': valid_dates.min(),
-                    'latest': valid_dates.max(),
-                    'days_covered': (valid_dates.max() - valid_dates.min()).days
-                }
-        
-        return stats
-        
+        metrics['listing_health_score'] = calculate_listing_health_score(metrics)
+        return metrics
     except Exception as e:
-        logger.error(f"Stats calculation error: {e}")
+        logger.error(f"Error calculating metrics: {e}")
         return None
 
-def create_visualization_data(df: pd.DataFrame, metrics: Dict[str, Any]) -> Dict[str, Any]:
-    """Prepare data for Streamlit native visualizations"""
-    viz_data = {}
-    
-    # 1. Rating Distribution Data
-    rating_dist = metrics['basic_stats']['rating_distribution']
-    viz_data['rating_distribution'] = pd.DataFrame({
-        'Stars': [5, 4, 3, 2, 1],
-        'Count': [rating_dist.get(5, 0), rating_dist.get(4, 0), rating_dist.get(3, 0), 
-                  rating_dist.get(2, 0), rating_dist.get(1, 0)]
-    })
-    
-    # 2. Sentiment Data
-    sentiment = metrics['sentiment_breakdown']
-    viz_data['sentiment'] = pd.DataFrame({
-        'Type': ['Positive', 'Negative', 'Neutral', 'Mixed'],
-        'Count': [sentiment['positive'], sentiment['negative'], sentiment['neutral'], sentiment['mixed']]
-    })
-    
-    # 3. Issue Categories Data
-    issues = metrics['issue_categories']
-    viz_data['issues'] = pd.DataFrame(
-        list(issues.items()), 
-        columns=['Category', 'Count']
-    ).sort_values('Count', ascending=False)
-    
-    # 4. Temporal Trend Data (if available)
-    if 'monthly_averages' in metrics['temporal_trends'] and metrics['temporal_trends']['monthly_averages']:
-        monthly_data = metrics['temporal_trends']['monthly_averages']
-        months = list(monthly_data['mean'].keys())
-        ratings = list(monthly_data['mean'].values())
-        counts = list(monthly_data['count'].values())
-        
-        viz_data['trend'] = pd.DataFrame({
-            'Month': [str(m) for m in months],
-            'Average Rating': ratings,
-            'Review Count': counts
-        })
-    
-    return viz_data
-
-def run_comprehensive_ai_analysis(df: pd.DataFrame, metrics: Dict[str, Any], product_info: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Run comprehensive AI analysis on reviews with Amazon-specific optimization"""
-    if not check_ai_status():
-        return None
-    
-    try:
-        # Prepare review samples
-        reviews = prepare_reviews_for_ai(df)
-        
-        # Create Amazon-optimized analysis prompt
-        prompt = f"""
-        Analyze these Amazon reviews for ADVANCED LISTING OPTIMIZATION INSIGHTS.
-        
-        Product: {product_info.get('asin', 'Unknown')}
-        Total Reviews: {len(reviews)}
-        Average Rating: {metrics['basic_stats']['average_rating']}/5
-        
-        METRICS SUMMARY:
-        - Positive Sentiment: {metrics['sentiment_breakdown']['positive']}
-        - Negative Sentiment: {metrics['sentiment_breakdown']['negative']}
-        - Top Positive Keywords: {', '.join([k[0] for k in metrics['keyword_analysis']['positive_keywords'][:5]])}
-        - Top Negative Keywords: {', '.join([k[0] for k in metrics['keyword_analysis']['negative_keywords'][:5]])}
-        - Main Issues: {', '.join([k for k, v in metrics['issue_categories'].items() if v > 5])}
-        - Trend: {metrics['temporal_trends'].get('trend', 'unknown')}
-        
-        PROVIDE AMAZON-SPECIFIC OPTIMIZATION ANALYSIS:
-        
-        1. **TITLE OPTIMIZATION** (Maximum impact on Amazon SEO)
-           - Current title issues based on reviews
-           - Exact new title suggestion (200 chars max)
-           - Top 5 keywords to include from customer language
-           - Power words that address main concerns
-        
-        2. **BULLET POINT REWRITE** (Focus on conversion)
-           - 5 new bullet points addressing top customer concerns
-           - Each bullet should counter a negative review theme
-           - Include benefit-focused language
-           - Address size/fit/compatibility concerns if mentioned
-        
-        3. **A9 ALGORITHM OPTIMIZATION**
-           - Backend search terms to add (based on review language)
-           - Keywords competitors might be missing
-           - Long-tail keywords from customer phrases
-           - Negative keywords to avoid
-        
-        4. **MAIN IMAGE & GALLERY RECOMMENDATIONS**
-           - What visual concerns need addressing
-           - Infographic text to clarify common issues
-           - Lifestyle image scenarios customers want to see
-           - Size/scale reference needs
-        
-        5. **A+ CONTENT PRIORITIES**
-           - Top 3 modules to create/update
-           - Comparison chart elements
-           - FAQ items from review questions
-           - Trust-building elements needed
-        
-        6. **REVIEW RESPONSE STRATEGY**
-           - Template for responding to 1-2 star reviews
-           - Key phrases to use consistently
-           - How to turn negatives into sales points
-        
-        7. **COMPETITOR DIFFERENTIATION**
-           - Unique selling points to emphasize
-           - How to position against mentioned competitors
-           - Price justification language
-        
-        8. **IMMEDIATE QUICK WINS** (Can do today)
-           - Top 3 listing changes for instant impact
-           - Which current bullet to replace first
-           - Most important keyword to add
-        
-        Be EXTREMELY specific. Provide exact copy to use. Focus on changes that will improve conversion rate and organic ranking.
-        """
-        
-        # Add review samples
-        review_samples = reviews[:50]  # Limit to prevent token overflow
-        reviews_text = "\n".join([
-            f"[{r['rating']}/5]: {r['title']} - {r['body'][:200]}"
-            for r in review_samples
-        ])
-        
-        prompt += f"\n\nREVIEW SAMPLES:\n{reviews_text}"
-        
-        # Call AI with Amazon-optimized system prompt
-        result = st.session_state.ai_analyzer.api_client.call_api([
-            {"role": "system", "content": """You are an elite Amazon listing optimization expert with 10+ years experience. 
-            You understand the A9 algorithm, conversion psychology, and how to turn negative reviews into selling points.
-            Provide ultra-specific, copy-and-paste ready recommendations that will immediately improve rankings and conversion rates.
-            Every suggestion must be backed by actual review data. Be aggressive about optimization opportunities."""},
-            {"role": "user", "content": prompt}
-        ], max_tokens=3000, temperature=0.3)
-        
-        if result['success']:
-            return {
-                'success': True,
-                'analysis': result['result'],
-                'timestamp': datetime.now(),
-                'reviews_analyzed': len(reviews)
-            }
-        
-        return None
-        
-    except Exception as e:
-        logger.error(f"AI analysis error: {e}")
-        return None
-
-def prepare_reviews_for_ai(df: pd.DataFrame) -> List[Dict[str, Any]]:
-    """Prepare reviews for AI analysis"""
-    reviews = []
-    
-    for idx, row in df.iterrows():
-        if pd.notna(row.get('Body')) and len(str(row['Body']).strip()) > 10:
-            review = {
-                'id': idx + 1,
-                'rating': row.get('Rating', 3),
-                'title': str(row.get('Title', '')),
-                'body': str(row.get('Body', '')),
-                'verified': row.get('Verified', '') == 'yes',
-                'date': str(row.get('Date', ''))
-            }
-            reviews.append(review)
-    
-    # Sort by most recent and mix of ratings
-    reviews.sort(key=lambda x: (x['date'], x['rating']), reverse=True)
-    
-    return reviews
-
-def check_ai_status():
-    """Check AI availability"""
-    if not AI_AVAILABLE:
-        return False
-    
-    try:
-        if st.session_state.ai_analyzer is None:
-            st.session_state.ai_analyzer = enhanced_ai_analysis.EnhancedAIAnalyzer()
-        
-        status = st.session_state.ai_analyzer.get_api_status()
-        return status.get('available', False)
-    except:
-        return False
-
-def display_header():
-    """Display cyberpunk-themed header with AI chat toggle"""
-    st.markdown("""
-    <div class="cyber-header">
-        <h1 style="font-size: 3em; margin: 0; z-index: 2; position: relative;">
-            VIVE HEALTH REVIEW INTELLIGENCE
-        </h1>
-        <p style="font-family: 'Rajdhani', sans-serif; font-size: 1.2em; margin: 0.5rem 0 0 0; 
-                  color: {primary}; text-transform: uppercase; letter-spacing: 3px; z-index: 2; position: relative;">
-            Advanced Amazon Listing Optimization Engine
-        </p>
-    </div>
-    """.format(primary=COLORS['primary']), unsafe_allow_html=True)
-    
-    # Quick actions bar with AI Chat toggle
-    col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 1])
-    
-    with col1:
-        if st.button("💬 AI CHAT", use_container_width=True, type="primary"):
-            st.session_state.show_ai_chat = not st.session_state.show_ai_chat
-            st.rerun()
-    
-    with col2:
-        if st.button("🔄 New Analysis", use_container_width=True):
-            for key in st.session_state.keys():
-                if key not in ['ai_analyzer', 'chat_messages']:
-                    st.session_state[key] = None
-            st.session_state.current_view = 'upload'
-            st.session_state.show_ai_chat = False
-            st.rerun()
-    
-    with col3:
-        st.selectbox(
-            "⏱️ Timeframe",
-            options=['all', '30d', '90d', '180d', '365d'],
-            key='selected_timeframe',
-            format_func=lambda x: {
-                'all': 'All Time',
-                '30d': 'Last 30 Days',
-                '90d': 'Last 90 Days',
-                '180d': 'Last 6 Months',
-                '365d': 'Last Year'
-            }[x]
-        )
-    
-    with col4:
-        st.selectbox(
-            "⭐ Rating Filter",
-            options=['all', '5', '4', '3', '2', '1', 'positive', 'negative'],
-            key='filter_rating',
-            format_func=lambda x: {
-                'all': 'All Ratings',
-                '5': '5 Stars Only',
-                '4': '4 Stars Only',
-                '3': '3 Stars Only',
-                '2': '2 Stars Only',
-                '1': '1 Star Only',
-                'positive': '4-5 Stars',
-                'negative': '1-2 Stars'
-            }[x]
-        )
-    
-    with col5:
-        st.selectbox(
-            "🎯 Analysis Depth",
-            options=['quick', 'standard', 'comprehensive'],
-            key='analysis_depth',
-            format_func=lambda x: x.title()
-        )
-
-def handle_file_upload():
-    """Cyberpunk-themed file upload interface"""
-    st.markdown("""
-    <div class="neon-box" style="margin-top: 2rem;">
-        <h2 style="color: {primary}; margin-top: 0;">📊 HELIUM 10 DATA IMPORT</h2>
-        <p style="color: {text}; opacity: 0.8;">Upload your Amazon review export for deep analysis</p>
-    </div>
-    """.format(primary=COLORS['primary'], text=COLORS['text']), unsafe_allow_html=True)
-    
-    # Display Helium 10 instructions
-    display_helium_10_instructions()
-    
-    uploaded_file = st.file_uploader(
-        "Drop your review file here",
-        type=['csv', 'xlsx', 'xls'],
-        help="Supported: Helium 10 review exports (CSV/Excel)"
-    )
-    
-    if uploaded_file:
-        try:
-            # Read file with progress
-            with st.spinner("🔄 Initializing data matrix..."):
-                if uploaded_file.name.endswith('.csv'):
-                    df = pd.read_csv(uploaded_file)
-                else:
-                    df = pd.read_excel(uploaded_file)
-            
-            # Validate columns
-            required_cols = ['Title', 'Body', 'Rating']
-            missing = [col for col in required_cols if col not in df.columns]
-            
-            if missing:
-                st.error(f"❌ Missing required columns: {', '.join(missing)}")
-                st.info("Required: Title, Body, Rating, Date (optional), Verified (optional)")
-                return
-            
-            # Apply filters
-            df_filtered = apply_filters(df)
-            
-            # Process with progress indicator
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            # Step 1: Basic processing
-            status_text.text("🔍 Analyzing review patterns...")
-            progress_bar.progress(20)
-            
-            # Calculate metrics
-            status_text.text("📊 Computing advanced metrics...")
-            metrics = calculate_advanced_metrics(df_filtered)
-            progress_bar.progress(40)
-            
-            if not metrics:
-                st.error("❌ Failed to calculate metrics")
-                return
-            
-            # Store data
-            product_info = {
-                'asin': df['Variation'].iloc[0] if 'Variation' in df.columns else 'Unknown',
-                'total_reviews': len(df),
-                'filtered_reviews': len(df_filtered)
-            }
-            
-            st.session_state.uploaded_data = {
-                'df': df,
-                'df_filtered': df_filtered,
-                'product_info': product_info,
-                'metrics': metrics
-            }
-            
-            # Show preview metrics
-            status_text.text("✅ Analysis ready!")
-            progress_bar.progress(100)
-            
-            # Display key metrics in cyberpunk style
-            st.markdown("<br>", unsafe_allow_html=True)
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                score = metrics['listing_health_score']['total_score']
-                color = COLORS['success'] if score >= 70 else COLORS['warning'] if score >= 50 else COLORS['danger']
-                st.markdown(f"""
-                <div class="metric-card">
-                    <h3 style="color: {color}; font-size: 2.5em; margin: 0;">{score:.0f}</h3>
-                    <p style="margin: 0; text-transform: uppercase;">Health Score</p>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            with col2:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <h3 style="color: {COLORS['primary']}; font-size: 2.5em; margin: 0;">
-                        {metrics['basic_stats']['average_rating']}/5
-                    </h3>
-                    <p style="margin: 0; text-transform: uppercase;">Avg Rating</p>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            with col3:
-                sentiment = metrics['sentiment_breakdown']
-                positive_pct = (sentiment['positive'] / sum(sentiment.values()) * 100) if sum(sentiment.values()) > 0 else 0
-                st.markdown(f"""
-                <div class="metric-card">
-                    <h3 style="color: {COLORS['success']}; font-size: 2.5em; margin: 0;">
-                        {positive_pct:.0f}%
-                    </h3>
-                    <p style="margin: 0; text-transform: uppercase;">Positive</p>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            with col4:
-                trend = metrics['temporal_trends'].get('trend', 'stable')
-                trend_icon = '📈' if trend == 'improving' else '📉' if trend == 'declining' else '➡️'
-                st.markdown(f"""
-                <div class="metric-card">
-                    <h3 style="font-size: 2.5em; margin: 0;">{trend_icon}</h3>
-                    <p style="margin: 0; text-transform: uppercase;">{trend}</p>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            # Quick insights
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.info(f"""
-            🎯 **Quick Insights**: Analyzed {len(df_filtered)} reviews 
-            • Top issue: {max(metrics['issue_categories'].items(), key=lambda x: x[1])[0].replace('_', ' ').title()} 
-            • Verified reviews: {metrics['basic_stats']['verified_count']} 
-            • Date range: {metrics['basic_stats'].get('date_range', {}).get('days_covered', 'N/A')} days
-            """)
-            
-            # Action buttons
-            st.markdown("<br>", unsafe_allow_html=True)
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                if st.button("🚀 RUN AI DEEP ANALYSIS", type="primary", use_container_width=True):
-                    with st.spinner("🤖 AI analyzing reviews... This may take 1-2 minutes"):
-                        ai_results = run_comprehensive_ai_analysis(df_filtered, metrics, product_info)
-                        
-                        if ai_results:
-                            st.session_state.analysis_results = ai_results
-                            st.session_state.current_view = 'results'
-                            st.rerun()
-                        else:
-                            st.error("❌ AI analysis failed. Please try again.")
-            
-            with col2:
-                if st.button("📊 VIEW DETAILED METRICS", use_container_width=True):
-                    st.session_state.current_view = 'metrics'
-                    st.rerun()
-            
-        except Exception as e:
-            st.error(f"❌ Error processing file: {str(e)}")
-            st.info(f"Need help? Contact {APP_CONFIG['support_email']}")
-
-def apply_filters(df: pd.DataFrame) -> pd.DataFrame:
-    """Apply selected filters to dataframe"""
+def apply_filters(df):
+    """Apply user-selected filters"""
     df_filtered = df.copy()
     
-    # Time filter
     if st.session_state.selected_timeframe != 'all' and 'Date' in df.columns:
-        df_filtered['parsed_date'] = df_filtered['Date'].apply(parse_amazon_date)
-        df_filtered['parsed_date'] = pd.to_datetime(df_filtered['parsed_date'])
-        
+        df_filtered['parsed_date'] = pd.to_datetime(df_filtered['Date'].apply(parse_amazon_date))
         days_map = {'30d': 30, '90d': 90, '180d': 180, '365d': 365}
         if st.session_state.selected_timeframe in days_map:
-            cutoff_date = datetime.now() - timedelta(days=days_map[st.session_state.selected_timeframe])
-            df_filtered = df_filtered[df_filtered['parsed_date'] >= cutoff_date]
+            cutoff = datetime.now() - timedelta(days=days_map[st.session_state.selected_timeframe])
+            df_filtered = df_filtered[df_filtered['parsed_date'] >= cutoff]
     
-    # Rating filter
     if st.session_state.filter_rating != 'all':
         if st.session_state.filter_rating in ['1', '2', '3', '4', '5']:
             df_filtered = df_filtered[df_filtered['Rating'] == int(st.session_state.filter_rating)]
@@ -1232,750 +577,526 @@ def apply_filters(df: pd.DataFrame) -> pd.DataFrame:
     
     return df_filtered
 
-def display_results():
-    """Display comprehensive analysis results"""
-    if not st.session_state.analysis_results or not st.session_state.uploaded_data:
-        st.error("No results available")
-        return
+def prepare_reviews_for_ai(df):
+    """Prepare reviews for AI analysis"""
+    reviews = []
     
-    results = st.session_state.analysis_results
-    metrics = st.session_state.uploaded_data['metrics']
+    for idx, row in df.iterrows():
+        body = row.get('Body')
+        if pd.isna(body) or not str(body).strip():
+            continue
+        
+        rating = int(float(row.get('Rating', 3)))
+        rating = max(1, min(5, rating))
+        
+        review = {
+            'id': idx + 1,
+            'rating': rating,
+            'title': str(row.get('Title', '')).strip()[:200],
+            'body': str(body).strip()[:1000],
+            'verified': row.get('Verified', '') == 'yes',
+            'date': str(row.get('Date', ''))
+        }
+        reviews.append(review)
     
-    # Results header
-    st.markdown(f"""
-    <div class="neon-box" style="background: linear-gradient(135deg, {COLORS['success']}20 0%, {COLORS['primary']}20 100%);">
-        <h2 style="color: {COLORS['success']}; margin: 0;">✅ ANALYSIS COMPLETE</h2>
-        <p style="margin: 0.5rem 0 0 0;">
-            Analyzed {results['reviews_analyzed']} reviews • 
-            Generated {results['timestamp'].strftime('%B %d, %Y at %I:%M %p')}
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
+    reviews.sort(key=lambda x: (x['rating'], x['date']))
     
-    # Create tabs for different insights
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "🎯 AI Insights", 
-        "📊 Metrics Dashboard", 
-        "💡 Quick Wins", 
-        "🏭 Quality Report",
-        "📥 Export"
-    ])
+    if len(reviews) > 50:
+        low = [r for r in reviews if r['rating'] <= 2][:15]
+        mid = [r for r in reviews if r['rating'] == 3][:10]
+        high = [r for r in reviews if r['rating'] >= 4][:25]
+        reviews = low + mid + high
     
-    with tab1:
-        display_ai_insights(results['analysis'])
-    
-    with tab2:
-        display_metrics_dashboard(metrics)
-    
-    with tab3:
-        display_quick_wins(results['analysis'])
-    
-    with tab4:
-        display_quality_report(results['analysis'], metrics)
-    
-    with tab5:
-        display_export_options(results, metrics)
+    return reviews
 
-def display_ai_insights(analysis: str):
-    """Display AI insights in structured format"""
-    st.markdown(f"""
+def run_comprehensive_ai_analysis(df, metrics, product_info):
+    """Run AI analysis on reviews"""
+    if not check_ai_status():
+        st.error("AI service is not available.")
+        return None
+    
+    try:
+        reviews = prepare_reviews_for_ai(df)
+        if not reviews:
+            st.error("No reviews to analyze")
+            return None
+        
+        st.info(f"🤖 Analyzing {len(reviews)} reviews with AI...")
+        
+        listing_context = ""
+        if st.session_state.use_listing_details:
+            details = st.session_state.listing_details
+            listing_context = f"""
+            CURRENT LISTING:
+            Title: {details['title'] or 'Not provided'}
+            Bullet Points: {chr(10).join([f'• {b}' for b in details['bullet_points'] if b.strip()])}
+            Description: {details['description'][:500] if details['description'] else 'Not provided'}
+            Backend Keywords: {details['backend_keywords'] or 'Not provided'}
+            """
+        
+        prompt = f"""
+        Analyze these Amazon reviews for LISTING OPTIMIZATION.
+        
+        Product: {product_info.get('asin', 'Unknown')}
+        Total Reviews: {len(reviews)}
+        Average Rating: {metrics['basic_stats']['average_rating']}/5
+        {listing_context}
+        
+        METRICS:
+        - Positive: {metrics['sentiment_breakdown']['positive']} vs Negative: {metrics['sentiment_breakdown']['negative']}
+        - Top Issues: {', '.join([k for k, v in metrics['issue_categories'].items() if v > 5])}
+        
+        PROVIDE:
+        1. **TITLE OPTIMIZATION** - New title (200 chars max) with customer keywords
+        2. **BULLET POINT REWRITE** - 5 bullets addressing concerns
+        3. **A9 ALGORITHM OPTIMIZATION** - Backend keywords from reviews
+        4. **IMMEDIATE QUICK WINS** - Top 3 changes to implement today
+        
+        Be specific with exact copy to use.
+        """
+        
+        reviews_text = "\n".join([f"[{r['rating']}/5]: {r['body'][:200]}" for r in reviews[:30]])
+        prompt += f"\n\nREVIEWS:\n{reviews_text}"
+        
+        result = st.session_state.ai_analyzer.api_client.call_api([
+            {"role": "system", "content": "You are an Amazon listing optimization expert. Provide specific, actionable recommendations."},
+            {"role": "user", "content": prompt}
+        ], max_tokens=2000, temperature=0.3)
+        
+        if result['success']:
+            return {
+                'success': True,
+                'analysis': result['result'],
+                'timestamp': datetime.now(),
+                'reviews_analyzed': len(reviews)
+            }
+        else:
+            st.error(f"AI Error: {result.get('error', 'Unknown')}")
+            return None
+            
+    except Exception as e:
+        logger.error(f"AI analysis error: {e}")
+        st.error(f"Error: {str(e)}")
+        return None
+
+def handle_file_upload():
+    """Handle file upload and processing"""
+    st.markdown("""
     <div class="neon-box">
-        <h3 style="color: {COLORS['primary']};">🤖 AI AMAZON LISTING OPTIMIZATION ANALYSIS</h3>
+        <h2 style="color: var(--primary);">📊 HELIUM 10 DATA IMPORT</h2>
     </div>
     """, unsafe_allow_html=True)
     
-    # Parse and display sections
-    sections = {
-        'TITLE OPTIMIZATION': {'icon': '🎯', 'color': COLORS['primary'], 'priority': 'high'},
-        'BULLET POINT REWRITE': {'icon': '📝', 'color': COLORS['accent'], 'priority': 'high'},
-        'A9 ALGORITHM OPTIMIZATION': {'icon': '🔍', 'color': COLORS['secondary'], 'priority': 'high'},
-        'MAIN IMAGE & GALLERY RECOMMENDATIONS': {'icon': '📸', 'color': COLORS['warning'], 'priority': 'medium'},
-        'A+ CONTENT PRIORITIES': {'icon': '📄', 'color': COLORS['primary'], 'priority': 'medium'},
-        'REVIEW RESPONSE STRATEGY': {'icon': '💬', 'color': COLORS['success'], 'priority': 'high'},
-        'COMPETITOR DIFFERENTIATION': {'icon': '🏆', 'color': COLORS['danger'], 'priority': 'high'},
-        'IMMEDIATE QUICK WINS': {'icon': '⚡', 'color': COLORS['success'], 'priority': 'high'}
-    }
+    with st.expander("📝 Add Current Listing Details (Optional)"):
+        display_listing_details_form()
     
-    for section, config in sections.items():
-        if section.upper() in analysis.upper():
-            priority_class = f"priority-{config['priority']}"
-            
-            st.markdown(f"""
-            <div class="neon-box {priority_class}" style="margin-top: 1rem;">
-                <h4 style="color: {config['color']}; margin-top: 0;">
-                    {config['icon']} {section}
-                </h4>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # Extract section content
-            start = analysis.upper().find(section.upper())
-            if start != -1:
-                end = len(analysis)
-                for next_section in sections:
-                    next_pos = analysis.upper().find(next_section.upper(), start + len(section))
-                    if next_pos > 0 and next_pos < end:
-                        end = next_pos
-                
-                content = analysis[start + len(section):end].strip()
-                
-                # Format content based on priority
-                if config['priority'] == 'high':
-                    st.warning(content)
+    uploaded_file = st.file_uploader("Drop your review file here", type=['csv', 'xlsx', 'xls'])
+    
+    if uploaded_file:
+        try:
+            # Read file
+            with st.spinner("🔄 Processing data..."):
+                if uploaded_file.name.endswith('.csv'):
+                    try:
+                        df = pd.read_csv(uploaded_file, encoding='utf-8')
+                    except UnicodeDecodeError:
+                        uploaded_file.seek(0)
+                        df = pd.read_csv(uploaded_file, encoding='latin-1')
                 else:
-                    st.info(content)
+                    df = pd.read_excel(uploaded_file, engine='openpyxl')
+            
+            # Validate columns
+            required_cols = ['Title', 'Body', 'Rating']
+            missing = [col for col in required_cols if col not in df.columns]
+            
+            if missing:
+                st.error(f"❌ Missing required columns: {', '.join(missing)}")
+                return
+            
+            # Clean data
+            df = df.dropna(subset=['Rating', 'Body'])
+            df['Rating'] = pd.to_numeric(df['Rating'], errors='coerce')
+            df = df[df['Rating'].between(1, 5)]
+            
+            # Apply filters
+            df_filtered = apply_filters(df)
+            
+            if len(df_filtered) == 0:
+                st.warning("⚠️ No reviews match the current filters.")
+                return
+            
+            # Calculate metrics
+            metrics = calculate_advanced_metrics(df_filtered)
+            
+            if not metrics:
+                st.error("❌ Failed to calculate metrics.")
+                return
+            
+            # Store data
+            st.session_state.uploaded_data = {
+                'df': df,
+                'df_filtered': df_filtered,
+                'product_info': {
+                    'asin': df['Variation'].iloc[0] if 'Variation' in df.columns else 'Unknown',
+                    'total_reviews': len(df),
+                    'filtered_reviews': len(df_filtered)
+                },
+                'metrics': metrics
+            }
+            
+            # Display preview metrics
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                score = metrics['listing_health_score']['total_score']
+                color = 'var(--success)' if score >= 70 else 'var(--warning)' if score >= 50 else 'var(--danger)'
+                st.markdown(f"""
+                <div class="metric-card">
+                    <h3 style="color: {color};">{score:.0f}</h3>
+                    <p>Health Score</p>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with col2:
+                st.markdown(f"""
+                <div class="metric-card">
+                    <h3 style="color: var(--primary);">{metrics['basic_stats']['average_rating']}/5</h3>
+                    <p>Avg Rating</p>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with col3:
+                positive_pct = (metrics['sentiment_breakdown']['positive'] / sum(metrics['sentiment_breakdown'].values()) * 100) if sum(metrics['sentiment_breakdown'].values()) > 0 else 0
+                st.markdown(f"""
+                <div class="metric-card">
+                    <h3 style="color: var(--success);">{positive_pct:.0f}%</h3>
+                    <p>Positive</p>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with col4:
+                trend = metrics['temporal_trends'].get('trend', 'stable')
+                trend_icon = '📈' if trend == 'improving' else '📉' if trend == 'declining' else '➡️'
+                st.markdown(f"""
+                <div class="metric-card">
+                    <h3>{trend_icon}</h3>
+                    <p>{trend}</p>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            # Action buttons
+            st.markdown("### 🚀 Choose Your Analysis Path")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                if st.button("📊 VIEW DETAILED METRICS", use_container_width=True):
+                    st.session_state.current_view = 'metrics'
+                    st.rerun()
+            
+            with col2:
+                if check_ai_status():
+                    if st.button("🚀 RUN AI ANALYSIS", type="primary", use_container_width=True):
+                        with st.spinner("🤖 AI analyzing..."):
+                            ai_results = run_comprehensive_ai_analysis(df_filtered, metrics, st.session_state.uploaded_data['product_info'])
+                            if ai_results:
+                                st.session_state.analysis_results = ai_results
+                                st.session_state.current_view = 'ai_results'
+                                st.rerun()
+                else:
+                    st.button("🚀 AI UNAVAILABLE", disabled=True, use_container_width=True)
+            
+            with col3:
+                if st.session_state.analysis_results:
+                    if st.button("🎯 FULL REPORT", use_container_width=True):
+                        st.session_state.current_view = 'comprehensive'
+                        st.rerun()
+                else:
+                    st.info("Run AI Analysis first")
+                    
+        except Exception as e:
+            st.error(f"❌ Error: {str(e)}")
+            logger.error(f"Upload error: {e}", exc_info=True)
 
-def display_metrics_dashboard(metrics: Dict[str, Any]):
-    """Display interactive metrics dashboard with native Streamlit charts"""
-    st.markdown(f"""
-    <div class="neon-box">
-        <h3 style="color: {COLORS['primary']};">📊 PERFORMANCE METRICS DASHBOARD</h3>
-    </div>
-    """, unsafe_allow_html=True)
+def create_visualization_data(df, metrics):
+    """Prepare data for visualizations"""
+    viz_data = {}
     
-    # Get visualization data
+    # Rating distribution
+    rating_dist = metrics['basic_stats']['rating_distribution']
+    viz_data['rating_distribution'] = pd.DataFrame({
+        'Stars': [5, 4, 3, 2, 1],
+        'Count': [rating_dist.get(i, 0) for i in range(5, 0, -1)]
+    })
+    
+    # Sentiment
+    sentiment = metrics['sentiment_breakdown']
+    viz_data['sentiment'] = pd.DataFrame(list(sentiment.items()), columns=['Type', 'Count'])
+    
+    # Issues
+    viz_data['issues'] = pd.DataFrame(
+        list(metrics['issue_categories'].items()), 
+        columns=['Category', 'Count']
+    ).sort_values('Count', ascending=False)
+    
+    # Temporal trend
+    if 'monthly_averages' in metrics['temporal_trends']:
+        monthly = metrics['temporal_trends']['monthly_averages']
+        if monthly and 'mean' in monthly:
+            viz_data['trend'] = pd.DataFrame({
+                'Month': list(monthly['mean'].keys()),
+                'Average Rating': list(monthly['mean'].values()),
+                'Review Count': list(monthly['count'].values())
+            })
+    
+    return viz_data
+
+def display_metrics_dashboard(metrics):
+    """Display metrics dashboard"""
     viz_data = create_visualization_data(st.session_state.uploaded_data['df_filtered'], metrics)
     
-    # Display charts in grid
     col1, col2 = st.columns(2)
     
     with col1:
-        # Rating Distribution Bar Chart
         st.markdown("#### ⭐ Rating Distribution")
         if 'rating_distribution' in viz_data:
-            st.bar_chart(
-                viz_data['rating_distribution'].set_index('Stars'),
-                color=COLORS['primary']
-            )
+            st.bar_chart(viz_data['rating_distribution'].set_index('Stars'), color='#00D9FF')
         
-        # Issue Categories
         st.markdown("#### ⚠️ Issue Categories")
-        if 'issues' in viz_data and not viz_data['issues'].empty:
-            # Display as styled metrics instead of chart
+        if 'issues' in viz_data:
             for _, row in viz_data['issues'].head(5).iterrows():
                 if row['Count'] > 0:
-                    severity_color = COLORS['danger'] if row['Count'] > 20 else COLORS['warning'] if row['Count'] > 10 else COLORS['success']
+                    severity_color = '#FF0054' if row['Count'] > 20 else '#FF6B35' if row['Count'] > 10 else '#00F5A0'
                     st.markdown(f"""
-                    <div style="background: {COLORS['dark']}80; border-left: 3px solid {severity_color}; 
-                                padding: 0.5rem; margin: 0.5rem 0; border-radius: 5px;">
+                    <div style="background: rgba(10, 10, 15, 0.8); border-left: 3px solid {severity_color}; 
+                                padding: 0.5rem; margin: 0.5rem 0;">
                         <strong style="color: {severity_color};">{row['Category'].replace('_', ' ').title()}</strong>: {row['Count']} mentions
                     </div>
                     """, unsafe_allow_html=True)
     
     with col2:
-        # Sentiment Analysis
         st.markdown("#### 💭 Sentiment Analysis")
         if 'sentiment' in viz_data:
-            # Create custom colored bar display
-            sentiment_data = viz_data['sentiment']
-            total = sentiment_data['Count'].sum()
-            
-            for _, row in sentiment_data.iterrows():
-                percentage = (row['Count'] / total * 100) if total > 0 else 0
-                color = {
-                    'Positive': COLORS['success'],
-                    'Negative': COLORS['danger'],
-                    'Neutral': COLORS['muted'],
-                    'Mixed': COLORS['warning']
-                }.get(row['Type'], COLORS['primary'])
-                
+            for _, row in viz_data['sentiment'].iterrows():
+                color = {'Positive': '#00F5A0', 'Negative': '#FF0054', 'Neutral': '#666680', 'Mixed': '#FF6B35'}.get(row['Type'], '#00D9FF')
+                percentage = (row['Count'] / viz_data['sentiment']['Count'].sum() * 100)
                 st.markdown(f"""
                 <div style="margin: 0.5rem 0;">
-                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;">
+                    <div style="display: flex; justify-content: space-between;">
                         <span style="color: {color};">{row['Type']}</span>
-                        <span style="color: {COLORS['text']};">{row['Count']} ({percentage:.1f}%)</span>
+                        <span>{row['Count']} ({percentage:.1f}%)</span>
                     </div>
-                    <div style="background: {COLORS['dark']}; border-radius: 10px; height: 20px; overflow: hidden;">
-                        <div style="background: {color}; width: {percentage}%; height: 100%; 
-                                    box-shadow: 0 0 10px {color}60; transition: width 0.5s ease;">
-                        </div>
+                    <div style="background: var(--dark); border-radius: 10px; height: 20px;">
+                        <div style="background: {color}; width: {percentage}%; height: 100%;"></div>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
         
-        # Temporal Trend (if available)
-        if 'trend' in viz_data:
+        if 'trend' in viz_data and len(viz_data['trend']) > 0:
             st.markdown("#### 📈 Rating Trend")
-            trend_data = viz_data['trend']
-            
-            # Display mini metrics for trend
-            if len(trend_data) >= 2:
-                recent_avg = trend_data['Average Rating'].iloc[-1]
-                previous_avg = trend_data['Average Rating'].iloc[-2]
-                trend_direction = "↑" if recent_avg > previous_avg else "↓" if recent_avg < previous_avg else "→"
-                trend_color = COLORS['success'] if recent_avg > previous_avg else COLORS['danger'] if recent_avg < previous_avg else COLORS['warning']
-                
-                st.markdown(f"""
-                <div style="background: {COLORS['dark']}90; border: 1px solid {trend_color}50; 
-                            padding: 1rem; border-radius: 10px; text-align: center;">
-                    <h2 style="color: {trend_color}; margin: 0;">
-                        {recent_avg:.2f} {trend_direction}
-                    </h2>
-                    <p style="margin: 0; opacity: 0.8;">Latest Month Average</p>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                # Simple line chart
-                st.line_chart(
-                    trend_data.set_index('Month')['Average Rating'],
-                    color=COLORS['primary']
-                )
-    
-    # Key metrics cards
-    st.markdown("### 🎯 Key Performance Indicators")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    health_score = metrics['listing_health_score']
-    
-    with col1:
-        color = COLORS['success'] if health_score['grade'] in ['A', 'B'] else COLORS['warning'] if health_score['grade'] == 'C' else COLORS['danger']
-        st.markdown(f"""
-        <div class="metric-card" style="border-color: {color};">
-            <h2 style="color: {color}; margin: 0;">{health_score['grade']}</h2>
-            <p style="margin: 0;">Overall Grade</p>
-            <small>{health_score['status']}</small>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col2:
-        keyword_count = len(metrics['keyword_analysis']['positive_keywords'])
-        st.markdown(f"""
-        <div class="metric-card">
-            <h2 style="color: {COLORS['primary']}; margin: 0;">{keyword_count}</h2>
-            <p style="margin: 0;">Keywords Found</p>
-            <small>Opportunity keywords</small>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col3:
-        issue_count = sum(1 for v in metrics['issue_categories'].values() if v > 5)
-        st.markdown(f"""
-        <div class="metric-card">
-            <h2 style="color: {COLORS['warning']}; margin: 0;">{issue_count}</h2>
-            <p style="margin: 0;">Major Issues</p>
-            <small>Need attention</small>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col4:
-        competitor_count = len(metrics['competitor_mentions'])
-        st.markdown(f"""
-        <div class="metric-card">
-            <h2 style="color: {COLORS['secondary']}; margin: 0;">{competitor_count}</h2>
-            <p style="margin: 0;">Competitor Mentions</p>
-            <small>In reviews</small>
-        </div>
-        """, unsafe_allow_html=True)
+            st.line_chart(viz_data['trend'].set_index('Month')['Average Rating'], color='#00D9FF')
 
-def display_quick_wins(analysis: str):
-    """Extract and display quick win recommendations"""
-    st.markdown(f"""
-    <div class="neon-box">
-        <h3 style="color: {COLORS['success']};">⚡ QUICK WINS - IMPLEMENT TODAY</h3>
-        <p style="opacity: 0.8;">High-impact changes you can make immediately</p>
-    </div>
-    """, unsafe_allow_html=True)
+def display_ai_insights(analysis):
+    """Display AI insights"""
+    sections = {
+        'TITLE OPTIMIZATION': '🎯',
+        'BULLET POINT REWRITE': '📝',
+        'A9 ALGORITHM OPTIMIZATION': '🔍',
+        'IMMEDIATE QUICK WINS': '⚡'
+    }
     
-    # Extract quick wins section
-    if "IMMEDIATE QUICK WINS" in analysis.upper() or "QUICK WINS" in analysis.upper():
-        start = analysis.upper().find("IMMEDIATE QUICK WINS")
-        if start == -1:
-            start = analysis.upper().find("QUICK WINS")
-        
-        end = len(analysis)
-        
-        content = analysis[start:end]
-        
-        # Create actionable cards
-        st.markdown("""
-        <div class="neon-box priority-high" style="margin-top: 1rem;">
-            <h4 style="color: {}; margin-top: 0;">🚀 Immediate Actions</h4>
-        </div>
-        """.format(COLORS['success']), unsafe_allow_html=True)
-        
-        st.success(content)
-    
-    # Add implementation checklist
-    st.markdown("### ✅ Implementation Checklist")
-    
-    checklist_items = [
-        "Update product title with top keywords",
-        "Revise first 3 bullet points",
-        "Add FAQ section to listing",
-        "Update main product image",
-        "Respond to recent negative reviews",
-        "Adjust pricing if recommended",
-        "Update A+ content",
-        "Add comparison chart",
-        "Update backend search terms",
-        "Create size/fit infographic"
-    ]
-    
-    for item in checklist_items:
-        st.checkbox(item)
-
-def display_quality_report(analysis: str, metrics: Dict[str, Any]):
-    """Display quality-focused report for internal team"""
-    st.markdown(f"""
-    <div class="neon-box">
-        <h3 style="color: {COLORS['danger']};">🏭 QUALITY TEAM REPORT</h3>
-        <p style="opacity: 0.8;">Product improvement priorities based on customer feedback</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Issue severity breakdown
-    issues = metrics['issue_categories']
-    
-    # Sort by severity
-    sorted_issues = sorted(issues.items(), key=lambda x: x[1], reverse=True)
-    
-    # Display top issues
-    st.markdown("### 🔴 Critical Issues Requiring Attention")
-    
-    for issue, count in sorted_issues[:5]:
-        if count > 0:
-            severity = 'HIGH' if count > 20 else 'MEDIUM' if count > 10 else 'LOW'
-            color = COLORS['danger'] if severity == 'HIGH' else COLORS['warning'] if severity == 'MEDIUM' else COLORS['success']
-            
+    for section, icon in sections.items():
+        if section.upper() in analysis.upper():
             st.markdown(f"""
-            <div class="neon-box" style="border-left: 4px solid {color}; margin-top: 0.5rem;">
-                <h4 style="color: {color}; margin: 0;">
-                    {issue.replace('_', ' ').title()} - {count} mentions
-                </h4>
-                <p style="margin: 0.5rem 0 0 0; opacity: 0.8;">Severity: {severity}</p>
+            <div class="neon-box priority-high">
+                <h4 style="color: var(--primary);">{icon} {section}</h4>
             </div>
             """, unsafe_allow_html=True)
-    
-    # Extract quality improvements from AI analysis
-    quality_keywords = ["QUALITY", "PRODUCT IMPROVEMENT", "MANUFACTURING", "DEFECT", "MATERIAL"]
-    quality_content = ""
-    
-    for keyword in quality_keywords:
-        if keyword in analysis.upper():
-            start = analysis.upper().find(keyword)
-            end = analysis.find("\n\n", start + 50)
-            if end == -1:
-                end = min(start + 500, len(analysis))
-            quality_content += analysis[start:end] + "\n\n"
-    
-    if quality_content:
-        st.markdown("### 🔧 AI-Recommended Product Improvements")
-        st.warning(quality_content)
-    
-    # Add quality metrics
-    st.markdown("### 📊 Quality Metrics")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        defect_rate = (sum(1 for v in issues.values() if v > 0) / len(issues)) * 100
-        st.metric("Issue Coverage", f"{defect_rate:.1f}%", help="% of issue categories with complaints")
-    
-    with col2:
-        return_indicator = metrics['basic_stats']['1_2_star_percentage']
-        st.metric("Low Rating %", f"{return_indicator}%", help="Potential return indicator")
-    
-    with col3:
-        quality_score = metrics['review_quality_scores']['avg_quality_score']
-        st.metric("Review Quality", f"{quality_score:.1f}/10", help="Average review detail level")
-
-def display_export_options(results: Dict[str, Any], metrics: Dict[str, Any]):
-    """Display export options with multiple formats"""
-    st.markdown(f"""
-    <div class="neon-box">
-        <h3 style="color: {COLORS['primary']};">📥 EXPORT ANALYSIS RESULTS</h3>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        # Executive summary
-        executive_summary = generate_executive_summary(results, metrics)
-        st.download_button(
-            "📄 Executive Summary",
-            data=executive_summary,
-            file_name=f"executive_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
-            mime="text/markdown",
-            use_container_width=True,
-            help="High-level overview for management"
-        )
-    
-    with col2:
-        # Full analysis report
-        full_report = generate_full_report(results, metrics)
-        st.download_button(
-            "📊 Full Analysis Report",
-            data=full_report,
-            file_name=f"listing_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
-            mime="text/markdown",
-            use_container_width=True,
-            help="Complete analysis with all details"
-        )
-    
-    with col3:
-        # Raw data export - convert to JSON-safe format
-        def make_json_safe(obj):
-            """Convert non-JSON-serializable objects to strings"""
-            if isinstance(obj, dict):
-                return {str(k): make_json_safe(v) for k, v in obj.items()}
-            elif isinstance(obj, list):
-                return [make_json_safe(v) for v in obj]
-            elif hasattr(obj, 'isoformat'):
-                return obj.isoformat()
-            elif hasattr(obj, '__str__'):
-                return str(obj)
-            else:
-                return obj
-        
-        export_data = {
-            'timestamp': results['timestamp'].isoformat(),
-            'metrics': make_json_safe(metrics),
-            'ai_analysis': results['analysis'],
-            'product_info': make_json_safe(st.session_state.uploaded_data['product_info'])
-        }
-        
-        st.download_button(
-            "💾 Raw Data (JSON)",
-            data=json.dumps(export_data, indent=2, default=str),
-            file_name=f"raw_analysis_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-            mime="application/json",
-            use_container_width=True,
-            help="Complete data for further processing"
-        )
-    
-    # Quality team export
-    st.markdown("### 🏭 Quality Team Exports")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        quality_report = generate_quality_report(metrics, results['analysis'])
-        st.download_button(
-            "🔧 Quality Improvement Report",
-            data=quality_report,
-            file_name=f"quality_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
-            mime="text/markdown",
-            use_container_width=True
-        )
-    
-    with col2:
-        issue_csv = generate_issue_csv(metrics)
-        st.download_button(
-            "📋 Issue Tracking CSV",
-            data=issue_csv,
-            file_name=f"issue_tracking_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
-
-def generate_executive_summary(results: Dict[str, Any], metrics: Dict[str, Any]) -> str:
-    """Generate executive summary"""
-    health_score = metrics['listing_health_score']
-    
-    summary = f"""# Executive Summary - Amazon Listing Analysis
-Generated: {results['timestamp'].strftime('%B %d, %Y')}
-Product: {st.session_state.uploaded_data['product_info']['asin']}
-
-## Overall Performance
-- **Health Score**: {health_score['total_score']}/100 (Grade: {health_score['grade']})
-- **Status**: {health_score['status']}
-- **Reviews Analyzed**: {results['reviews_analyzed']}
-- **Average Rating**: {metrics['basic_stats']['average_rating']}/5
-
-## Key Findings
-1. **Sentiment**: {metrics['sentiment_breakdown']['positive']} positive vs {metrics['sentiment_breakdown']['negative']} negative reviews
-2. **Trend**: {metrics['temporal_trends'].get('trend', 'Unknown').title()}
-3. **Main Issues**: {', '.join([k.replace('_', ' ').title() for k, v in metrics['issue_categories'].items() if v > 5][:3])}
-
-## Top 3 Recommendations
-{results['analysis'][:500]}...
-
-## Next Steps
-1. Implement quick wins immediately
-2. Review full report for detailed insights
-3. Forward quality issues to product team
-"""
-    
-    return summary
-
-def generate_full_report(results: Dict[str, Any], metrics: Dict[str, Any]) -> str:
-    """Generate comprehensive report"""
-    report = f"""# Comprehensive Amazon Listing Analysis Report
-Generated: {results['timestamp'].strftime('%B %d, %Y at %I:%M %p')}
-Analyzed by: Vive Health Review Intelligence v{APP_CONFIG['version']}
-
-## Product Information
-- ASIN: {st.session_state.uploaded_data['product_info']['asin']}
-- Total Reviews: {st.session_state.uploaded_data['product_info']['total_reviews']}
-- Analyzed Reviews: {results['reviews_analyzed']}
-
-## Performance Metrics
-
-### Overall Health Score: {metrics['listing_health_score']['total_score']}/100 (Grade: {metrics['listing_health_score']['grade']})
-
-Component Scores:
-"""
-    
-    for component, score in metrics['listing_health_score']['components'].items():
-        report += f"- {component.replace('_', ' ').title()}: {score:.1f}\n"
-    
-    report += f"""
-
-### Rating Analysis
-- Average Rating: {metrics['basic_stats']['average_rating']}/5
-- Median Rating: {metrics['basic_stats']['median_rating']}/5
-- Standard Deviation: {metrics['basic_stats']['rating_std']}
-- 4-5 Star Percentage: {metrics['basic_stats']['4_5_star_percentage']}%
-- 1-2 Star Percentage: {metrics['basic_stats']['1_2_star_percentage']}%
-
-### Sentiment Analysis
-- Positive: {metrics['sentiment_breakdown']['positive']}
-- Negative: {metrics['sentiment_breakdown']['negative']}
-- Neutral: {metrics['sentiment_breakdown']['neutral']}
-- Mixed: {metrics['sentiment_breakdown']['mixed']}
-
-### Temporal Trends
-- Trend Direction: {metrics['temporal_trends'].get('trend', 'Unknown').title()}
-- Recent Performance: {metrics['temporal_trends'].get('recent_performance', 'N/A')}
-
-### Issue Categories
-"""
-    
-    for issue, count in sorted(metrics['issue_categories'].items(), key=lambda x: x[1], reverse=True):
-        if count > 0:
-            report += f"- {issue.replace('_', ' ').title()}: {count} mentions\n"
-    
-    report += f"""
-
-### Top Keywords
-**Positive Keywords:**
-{', '.join([f"{k[0]} ({k[1]})" for k in metrics['keyword_analysis']['positive_keywords'][:10]])}
-
-**Negative Keywords:**
-{', '.join([f"{k[0]} ({k[1]})" for k in metrics['keyword_analysis']['negative_keywords'][:10]])}
-
-## AI Analysis
-
-{results['analysis']}
-
-## Implementation Checklist
-- [ ] Update product title with recommended keywords
-- [ ] Revise bullet points based on customer feedback
-- [ ] Add missing information to description
-- [ ] Update A+ content to address concerns
-- [ ] Implement image/video recommendations
-- [ ] Set up FAQ section
-- [ ] Address quality issues with product team
-- [ ] Monitor performance after changes
-
----
-Report generated by Vive Health Review Intelligence
-For support: {APP_CONFIG['support_email']}
-"""
-    
-    return report
-
-def generate_quality_report(metrics: Dict[str, Any], ai_analysis: str) -> str:
-    """Generate quality-focused report"""
-    report = f"""# Quality Improvement Report
-Generated: {datetime.now().strftime('%B %d, %Y')}
-
-## Issue Summary
-Total Issues Identified: {sum(metrics['issue_categories'].values())}
-
-### Issue Breakdown by Category
-"""
-    
-    for issue, count in sorted(metrics['issue_categories'].items(), key=lambda x: x[1], reverse=True):
-        if count > 0:
-            severity = 'CRITICAL' if count > 20 else 'HIGH' if count > 10 else 'MEDIUM' if count > 5 else 'LOW'
-            report += f"\n#### {issue.replace('_', ' ').title()}\n"
-            report += f"- Mentions: {count}\n"
-            report += f"- Severity: {severity}\n"
-            report += f"- Impact: {(count / metrics['basic_stats']['total_reviews'] * 100):.1f}% of reviews\n"
-    
-    # Extract quality section from AI analysis
-    quality_keywords = ["QUALITY", "PRODUCT IMPROVEMENT", "MANUFACTURING", "DEFECT"]
-    for keyword in quality_keywords:
-        if keyword in ai_analysis.upper():
-            start = ai_analysis.upper().find(keyword)
-            end = ai_analysis.find("\n\n", start + 50)
-            if end == -1:
-                end = min(start + 500, len(ai_analysis))
             
-            report += f"\n## AI-Recommended Improvements\n{ai_analysis[start:end]}\n"
-            break
-    
-    report += """
-## Action Items
-1. Review and prioritize critical issues
-2. Conduct root cause analysis
-3. Implement corrective actions
-4. Update quality control procedures
-5. Monitor customer feedback post-implementation
-
-## Quality Metrics
-"""
-    
-    report += f"- Average Review Quality Score: {metrics['review_quality_scores']['avg_quality_score']:.1f}/10\n"
-    report += f"- High Quality Reviews: {metrics['review_quality_scores']['high_quality_count']}\n"
-    report += f"- Low Quality Reviews: {metrics['review_quality_scores']['low_quality_count']}\n"
-    
-    return report
-
-def generate_issue_csv(metrics: Dict[str, Any]) -> str:
-    """Generate CSV for issue tracking"""
-    csv_data = "Category,Count,Severity,Percentage\n"
-    
-    total_reviews = metrics['basic_stats']['total_reviews']
-    
-    for issue, count in sorted(metrics['issue_categories'].items(), key=lambda x: x[1], reverse=True):
-        if count > 0:
-            severity = 'CRITICAL' if count > 20 else 'HIGH' if count > 10 else 'MEDIUM' if count > 5 else 'LOW'
-            percentage = (count / total_reviews * 100)
-            csv_data += f"{issue.replace('_', ' ').title()},{count},{severity},{percentage:.1f}%\n"
-    
-    return csv_data
+            start = analysis.upper().find(section.upper())
+            end = len(analysis)
+            for next_section in sections:
+                next_pos = analysis.upper().find(next_section.upper(), start + len(section))
+                if next_pos > 0 and next_pos < end:
+                    end = next_pos
+            
+            content = analysis[start + len(section):end].strip()
+            st.warning(content)
 
 def display_metrics_view():
-    """Display detailed metrics view with native Streamlit visualizations"""
+    """Display metrics view"""
     if not st.session_state.uploaded_data:
         st.error("No data available")
         return
     
     metrics = st.session_state.uploaded_data['metrics']
     
-    st.markdown(f"""
-    <div class="cyber-header" style="margin-bottom: 2rem;">
-        <h1 style="font-size: 2.5em;">DETAILED METRICS ANALYSIS</h1>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown('<div class="cyber-header"><h1>DETAILED METRICS ANALYSIS</h1></div>', unsafe_allow_html=True)
     
-    # Get visualization data
-    viz_data = create_visualization_data(st.session_state.uploaded_data['df_filtered'], metrics)
+    if not st.session_state.analysis_results:
+        if st.button("🚀 RUN AI ANALYSIS NOW", type="primary", use_container_width=True):
+            with st.spinner("🤖 AI analyzing..."):
+                ai_results = run_comprehensive_ai_analysis(
+                    st.session_state.uploaded_data['df_filtered'],
+                    metrics,
+                    st.session_state.uploaded_data['product_info']
+                )
+                if ai_results:
+                    st.session_state.analysis_results = ai_results
+                    st.session_state.current_view = 'ai_results'
+                    st.rerun()
     
-    # Display visualizations
-    st.markdown("### 📊 Rating Distribution Analysis")
-    if 'rating_distribution' in viz_data:
-        col1, col2 = st.columns([2, 1])
-        with col1:
-            st.bar_chart(
-                viz_data['rating_distribution'].set_index('Stars')['Count'],
-                color=COLORS['primary']
-            )
-        with col2:
-            st.markdown("**Distribution Stats:**")
-            for _, row in viz_data['rating_distribution'].iterrows():
-                total = viz_data['rating_distribution']['Count'].sum()
-                pct = (row['Count'] / total * 100) if total > 0 else 0
-                st.markdown(f"- {row['Stars']} stars: {row['Count']} ({pct:.1f}%)")
-    
-    # Sentiment breakdown
-    st.markdown("### 💭 Sentiment Analysis Breakdown")
-    if 'sentiment' in viz_data:
-        # Create columns for sentiment cards
-        cols = st.columns(4)
-        for i, row in enumerate(viz_data['sentiment'].itertuples()):
-            with cols[i]:
-                color = {
-                    'Positive': COLORS['success'],
-                    'Negative': COLORS['danger'],
-                    'Neutral': COLORS['muted'],
-                    'Mixed': COLORS['warning']
-                }.get(row.Type, COLORS['primary'])
-                
-                st.markdown(f"""
-                <div class="metric-card" style="border-color: {color};">
-                    <h3 style="color: {color}; margin: 0;">{row.Count}</h3>
-                    <p style="margin: 0;">{row.Type}</p>
-                </div>
-                """, unsafe_allow_html=True)
-    
-    # Issue categories detailed view
-    st.markdown("### ⚠️ Issue Category Deep Dive")
-    if 'issues' in viz_data and not viz_data['issues'].empty:
-        # Create expandable sections for each issue
-        for _, row in viz_data['issues'].iterrows():
-            if row['Count'] > 0:
-                severity = 'CRITICAL' if row['Count'] > 20 else 'HIGH' if row['Count'] > 10 else 'MEDIUM' if row['Count'] > 5 else 'LOW'
-                color = COLORS['danger'] if severity == 'CRITICAL' else COLORS['warning'] if severity == 'HIGH' else COLORS['accent'] if severity == 'MEDIUM' else COLORS['success']
-                
-                with st.expander(f"{row['Category'].replace('_', ' ').title()} - {row['Count']} mentions ({severity})"):
-                    st.markdown(f"""
-                    <div style="border-left: 4px solid {color}; padding-left: 1rem;">
-                        <p><strong>Impact:</strong> {(row['Count'] / metrics['basic_stats']['total_reviews'] * 100):.1f}% of all reviews</p>
-                        <p><strong>Severity Level:</strong> <span style="color: {color};">{severity}</span></p>
-                        <p><strong>Recommended Action:</strong> {"Immediate attention required" if severity in ['CRITICAL', 'HIGH'] else "Monitor and address in next update"}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-    
-    # Detailed statistics table
-    st.markdown("### 📊 Comprehensive Statistics")
-    
-    # Convert metrics to displayable format
-    stats_data = []
-    basic = metrics['basic_stats']
-    
-    stats_data.extend([
-        {'Category': 'Reviews', 'Metric': 'Total Reviews', 'Value': str(basic['total_reviews'])},
-        {'Category': 'Reviews', 'Metric': 'Verified Reviews', 'Value': str(basic['verified_count'])},
-        {'Category': 'Ratings', 'Metric': 'Average Rating', 'Value': f"{basic['average_rating']}/5"},
-        {'Category': 'Ratings', 'Metric': 'Median Rating', 'Value': f"{basic['median_rating']}/5"},
-        {'Category': 'Ratings', 'Metric': 'Standard Deviation', 'Value': str(basic['rating_std'])},
-        {'Category': 'Ratings', 'Metric': '4-5 Star %', 'Value': f"{basic['4_5_star_percentage']}%"},
-        {'Category': 'Ratings', 'Metric': '1-2 Star %', 'Value': f"{basic['1_2_star_percentage']}%"},
-        {'Category': 'Quality', 'Metric': 'Avg Review Quality', 'Value': f"{metrics['review_quality_scores']['avg_quality_score']:.1f}/10"},
-        {'Category': 'Quality', 'Metric': 'High Quality Reviews', 'Value': str(metrics['review_quality_scores']['high_quality_count'])},
-        {'Category': 'Trend', 'Metric': 'Direction', 'Value': metrics['temporal_trends'].get('trend', 'Unknown').title()},
-        {'Category': 'Health', 'Metric': 'Listing Score', 'Value': f"{metrics['listing_health_score']['total_score']:.1f}/100"},
-        {'Category': 'Health', 'Metric': 'Grade', 'Value': metrics['listing_health_score']['grade']}
-    ])
-    
-    stats_df = pd.DataFrame(stats_data)
-    
-    # Style the dataframe
-    st.dataframe(
-        stats_df,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Category": st.column_config.TextColumn("Category", width="small"),
-            "Metric": st.column_config.TextColumn("Metric", width="medium"),
-            "Value": st.column_config.TextColumn("Value", width="small")
-        }
-    )
+    display_metrics_dashboard(metrics)
     
     # Keyword analysis
     st.markdown("### 🔍 Keyword Analysis")
-    
     col1, col2 = st.columns(2)
     
     with col1:
         st.markdown("#### ✅ Positive Keywords")
-        positive_keywords = metrics['keyword_analysis']['positive_keywords'][:10]
-        for keyword, count in positive_keywords:
-            st.markdown(f"""
-            <div style="display: flex; justify-content: space-between; padding: 0.25rem 0;">
-                <span style="color: {COLORS['success']};">{keyword}</span>
-                <span style="color: {COLORS['text']}; opacity: 0.7;">{count}</span>
-            </div>
-            """, unsafe_allow_html=True)
+        for keyword, count in metrics['keyword_analysis']['positive_keywords'][:10]:
+            st.markdown(f'<div style="display: flex; justify-content: space-between;"><span style="color: #00F5A0;">{keyword}</span><span>{count}</span></div>', unsafe_allow_html=True)
     
     with col2:
         st.markdown("#### ❌ Negative Keywords")
-        negative_keywords = metrics['keyword_analysis']['negative_keywords'][:10]
-        for keyword, count in negative_keywords:
-            st.markdown(f"""
-            <div style="display: flex; justify-content: space-between; padding: 0.25rem 0;">
-                <span style="color: {COLORS['danger']};">{keyword}</span>
-                <span style="color: {COLORS['text']}; opacity: 0.7;">{count}</span>
-            </div>
-            """, unsafe_allow_html=True)
+        for keyword, count in metrics['keyword_analysis']['negative_keywords'][:10]:
+            st.markdown(f'<div style="display: flex; justify-content: space-between;"><span style="color: #FF0054;">{keyword}</span><span>{count}</span></div>', unsafe_allow_html=True)
 
+def display_ai_results():
+    """Display AI results"""
+    if not st.session_state.analysis_results or not st.session_state.uploaded_data:
+        st.error("No AI analysis results available")
+        return
+    
+    results = st.session_state.analysis_results
+    metrics = st.session_state.uploaded_data['metrics']
+    
+    st.markdown(f"""
+    <div class="neon-box">
+        <h2 style="color: var(--success);">✅ AI ANALYSIS COMPLETE</h2>
+        <p>Analyzed {results['reviews_analyzed']} reviews • {results['timestamp'].strftime('%B %d, %Y at %I:%M %p')}</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    tabs = st.tabs(["🎯 AI Insights", "📊 Key Metrics", "📥 Export"])
+    
+    with tabs[0]:
+        display_ai_insights(results['analysis'])
+    
+    with tabs[1]:
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Average Rating", f"{metrics['basic_stats']['average_rating']}/5")
+        with col2:
+            st.metric("Health Score", f"{metrics['listing_health_score']['total_score']:.0f}/100")
+        with col3:
+            positive_pct = (metrics['sentiment_breakdown']['positive'] / sum(metrics['sentiment_breakdown'].values()) * 100)
+            st.metric("Positive Sentiment", f"{positive_pct:.0f}%")
+        with col4:
+            st.metric("Trend", metrics['temporal_trends'].get('trend', 'stable').title())
+    
+    with tabs[2]:
+        # Export options
+        text_report = f"""
+AMAZON LISTING ANALYSIS REPORT
+Generated: {datetime.now().strftime('%B %d, %Y')}
+
+EXECUTIVE SUMMARY
+Health Score: {metrics['listing_health_score']['total_score']:.0f}/100
+Average Rating: {metrics['basic_stats']['average_rating']}/5
+Total Reviews: {metrics['basic_stats']['total_reviews']}
+
+AI ANALYSIS
+{results['analysis']}
+"""
+        
+        st.download_button(
+            "📄 Download Report",
+            data=text_report,
+            file_name=f"amazon_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+            mime="text/plain",
+            use_container_width=True
+        )
+
+def display_comprehensive_view():
+    """Display comprehensive view"""
+    if not st.session_state.uploaded_data or not st.session_state.analysis_results:
+        st.error("Both metrics and AI analysis required")
+        return
+    
+    st.markdown('<div class="cyber-header"><h1>COMPREHENSIVE ANALYSIS REPORT</h1></div>', unsafe_allow_html=True)
+    
+    tabs = st.tabs(["📊 Overview", "📈 Metrics", "🤖 AI Insights", "🎯 Action Plan"])
+    
+    with tabs[0]:
+        metrics = st.session_state.uploaded_data['metrics']
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown('<div class="neon-box"><h3>Performance Snapshot</h3></div>', unsafe_allow_html=True)
+            st.metric("Health Score", f"{metrics['listing_health_score']['total_score']:.0f}/100")
+            st.metric("Average Rating", f"{metrics['basic_stats']['average_rating']}/5")
+            st.metric("Total Reviews", metrics['basic_stats']['total_reviews'])
+        
+        with col2:
+            st.markdown('<div class="neon-box"><h3>Key Issues</h3></div>', unsafe_allow_html=True)
+            for issue, count in sorted(metrics['issue_categories'].items(), key=lambda x: x[1], reverse=True)[:3]:
+                if count > 0:
+                    st.markdown(f"- {issue.replace('_', ' ').title()}: {count} mentions")
+    
+    with tabs[1]:
+        display_metrics_dashboard(metrics)
+    
+    with tabs[2]:
+        display_ai_insights(st.session_state.analysis_results['analysis'])
+    
+    with tabs[3]:
+        st.markdown('<div class="neon-box"><h3>🎯 IMPLEMENTATION TIMELINE</h3></div>', unsafe_allow_html=True)
+        
+        st.markdown("#### Today")
+        for task in ["Update title with keywords", "Revise first bullet point", "Respond to negative reviews"]:
+            st.checkbox(task)
+        
+        st.markdown("#### This Week")
+        for task in ["Complete bullet revisions", "Update images", "Backend keyword changes"]:
+            st.checkbox(task)
+
+def generate_comprehensive_excel_report(metrics, ai_results):
+    """Generate Excel report"""
+    buffer = BytesIO()
+    
+    if EXCEL_AVAILABLE:
+        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+            # Executive Summary
+            summary_data = {
+                'Metric': ['Health Score', 'Average Rating', 'Total Reviews', 'Positive Sentiment %'],
+                'Value': [
+                    f"{metrics['listing_health_score']['total_score']:.0f}/100",
+                    f"{metrics['basic_stats']['average_rating']}/5",
+                    metrics['basic_stats']['total_reviews'],
+                    f"{(metrics['sentiment_breakdown']['positive'] / sum(metrics['sentiment_breakdown'].values()) * 100):.0f}%"
+                ]
+            }
+            pd.DataFrame(summary_data).to_excel(writer, sheet_name='Summary', index=False)
+            
+            # Issues
+            issues_data = [(k.replace('_', ' ').title(), v) for k, v in metrics['issue_categories'].items() if v > 0]
+            if issues_data:
+                pd.DataFrame(issues_data, columns=['Issue', 'Count']).to_excel(writer, sheet_name='Issues', index=False)
+            
+            # AI Insights
+            pd.DataFrame({'AI Analysis': [ai_results['analysis']]}).to_excel(writer, sheet_name='AI Insights', index=False)
+    else:
+        # CSV fallback
+        csv_data = f"Health Score,{metrics['listing_health_score']['total_score']:.0f}/100\n"
+        csv_data += f"Average Rating,{metrics['basic_stats']['average_rating']}/5\n"
+        buffer.write(csv_data.encode('utf-8'))
+    
+    buffer.seek(0)
+    return buffer
+
+# Main execution
 def main():
-    """Main application with cyberpunk theme"""
     st.set_page_config(
         page_title=APP_CONFIG['title'],
         page_icon="🚀",
@@ -1983,45 +1104,25 @@ def main():
         initial_sidebar_state="collapsed"
     )
     
-    # Inject cyberpunk CSS
-    inject_cyberpunk_css()
-    
-    # Initialize session state
     initialize_session_state()
-    
-    # Check AI status
-    if not check_ai_status():
-        st.error(f"❌ AI Service Unavailable. Contact {APP_CONFIG['support_email']}")
-        st.stop()
-    
-    # Display header
+    inject_cyberpunk_css()
     display_header()
     
-    # Show AI Chat if toggled
+    # Show AI chat if toggled
     if st.session_state.show_ai_chat:
-        display_ai_chat()
-        st.markdown("<hr style='border-color: {}40; margin: 2rem 0;'>".format(COLORS['primary']), unsafe_allow_html=True)
+        with st.container():
+            display_ai_chat()
+            st.markdown("<hr>", unsafe_allow_html=True)
     
-    # Main content based on view
+    # Main content based on current view
     if st.session_state.current_view == 'upload':
         handle_file_upload()
-    elif st.session_state.current_view == 'results':
-        display_results()
     elif st.session_state.current_view == 'metrics':
         display_metrics_view()
-    
-    # Footer
-    st.markdown(f"""
-    <div style="text-align: center; color: {COLORS['muted']}; padding: 2rem; margin-top: 4rem; 
-                border-top: 1px solid {COLORS['muted']}40;">
-        <p style="font-family: 'Rajdhani', sans-serif; letter-spacing: 2px; text-transform: uppercase;">
-            {APP_CONFIG['title']} • v{APP_CONFIG['version']}
-        </p>
-        <p style="font-size: 0.9em; opacity: 0.8;">
-            Powered by Advanced AI • Support: {APP_CONFIG['support_email']}
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
+    elif st.session_state.current_view == 'ai_results':
+        display_ai_results()
+    elif st.session_state.current_view == 'comprehensive':
+        display_comprehensive_view()
 
 if __name__ == "__main__":
     main()
