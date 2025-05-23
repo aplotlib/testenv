@@ -67,7 +67,9 @@ def initialize_session_state():
         'improvement_priority': None,
         'selected_timeframe': 'all',
         'filter_rating': 'all',
-        'analysis_depth': 'comprehensive'
+        'analysis_depth': 'comprehensive',
+        'chat_messages': [],
+        'show_ai_chat': False
     }
     
     for key, value in defaults.items():
@@ -111,6 +113,42 @@ def inject_cyberpunk_css():
             0 0 20px {COLORS['primary']}40,
             inset 0 0 20px {COLORS['primary']}10;
         backdrop-filter: blur(10px);
+    }}
+    
+    /* AI Chat styles */
+    .ai-chat-container {{
+        background: {COLORS['dark']}95;
+        border: 2px solid {COLORS['primary']};
+        border-radius: 15px;
+        padding: 1.5rem;
+        margin: 1rem 0;
+        box-shadow: 
+            0 0 30px {COLORS['primary']}50,
+            inset 0 0 20px {COLORS['primary']}20;
+    }}
+    
+    .chat-message {{
+        margin: 0.5rem 0;
+        padding: 0.75rem 1rem;
+        border-radius: 10px;
+        animation: fadeIn 0.3s ease;
+    }}
+    
+    .user-message {{
+        background: {COLORS['light']}80;
+        border-left: 3px solid {COLORS['secondary']};
+        margin-left: 2rem;
+    }}
+    
+    .ai-message {{
+        background: {COLORS['dark']}80;
+        border-left: 3px solid {COLORS['primary']};
+        margin-right: 2rem;
+    }}
+    
+    @keyframes fadeIn {{
+        from {{ opacity: 0; transform: translateY(10px); }}
+        to {{ opacity: 1; transform: translateY(0); }}
     }}
     
     /* Buttons */
@@ -312,6 +350,119 @@ def inject_cyberpunk_css():
     }}
     </style>
     """, unsafe_allow_html=True)
+
+def display_ai_chat():
+    """Display standalone AI chat interface for Amazon listing optimization"""
+    st.markdown(f"""
+    <div class="ai-chat-container">
+        <h3 style="color: {COLORS['primary']}; margin-top: 0;">
+            🤖 AI LISTING OPTIMIZATION ASSISTANT
+        </h3>
+        <p style="opacity: 0.8; margin-bottom: 1rem;">
+            Ask me anything about Amazon listing optimization, keywords, or strategy
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Display chat messages
+    for message in st.session_state.chat_messages:
+        if message["role"] == "user":
+            st.markdown(f"""
+            <div class="chat-message user-message">
+                <strong>You:</strong> {message["content"]}
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div class="chat-message ai-message">
+                <strong>AI Assistant:</strong> {message["content"]}
+            </div>
+            """, unsafe_allow_html=True)
+    
+    # Chat input
+    user_input = st.text_input("💬 Ask about Amazon listings, keywords, optimization strategies...", 
+                               key="chat_input", 
+                               placeholder="e.g., 'How do I optimize my title for mobility aids?'")
+    
+    if user_input and st.button("Send", type="primary"):
+        # Add user message
+        st.session_state.chat_messages.append({"role": "user", "content": user_input})
+        
+        # Get AI response
+        with st.spinner("🤖 AI thinking..."):
+            response = get_ai_chat_response(user_input)
+            st.session_state.chat_messages.append({"role": "assistant", "content": response})
+        
+        st.rerun()
+    
+    # Clear chat button
+    if st.button("🔄 Clear Chat"):
+        st.session_state.chat_messages = []
+        st.rerun()
+
+def get_ai_chat_response(user_input: str) -> str:
+    """Get AI response for chat"""
+    if not check_ai_status():
+        return "AI service is currently unavailable. Please check your API configuration."
+    
+    try:
+        # Prepare optimized prompt for Amazon listing help
+        system_prompt = """You are an expert Amazon listing optimization specialist with deep knowledge of:
+        - Amazon SEO and A9 algorithm
+        - Keyword research and placement strategies
+        - Title optimization for maximum visibility
+        - Bullet point writing that converts
+        - Backend search terms optimization
+        - Image and A+ content strategies
+        - Competitor analysis techniques
+        - Review management and response strategies
+        
+        Provide specific, actionable advice that will immediately improve Amazon listings.
+        Focus on conversion rate optimization and reducing negative reviews.
+        Be concise but comprehensive. Use examples when helpful."""
+        
+        result = st.session_state.ai_analyzer.api_client.call_api([
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_input}
+        ], max_tokens=800, temperature=0.7)
+        
+        if result['success']:
+            return result['result']
+        else:
+            return f"I encountered an error: {result.get('error', 'Unknown error')}. Please try again."
+            
+    except Exception as e:
+        logger.error(f"Chat error: {e}")
+        return "I'm having trouble processing your request. Please try again."
+
+def display_helium_10_instructions():
+    """Display Helium 10 import instructions"""
+    with st.expander("📚 How to Export Reviews from Helium 10", expanded=False):
+        st.markdown(f"""
+        <div style="background: {COLORS['dark']}90; padding: 1rem; border-radius: 10px; border: 1px solid {COLORS['accent']}50;">
+        
+        ### Quick Steps to Export Reviews:
+        
+        1. **Login to Helium 10** → Go to Review Insights tool
+        2. **Select your ASIN** → Choose the product to analyze  
+        3. **Set date range** → We recommend last 6-12 months
+        4. **Click "Export"** → Choose CSV or Excel format
+        5. **Upload here** → Drag & drop the file below
+        
+        ### Required Columns:
+        - **Title** - Review headline
+        - **Body** - Full review text  
+        - **Rating** - Star rating (1-5)
+        - **Date** - Review date (optional but recommended)
+        - **Verified** - Verified purchase status (optional)
+        
+        ### Pro Tips:
+        - Export all reviews, not just negative ones
+        - Include at least 100 reviews for best AI insights
+        - Recent reviews (last 90 days) are most valuable
+        
+        </div>
+        """, unsafe_allow_html=True)
 
 def calculate_advanced_metrics(df: pd.DataFrame) -> Dict[str, Any]:
     """Calculate advanced metrics from review data"""
@@ -688,7 +839,7 @@ def create_visualization_data(df: pd.DataFrame, metrics: Dict[str, Any]) -> Dict
     return viz_data
 
 def run_comprehensive_ai_analysis(df: pd.DataFrame, metrics: Dict[str, Any], product_info: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Run comprehensive AI analysis on reviews"""
+    """Run comprehensive AI analysis on reviews with Amazon-specific optimization"""
     if not check_ai_status():
         return None
     
@@ -696,7 +847,7 @@ def run_comprehensive_ai_analysis(df: pd.DataFrame, metrics: Dict[str, Any], pro
         # Prepare review samples
         reviews = prepare_reviews_for_ai(df)
         
-        # Create comprehensive analysis prompt
+        # Create Amazon-optimized analysis prompt
         prompt = f"""
         Analyze these Amazon reviews for ADVANCED LISTING OPTIMIZATION INSIGHTS.
         
@@ -712,40 +863,54 @@ def run_comprehensive_ai_analysis(df: pd.DataFrame, metrics: Dict[str, Any], pro
         - Main Issues: {', '.join([k for k, v in metrics['issue_categories'].items() if v > 5])}
         - Trend: {metrics['temporal_trends'].get('trend', 'unknown')}
         
-        PROVIDE THE FOLLOWING ANALYSIS:
+        PROVIDE AMAZON-SPECIFIC OPTIMIZATION ANALYSIS:
         
-        1. **LISTING OPTIMIZATION PRIORITIES** (Top 5)
-           - Specific changes to title, bullets, description
-           - Keywords to add/emphasize
-           - Features to highlight
+        1. **TITLE OPTIMIZATION** (Maximum impact on Amazon SEO)
+           - Current title issues based on reviews
+           - Exact new title suggestion (200 chars max)
+           - Top 5 keywords to include from customer language
+           - Power words that address main concerns
         
-        2. **COMPETITIVE POSITIONING**
-           - How to differentiate from competitors mentioned
-           - Unique value propositions to emphasize
-           - Price positioning insights
+        2. **BULLET POINT REWRITE** (Focus on conversion)
+           - 5 new bullet points addressing top customer concerns
+           - Each bullet should counter a negative review theme
+           - Include benefit-focused language
+           - Address size/fit/compatibility concerns if mentioned
         
-        3. **IMAGE/VIDEO RECOMMENDATIONS**
-           - What visual content customers want to see
-           - Common misconceptions to address visually
-           - A+ content priorities
+        3. **A9 ALGORITHM OPTIMIZATION**
+           - Backend search terms to add (based on review language)
+           - Keywords competitors might be missing
+           - Long-tail keywords from customer phrases
+           - Negative keywords to avoid
         
-        4. **CUSTOMER OBJECTION HANDLING**
-           - Main purchase barriers
-           - How to address in listing copy
-           - FAQ recommendations
+        4. **MAIN IMAGE & GALLERY RECOMMENDATIONS**
+           - What visual concerns need addressing
+           - Infographic text to clarify common issues
+           - Lifestyle image scenarios customers want to see
+           - Size/scale reference needs
         
-        5. **QUALITY IMPROVEMENT PRIORITIES** (For Quality Team)
-           - Top 3 product improvements needed
-           - Packaging/instruction improvements
-           - Quality control focus areas
+        5. **A+ CONTENT PRIORITIES**
+           - Top 3 modules to create/update
+           - Comparison chart elements
+           - FAQ items from review questions
+           - Trust-building elements needed
         
-        6. **QUICK WINS** (Can implement immediately)
-           - Simple listing tweaks
-           - Response templates for reviews
-           - Keyword additions
+        6. **REVIEW RESPONSE STRATEGY**
+           - Template for responding to 1-2 star reviews
+           - Key phrases to use consistently
+           - How to turn negatives into sales points
         
-        Be extremely specific and actionable. Include exact copy suggestions where relevant.
-        Focus on changes that will directly impact conversion rate and reduce returns.
+        7. **COMPETITOR DIFFERENTIATION**
+           - Unique selling points to emphasize
+           - How to position against mentioned competitors
+           - Price justification language
+        
+        8. **IMMEDIATE QUICK WINS** (Can do today)
+           - Top 3 listing changes for instant impact
+           - Which current bullet to replace first
+           - Most important keyword to add
+        
+        Be EXTREMELY specific. Provide exact copy to use. Focus on changes that will improve conversion rate and organic ranking.
         """
         
         # Add review samples
@@ -757,11 +922,12 @@ def run_comprehensive_ai_analysis(df: pd.DataFrame, metrics: Dict[str, Any], pro
         
         prompt += f"\n\nREVIEW SAMPLES:\n{reviews_text}"
         
-        # Call AI
+        # Call AI with Amazon-optimized system prompt
         result = st.session_state.ai_analyzer.api_client.call_api([
-            {"role": "system", "content": """You are an expert Amazon listing optimization specialist. 
-            Provide ultra-specific, actionable recommendations that will immediately improve conversion rates and reduce negative reviews.
-            Format your response with clear sections and bullet points."""},
+            {"role": "system", "content": """You are an elite Amazon listing optimization expert with 10+ years experience. 
+            You understand the A9 algorithm, conversion psychology, and how to turn negative reviews into selling points.
+            Provide ultra-specific, copy-and-paste ready recommendations that will immediately improve rankings and conversion rates.
+            Every suggestion must be backed by actual review data. Be aggressive about optimization opportunities."""},
             {"role": "user", "content": prompt}
         ], max_tokens=3000, temperature=0.3)
         
@@ -815,7 +981,7 @@ def check_ai_status():
         return False
 
 def display_header():
-    """Display cyberpunk-themed header"""
+    """Display cyberpunk-themed header with AI chat toggle"""
     st.markdown("""
     <div class="cyber-header">
         <h1 style="font-size: 3em; margin: 0; z-index: 2; position: relative;">
@@ -828,18 +994,24 @@ def display_header():
     </div>
     """.format(primary=COLORS['primary']), unsafe_allow_html=True)
     
-    # Quick actions bar
-    col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
+    # Quick actions bar with AI Chat toggle
+    col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 1])
     
     with col1:
-        if st.button("🔄 New Analysis", use_container_width=True):
-            for key in st.session_state.keys():
-                if key not in ['ai_analyzer']:
-                    st.session_state[key] = None
-            st.session_state.current_view = 'upload'
+        if st.button("💬 AI CHAT", use_container_width=True, type="primary"):
+            st.session_state.show_ai_chat = not st.session_state.show_ai_chat
             st.rerun()
     
     with col2:
+        if st.button("🔄 New Analysis", use_container_width=True):
+            for key in st.session_state.keys():
+                if key not in ['ai_analyzer', 'chat_messages']:
+                    st.session_state[key] = None
+            st.session_state.current_view = 'upload'
+            st.session_state.show_ai_chat = False
+            st.rerun()
+    
+    with col3:
         st.selectbox(
             "⏱️ Timeframe",
             options=['all', '30d', '90d', '180d', '365d'],
@@ -853,7 +1025,7 @@ def display_header():
             }[x]
         )
     
-    with col3:
+    with col4:
         st.selectbox(
             "⭐ Rating Filter",
             options=['all', '5', '4', '3', '2', '1', 'positive', 'negative'],
@@ -870,7 +1042,7 @@ def display_header():
             }[x]
         )
     
-    with col4:
+    with col5:
         st.selectbox(
             "🎯 Analysis Depth",
             options=['quick', 'standard', 'comprehensive'],
@@ -886,6 +1058,9 @@ def handle_file_upload():
         <p style="color: {text}; opacity: 0.8;">Upload your Amazon review export for deep analysis</p>
     </div>
     """.format(primary=COLORS['primary'], text=COLORS['text']), unsafe_allow_html=True)
+    
+    # Display Helium 10 instructions
+    display_helium_10_instructions()
     
     uploaded_file = st.file_uploader(
         "Drop your review file here",
@@ -1102,18 +1277,20 @@ def display_ai_insights(analysis: str):
     """Display AI insights in structured format"""
     st.markdown(f"""
     <div class="neon-box">
-        <h3 style="color: {COLORS['primary']};">🤖 AI LISTING OPTIMIZATION ANALYSIS</h3>
+        <h3 style="color: {COLORS['primary']};">🤖 AI AMAZON LISTING OPTIMIZATION ANALYSIS</h3>
     </div>
     """, unsafe_allow_html=True)
     
     # Parse and display sections
     sections = {
-        'LISTING OPTIMIZATION PRIORITIES': {'icon': '🎯', 'color': COLORS['primary'], 'priority': 'high'},
-        'COMPETITIVE POSITIONING': {'icon': '🏆', 'color': COLORS['accent'], 'priority': 'high'},
-        'IMAGE/VIDEO RECOMMENDATIONS': {'icon': '📸', 'color': COLORS['secondary'], 'priority': 'medium'},
-        'CUSTOMER OBJECTION HANDLING': {'icon': '🛡️', 'color': COLORS['warning'], 'priority': 'high'},
-        'QUALITY IMPROVEMENT PRIORITIES': {'icon': '🏭', 'color': COLORS['danger'], 'priority': 'high'},
-        'QUICK WINS': {'icon': '⚡', 'color': COLORS['success'], 'priority': 'medium'}
+        'TITLE OPTIMIZATION': {'icon': '🎯', 'color': COLORS['primary'], 'priority': 'high'},
+        'BULLET POINT REWRITE': {'icon': '📝', 'color': COLORS['accent'], 'priority': 'high'},
+        'A9 ALGORITHM OPTIMIZATION': {'icon': '🔍', 'color': COLORS['secondary'], 'priority': 'high'},
+        'MAIN IMAGE & GALLERY RECOMMENDATIONS': {'icon': '📸', 'color': COLORS['warning'], 'priority': 'medium'},
+        'A+ CONTENT PRIORITIES': {'icon': '📄', 'color': COLORS['primary'], 'priority': 'medium'},
+        'REVIEW RESPONSE STRATEGY': {'icon': '💬', 'color': COLORS['success'], 'priority': 'high'},
+        'COMPETITOR DIFFERENTIATION': {'icon': '🏆', 'color': COLORS['danger'], 'priority': 'high'},
+        'IMMEDIATE QUICK WINS': {'icon': '⚡', 'color': COLORS['success'], 'priority': 'high'}
     }
     
     for section, config in sections.items():
@@ -1298,8 +1475,11 @@ def display_quick_wins(analysis: str):
     """, unsafe_allow_html=True)
     
     # Extract quick wins section
-    if "QUICK WINS" in analysis.upper():
-        start = analysis.upper().find("QUICK WINS")
+    if "IMMEDIATE QUICK WINS" in analysis.upper() or "QUICK WINS" in analysis.upper():
+        start = analysis.upper().find("IMMEDIATE QUICK WINS")
+        if start == -1:
+            start = analysis.upper().find("QUICK WINS")
+        
         end = len(analysis)
         
         content = analysis[start:end]
@@ -1324,7 +1504,9 @@ def display_quick_wins(analysis: str):
         "Respond to recent negative reviews",
         "Adjust pricing if recommended",
         "Update A+ content",
-        "Add comparison chart"
+        "Add comparison chart",
+        "Update backend search terms",
+        "Create size/fit infographic"
     ]
     
     for item in checklist_items:
@@ -1363,15 +1545,19 @@ def display_quality_report(analysis: str, metrics: Dict[str, Any]):
             """, unsafe_allow_html=True)
     
     # Extract quality improvements from AI analysis
-    if "QUALITY IMPROVEMENT PRIORITIES" in analysis.upper():
+    quality_keywords = ["QUALITY", "PRODUCT IMPROVEMENT", "MANUFACTURING", "DEFECT", "MATERIAL"]
+    quality_content = ""
+    
+    for keyword in quality_keywords:
+        if keyword in analysis.upper():
+            start = analysis.upper().find(keyword)
+            end = analysis.find("\n\n", start + 50)
+            if end == -1:
+                end = min(start + 500, len(analysis))
+            quality_content += analysis[start:end] + "\n\n"
+    
+    if quality_content:
         st.markdown("### 🔧 AI-Recommended Product Improvements")
-        
-        start = analysis.upper().find("QUALITY IMPROVEMENT PRIORITIES")
-        end = analysis.find("\n\n", start + 50)
-        if end == -1:
-            end = len(analysis)
-        
-        quality_content = analysis[start:end]
         st.warning(quality_content)
     
     # Add quality metrics
@@ -1595,13 +1781,16 @@ Total Issues Identified: {sum(metrics['issue_categories'].values())}
             report += f"- Impact: {(count / metrics['basic_stats']['total_reviews'] * 100):.1f}% of reviews\n"
     
     # Extract quality section from AI analysis
-    if "QUALITY IMPROVEMENT PRIORITIES" in ai_analysis.upper():
-        start = ai_analysis.upper().find("QUALITY IMPROVEMENT PRIORITIES")
-        end = ai_analysis.find("\n\n", start + 50)
-        if end == -1:
-            end = len(ai_analysis)
-        
-        report += f"\n## AI-Recommended Improvements\n{ai_analysis[start:end]}\n"
+    quality_keywords = ["QUALITY", "PRODUCT IMPROVEMENT", "MANUFACTURING", "DEFECT"]
+    for keyword in quality_keywords:
+        if keyword in ai_analysis.upper():
+            start = ai_analysis.upper().find(keyword)
+            end = ai_analysis.find("\n\n", start + 50)
+            if end == -1:
+                end = min(start + 500, len(ai_analysis))
+            
+            report += f"\n## AI-Recommended Improvements\n{ai_analysis[start:end]}\n"
+            break
     
     report += """
 ## Action Items
@@ -1791,6 +1980,11 @@ def main():
     
     # Display header
     display_header()
+    
+    # Show AI Chat if toggled
+    if st.session_state.show_ai_chat:
+        display_ai_chat()
+        st.markdown("<hr style='border-color: {}40; margin: 2rem 0;'>".format(COLORS['primary']), unsafe_allow_html=True)
     
     # Main content based on view
     if st.session_state.current_view == 'upload':
