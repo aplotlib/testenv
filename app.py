@@ -559,6 +559,9 @@ def analyze_temporal_trends(df: pd.DataFrame) -> Dict[str, Any]:
     df_with_dates['month'] = pd.to_datetime(df_with_dates['parsed_date']).dt.to_period('M')
     monthly_avg = df_with_dates.groupby('month')['Rating'].agg(['mean', 'count'])
     
+    # Convert Period index to strings for JSON compatibility
+    monthly_avg.index = monthly_avg.index.astype(str)
+    
     # Detect trend
     if len(monthly_avg) > 1:
         ratings = monthly_avg['mean'].values
@@ -1612,12 +1615,25 @@ def display_export_options(results: Dict[str, Any], metrics: Dict[str, Any]):
         )
     
     with col3:
-        # Raw data export
+        # Raw data export - convert to JSON-safe format
+        def make_json_safe(obj):
+            """Convert non-JSON-serializable objects to strings"""
+            if isinstance(obj, dict):
+                return {str(k): make_json_safe(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [make_json_safe(v) for v in obj]
+            elif hasattr(obj, 'isoformat'):
+                return obj.isoformat()
+            elif hasattr(obj, '__str__'):
+                return str(obj)
+            else:
+                return obj
+        
         export_data = {
             'timestamp': results['timestamp'].isoformat(),
-            'metrics': metrics,
+            'metrics': make_json_safe(metrics),
             'ai_analysis': results['analysis'],
-            'product_info': st.session_state.uploaded_data['product_info']
+            'product_info': make_json_safe(st.session_state.uploaded_data['product_info'])
         }
         
         st.download_button(
