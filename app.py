@@ -1,6 +1,6 @@
 """
 Amazon Review Analyzer - Advanced Listing Optimization Engine
-Vive Health | Cyberpunk Edition v8.0
+Vive Health | Cyberpunk Edition v8.1 - URL Auto-Population
 """
 
 import streamlit as st
@@ -13,6 +13,10 @@ from typing import Dict, List, Any, Optional, Tuple
 import re
 from collections import Counter, defaultdict
 from io import BytesIO
+import requests
+from bs4 import BeautifulSoup
+import time
+import json
 
 # Import handling with fallbacks
 try:
@@ -45,7 +49,7 @@ except ImportError:
 # Configuration
 APP_CONFIG = {
     'title': 'Vive Health Review Intelligence',
-    'version': '8.0',
+    'version': '8.1',
     'company': 'Vive Health',
     'support_email': 'alexander.popoff@vivehealth.com'
 }
@@ -54,6 +58,16 @@ COLORS = {
     'primary': '#00D9FF', 'secondary': '#FF006E', 'accent': '#FFB700',
     'success': '#00F5A0', 'warning': '#FF6B35', 'danger': '#FF0054',
     'dark': '#0A0A0F', 'light': '#1A1A2E', 'text': '#E0E0E0', 'muted': '#666680'
+}
+
+# Amazon scraping headers to avoid blocks
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept-Encoding': 'gzip, deflate',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+    'Connection': 'keep-alive',
+    'Upgrade-Insecure-Requests': '1',
 }
 
 def initialize_session_state():
@@ -65,12 +79,192 @@ def initialize_session_state():
         'analysis_depth': 'comprehensive', 'use_listing_details': False,
         'listing_details': {
             'title': '', 'bullet_points': ['', '', '', '', ''], 'description': '',
-            'backend_keywords': '', 'brand': '', 'category': ''
-        }
+            'backend_keywords': '', 'brand': '', 'category': '', 'asin': '', 'url': ''
+        },
+        'scraping_status': None, 'auto_populated': False
     }
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
+
+def extract_asin_from_url(url: str) -> Optional[str]:
+    """Extract ASIN from Amazon URL"""
+    try:
+        # Common ASIN patterns in Amazon URLs
+        patterns = [
+            r'/dp/([A-Z0-9]{10})',
+            r'/product/([A-Z0-9]{10})',
+            r'asin=([A-Z0-9]{10})',
+            r'/([A-Z0-9]{10})/',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, url)
+            if match:
+                return match.group(1)
+        return None
+    except Exception as e:
+        logger.error(f"ASIN extraction error: {e}")
+        return None
+
+def clean_text(text: str) -> str:
+    """Clean scraped text"""
+    if not text:
+        return ""
+    
+    # Remove extra whitespace and newlines
+    text = re.sub(r'\s+', ' ', text.strip())
+    # Remove common Amazon artifacts
+    text = re.sub(r'See more product details', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'Read more', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'Show more', '', text, flags=re.IGNORECASE)
+    
+    return text.strip()
+
+def scrape_amazon_product(url: str) -> Dict[str, Any]:
+    """Scrape Amazon product information"""
+    try:
+        # Validate URL
+        if not url or 'amazon.' not in url.lower():
+            return {'success': False, 'error': 'Invalid Amazon URL'}
+        
+        # Extract ASIN
+        asin = extract_asin_from_url(url)
+        if not asin:
+            return {'success': False, 'error': 'Could not extract ASIN from URL'}
+        
+        # Make request with retry logic
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = requests.get(url, headers=HEADERS, timeout=10)
+                if response.status_code == 200:
+                    break
+                elif response.status_code == 503:
+                    time.sleep(2 * (attempt + 1))  # Exponential backoff
+                    continue
+                else:
+                    return {'success': False, 'error': f'HTTP {response.status_code}'}
+            except requests.RequestException as e:
+                if attempt == max_retries - 1:
+                    return {'success': False, 'error': f'Request failed: {str(e)}'}
+                time.sleep(1)
+        
+        soup = BeautifulSoup(response.content, 'html.parser')
+        
+        # Extract product information
+        product_data = {
+            'success': True,
+            'asin': asin,
+            'url': url,
+            'title': '',
+            'bullet_points': [],
+            'description': '',
+            'brand': '',
+            'category': ''
+        }
+        
+        # Title extraction (multiple selectors for different layouts)
+        title_selectors = [
+            '#productTitle',
+            '.product-title',
+            'h1[data-automation-id="product-title"]',
+            '.it-ttl'
+        ]
+        
+        for selector in title_selectors:
+            title_element = soup.select_one(selector)
+            if title_element:
+                product_data['title'] = clean_text(title_element.get_text())
+                break
+        
+        # Bullet points extraction
+        bullet_selectors = [
+            '#feature-bullets ul li span',
+            '.a-unordered-list.a-vertical.a-spacing-mini li span',
+            '.feature-bullets-list li',
+            '#feature-bullets li'
+        ]
+        
+        for selector in bullet_selectors:
+            bullets = soup.select(selector)
+            if bullets:
+                bullet_texts = []
+                for bullet in bullets:
+                    text = clean_text(bullet.get_text())
+                    if text and len(text) > 10 and not any(skip in text.lower() for skip in ['make sure', 'see more', 'important information']):
+                        bullet_texts.append(text)
+                
+                if bullet_texts:
+                    # Take up to 5 bullets
+                    product_data['bullet_points'] = bullet_texts[:5]
+                    break
+        
+        # Product description
+        desc_selectors = [
+            '#productDescription p',
+            '#aplus_feature_div',
+            '.a-expander-content p',
+            '#feature-bullets + div'
+        ]
+        
+        for selector in desc_selectors:
+            desc_elements = soup.select(selector)
+            if desc_elements:
+                desc_texts = []
+                for elem in desc_elements:
+                    text = clean_text(elem.get_text())
+                    if text and len(text) > 20:
+                        desc_texts.append(text)
+                
+                if desc_texts:
+                    product_data['description'] = ' '.join(desc_texts)[:2000]  # Limit length
+                    break
+        
+        # Brand extraction
+        brand_selectors = [
+            '#bylineInfo',
+            '.author a',
+            '#brand',
+            'a[href*="/brand/"]',
+            '.po-brand .po-break-word'
+        ]
+        
+        for selector in brand_selectors:
+            brand_element = soup.select_one(selector)
+            if brand_element:
+                brand_text = clean_text(brand_element.get_text())
+                # Clean up common prefixes
+                brand_text = re.sub(r'^(by |brand:|visit the |store:)', '', brand_text, flags=re.IGNORECASE)
+                if brand_text and len(brand_text) < 50:  # Reasonable brand name length
+                    product_data['brand'] = brand_text
+                    break
+        
+        # Category/Department
+        category_selectors = [
+            '#wayfinding-breadcrumbs_feature_div a',
+            '.nav-breadcrumb a',
+            '#SalesRank .zg_hrsr_ladder a'
+        ]
+        
+        for selector in category_selectors:
+            category_elements = soup.select(selector)
+            if category_elements and len(category_elements) > 1:
+                # Get the most specific category (usually the last one)
+                category_text = clean_text(category_elements[-1].get_text())
+                if category_text and len(category_text) < 100:
+                    product_data['category'] = category_text
+                    break
+        
+        # Ensure we have at least some data
+        if not product_data['title'] and not product_data['bullet_points']:
+            return {'success': False, 'error': 'Could not extract product information. Page may be blocked or have unusual structure.'}
+        
+        return product_data
+        
+    except Exception as e:
+        logger.error(f"Scraping error: {e}")
+        return {'success': False, 'error': f'Scraping failed: {str(e)}'}
 
 def inject_cyberpunk_css():
     """Inject minimal cyberpunk CSS"""
@@ -103,6 +297,24 @@ def inject_cyberpunk_css():
         background: rgba(10, 10, 15, 0.9); border: 1px solid var(--primary);
         border-radius: 10px; padding: 1.5rem;
         box-shadow: 0 0 20px rgba(0, 217, 255, 0.4), inset 0 0 20px rgba(0, 217, 255, 0.1);
+    }}
+    
+    .url-input-box {{
+        background: rgba(26, 26, 46, 0.9); border: 2px solid var(--accent);
+        border-radius: 15px; padding: 2rem; margin: 1rem 0;
+        box-shadow: 0 0 25px rgba(255, 183, 0, 0.3);
+    }}
+    
+    .success-box {{
+        background: rgba(0, 245, 160, 0.1); border: 1px solid var(--success);
+        border-radius: 10px; padding: 1rem;
+        box-shadow: 0 0 15px rgba(0, 245, 160, 0.2);
+    }}
+    
+    .error-box {{
+        background: rgba(255, 0, 84, 0.1); border: 1px solid var(--danger);
+        border-radius: 10px; padding: 1rem;
+        box-shadow: 0 0 15px rgba(255, 0, 84, 0.2);
     }}
     
     .stButton > button {{
@@ -139,6 +351,8 @@ def inject_cyberpunk_css():
     .priority-medium {{ border-left: 4px solid var(--warning); }}
     .priority-low {{ border-left: 4px solid var(--success); }}
     
+    .auto-populated {{ border: 1px solid var(--success); background: rgba(0, 245, 160, 0.05); }}
+    
     #MainMenu, footer, header {{ visibility: hidden; }}
     </style>
     """, unsafe_allow_html=True)
@@ -162,8 +376,9 @@ def display_header():
     <div class="cyber-header">
         <h1 style="font-size: 3em; margin: 0;">VIVE HEALTH REVIEW INTELLIGENCE</h1>
         <p style="color: var(--primary); text-transform: uppercase; letter-spacing: 3px;">
-            Advanced Amazon Listing Optimization Engine
+            Advanced Amazon Listing Optimization Engine v8.1
         </p>
+        <p style="color: var(--accent); font-size: 0.9em;">✨ Now with URL Auto-Population</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -177,9 +392,17 @@ def display_header():
     
     with col2:
         if st.button("🔄 New Analysis", use_container_width=True):
-            for key in ['uploaded_data', 'analysis_results', 'current_view']:
-                st.session_state[key] = None if key != 'current_view' else 'upload'
+            for key in ['uploaded_data', 'analysis_results', 'current_view', 'auto_populated', 'scraping_status']:
+                if key == 'current_view':
+                    st.session_state[key] = 'upload'
+                else:
+                    st.session_state[key] = None if key != 'auto_populated' else False
             st.session_state.show_ai_chat = False
+            # Reset listing details
+            st.session_state.listing_details = {
+                'title': '', 'bullet_points': ['', '', '', '', ''], 'description': '',
+                'backend_keywords': '', 'brand': '', 'category': '', 'asin': '', 'url': ''
+            }
             st.rerun()
     
     if st.session_state.uploaded_data:
@@ -269,50 +492,209 @@ def display_ai_chat():
             st.session_state.chat_messages = []
             st.rerun()
 
+def display_url_input_section():
+    """Display URL input section for auto-population"""
+    st.markdown("""
+    <div class="url-input-box">
+        <h3 style="color: var(--accent); margin-top: 0;">🔗 AUTO-POPULATE FROM AMAZON URL</h3>
+        <p style="color: var(--text); margin-bottom: 1rem;">
+            Paste your Amazon product URL below to automatically extract title, bullet points, and other details.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # URL input
+    amazon_url = st.text_input(
+        "Amazon Product URL",
+        placeholder="https://www.amazon.com/dp/YOUR-ASIN or https://www.amazon.com/product-name/dp/YOUR-ASIN",
+        help="Paste the full Amazon product page URL here. Works with amazon.com, amazon.co.uk, etc.",
+        key="amazon_url_input"
+    )
+    
+    col1, col2, col3 = st.columns([2, 1, 2])
+    
+    with col2:
+        scrape_button = st.button("🚀 EXTRACT DATA", type="primary", use_container_width=True)
+    
+    if scrape_button and amazon_url:
+        st.session_state.scraping_status = 'processing'
+        
+        with st.spinner("🔍 Extracting product information from Amazon..."):
+            result = scrape_amazon_product(amazon_url)
+            
+            if result['success']:
+                # Update session state with scraped data
+                st.session_state.listing_details.update({
+                    'title': result.get('title', ''),
+                    'description': result.get('description', ''),
+                    'brand': result.get('brand', ''),
+                    'category': result.get('category', ''),
+                    'asin': result.get('asin', ''),
+                    'url': result.get('url', '')
+                })
+                
+                # Update bullet points
+                bullets = result.get('bullet_points', [])
+                for i in range(5):
+                    if i < len(bullets):
+                        st.session_state.listing_details['bullet_points'][i] = bullets[i]
+                    else:
+                        st.session_state.listing_details['bullet_points'][i] = ''
+                
+                st.session_state.scraping_status = 'success'
+                st.session_state.auto_populated = True
+                st.session_state.use_listing_details = True
+                
+                st.success("✅ Product data extracted successfully!")
+                st.rerun()
+                
+            else:
+                st.session_state.scraping_status = 'error'
+                error_msg = result.get('error', 'Unknown error occurred')
+                st.error(f"❌ Failed to extract data: {error_msg}")
+                
+                # Show troubleshooting tips
+                st.markdown("""
+                <div class="error-box">
+                    <h4>Troubleshooting Tips:</h4>
+                    <ul>
+                        <li>Make sure the URL is a valid Amazon product page</li>
+                        <li>Try accessing the URL in your browser first</li>
+                        <li>Some products may be restricted or have unusual page structures</li>
+                        <li>You can still manually enter the details below</li>
+                    </ul>
+                </div>
+                """, unsafe_allow_html=True)
+    
+    elif scrape_button and not amazon_url:
+        st.warning("⚠️ Please enter an Amazon URL first")
+    
+    # Show success message if auto-populated
+    if st.session_state.auto_populated and st.session_state.scraping_status == 'success':
+        st.markdown("""
+        <div class="success-box">
+            <h4 style="color: var(--success); margin-top: 0;">🎉 Auto-Population Successful!</h4>
+            <p>Product details have been extracted and populated below. You can review and edit them before analysis.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Display extracted info summary
+        details = st.session_state.listing_details
+        if details['title'] or details['brand']:
+            col1, col2 = st.columns(2)
+            with col1:
+                if details['title']:
+                    st.info(f"**Title:** {details['title'][:100]}{'...' if len(details['title']) > 100 else ''}")
+                if details['brand']:
+                    st.info(f"**Brand:** {details['brand']}")
+            with col2:
+                if details['asin']:
+                    st.info(f"**ASIN:** {details['asin']}")
+                bullet_count = sum(1 for b in details['bullet_points'] if b.strip())
+                st.info(f"**Bullet Points:** {bullet_count}/5 extracted")
+
 def display_listing_details_form():
-    """Display optional listing details form"""
-    st.markdown('<p style="color: #FFB700;">💡 Providing listing details enables targeted AI recommendations</p>',
+    """Display listing details form with auto-population support"""
+    
+    # URL input section first
+    display_url_input_section()
+    
+    st.markdown('<hr style="border-color: var(--primary); margin: 2rem 0;">', unsafe_allow_html=True)
+    
+    st.markdown('<p style="color: #FFB700;">💡 Review and edit the listing details below (auto-populated or manual entry)</p>',
                unsafe_allow_html=True)
     
-    if st.checkbox("Include listing details in AI analysis", value=st.session_state.use_listing_details):
+    if st.checkbox("Include listing details in AI analysis", value=st.session_state.use_listing_details, key="use_details_checkbox"):
         st.session_state.use_listing_details = True
         
-        st.text_input("Product Title", value=st.session_state.listing_details['title'],
-                     max_chars=200, key="listing_title")
+        # Product Title
+        title_class = "auto-populated" if st.session_state.auto_populated and st.session_state.listing_details['title'] else ""
+        title_help = "✨ Auto-populated from URL" if st.session_state.auto_populated and st.session_state.listing_details['title'] else "Enter your product title"
+        
+        st.text_input("Product Title", 
+                     value=st.session_state.listing_details['title'],
+                     max_chars=200, 
+                     key="listing_title",
+                     help=title_help)
         st.session_state.listing_details['title'] = st.session_state.listing_title
         
+        # Bullet Points
         st.markdown("**Bullet Points**")
+        filled_bullets = 0
         for i in range(5):
+            bullet_value = st.session_state.listing_details['bullet_points'][i]
+            is_auto = st.session_state.auto_populated and bullet_value.strip()
+            help_text = "✨ Auto-populated from URL" if is_auto else f"Enter bullet point {i+1}"
+            
             bullet = st.text_input(f"Bullet Point {i+1}",
-                                 value=st.session_state.listing_details['bullet_points'][i],
-                                 max_chars=500, key=f"bullet_{i}")
+                                 value=bullet_value,
+                                 max_chars=500, 
+                                 key=f"bullet_{i}",
+                                 help=help_text)
             st.session_state.listing_details['bullet_points'][i] = bullet
+            if bullet.strip():
+                filled_bullets += 1
         
-        st.text_area("Product Description", value=st.session_state.listing_details['description'],
-                    height=150, max_chars=2000, key="listing_description")
+        # Product Description
+        desc_help = "✨ Auto-populated from URL" if st.session_state.auto_populated and st.session_state.listing_details['description'] else "Enter your product description"
+        st.text_area("Product Description", 
+                    value=st.session_state.listing_details['description'],
+                    height=150, 
+                    max_chars=2000, 
+                    key="listing_description",
+                    help=desc_help)
         st.session_state.listing_details['description'] = st.session_state.listing_description
         
+        # Two column layout for remaining fields
         col1, col2 = st.columns(2)
+        
         with col1:
             backend = st.text_area("Backend Search Terms",
                                  value=st.session_state.listing_details['backend_keywords'],
-                                 height=100, max_chars=250, key="backend_keywords")
+                                 height=100, 
+                                 max_chars=250, 
+                                 key="backend_keywords",
+                                 help="Enter your backend search terms (manually)")
             st.session_state.listing_details['backend_keywords'] = backend
             
-            brand = st.text_input("Brand Name", value=st.session_state.listing_details['brand'],
-                                key="brand_name")
+            brand_help = "✨ Auto-populated from URL" if st.session_state.auto_populated and st.session_state.listing_details['brand'] else "Enter your brand name"
+            brand = st.text_input("Brand Name", 
+                                value=st.session_state.listing_details['brand'],
+                                key="brand_name",
+                                help=brand_help)
             st.session_state.listing_details['brand'] = brand
         
         with col2:
+            category_help = "✨ Auto-populated from URL" if st.session_state.auto_populated and st.session_state.listing_details['category'] else "Enter your product category"
             category = st.text_input("Product Category",
                                    value=st.session_state.listing_details['category'],
-                                   key="product_category")
+                                   key="product_category",
+                                   help=category_help)
             st.session_state.listing_details['category'] = category
             
-            filled_bullets = sum(1 for b in st.session_state.listing_details['bullet_points'] if b.strip())
-            st.info(f"✅ {filled_bullets}/5 bullet points provided")
+            # ASIN (read-only if auto-populated)
+            if st.session_state.listing_details['asin']:
+                st.text_input("ASIN", 
+                            value=st.session_state.listing_details['asin'],
+                            disabled=True,
+                            help="✨ Extracted from URL")
+            
+            # Status display
+            if st.session_state.auto_populated:
+                st.success(f"✅ Auto-populated: {filled_bullets}/5 bullets, Title: {'✓' if st.session_state.listing_details['title'] else '✗'}")
+            else:
+                st.info(f"📝 Manual entry: {filled_bullets}/5 bullet points provided")
+        
+        # Show URL if auto-populated
+        if st.session_state.listing_details['url']:
+            st.text_input("Source URL", 
+                        value=st.session_state.listing_details['url'],
+                        disabled=True,
+                        help="Amazon URL used for auto-population")
     else:
         st.session_state.use_listing_details = False
+
+# ... [Rest of the existing functions remain the same: parse_amazon_date, calculate_basic_stats, etc.] ...
 
 def parse_amazon_date(date_string):
     """Parse Amazon review dates"""
@@ -632,6 +1014,8 @@ def run_comprehensive_ai_analysis(df, metrics, product_info):
             Bullet Points: {chr(10).join([f'• {b}' for b in details['bullet_points'] if b.strip()])}
             Description: {details['description'][:500] if details['description'] else 'Not provided'}
             Backend Keywords: {details['backend_keywords'] or 'Not provided'}
+            Brand: {details['brand'] or 'Not provided'}
+            ASIN: {details['asin'] or 'Not provided'}
             """
         
         prompt = f"""
@@ -687,7 +1071,7 @@ def handle_file_upload():
     </div>
     """, unsafe_allow_html=True)
     
-    with st.expander("📝 Add Current Listing Details (Optional)"):
+    with st.expander("🔗 Add Current Listing Details (URL Auto-Population Available)", expanded=not st.session_state.auto_populated):
         display_listing_details_form()
     
     uploaded_file = st.file_uploader("Drop your review file here", type=['csv', 'xlsx', 'xls'])
@@ -737,7 +1121,7 @@ def handle_file_upload():
                 'df': df,
                 'df_filtered': df_filtered,
                 'product_info': {
-                    'asin': df['Variation'].iloc[0] if 'Variation' in df.columns else 'Unknown',
+                    'asin': st.session_state.listing_details.get('asin') or df['Variation'].iloc[0] if 'Variation' in df.columns else 'Unknown',
                     'total_reviews': len(df),
                     'filtered_reviews': len(df_filtered)
                 },
@@ -784,6 +1168,15 @@ def handle_file_upload():
                 </div>
                 """, unsafe_allow_html=True)
             
+            # Show auto-population status
+            if st.session_state.auto_populated:
+                st.markdown("""
+                <div class="success-box">
+                    <h4 style="color: var(--success); margin-top: 0;">✨ Listing Details Auto-Populated</h4>
+                    <p>AI analysis will use the extracted listing details for more targeted recommendations.</p>
+                </div>
+                """, unsafe_allow_html=True)
+            
             # Action buttons
             st.markdown("### 🚀 Choose Your Analysis Path")
             
@@ -796,7 +1189,8 @@ def handle_file_upload():
             
             with col2:
                 if check_ai_status():
-                    if st.button("🚀 RUN AI ANALYSIS", type="primary", use_container_width=True):
+                    button_text = "🚀 RUN AI ANALYSIS" + (" (Enhanced)" if st.session_state.use_listing_details else "")
+                    if st.button(button_text, type="primary", use_container_width=True):
                         with st.spinner("🤖 AI analyzing..."):
                             ai_results = run_comprehensive_ai_analysis(df_filtered, metrics, st.session_state.uploaded_data['product_info'])
                             if ai_results:
@@ -971,9 +1365,11 @@ def display_ai_results():
     results = st.session_state.analysis_results
     metrics = st.session_state.uploaded_data['metrics']
     
+    enhancement_note = " (Enhanced with Listing Details)" if st.session_state.use_listing_details else ""
+    
     st.markdown(f"""
     <div class="neon-box">
-        <h2 style="color: var(--success);">✅ AI ANALYSIS COMPLETE</h2>
+        <h2 style="color: var(--success);">✅ AI ANALYSIS COMPLETE{enhancement_note}</h2>
         <p>Analyzed {results['reviews_analyzed']} reviews • {results['timestamp'].strftime('%B %d, %Y at %I:%M %p')}</p>
     </div>
     """, unsafe_allow_html=True)
@@ -981,6 +1377,14 @@ def display_ai_results():
     tabs = st.tabs(["🎯 AI Insights", "📊 Key Metrics", "📥 Export"])
     
     with tabs[0]:
+        if st.session_state.use_listing_details:
+            st.markdown("""
+            <div class="success-box">
+                <h4 style="color: var(--success); margin-top: 0;">✨ Enhanced Analysis</h4>
+                <p>This analysis used your current listing details for more targeted recommendations.</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
         display_ai_insights(results['analysis'])
     
     with tabs[1]:
@@ -997,9 +1401,16 @@ def display_ai_results():
     
     with tabs[2]:
         # Export options
+        enhancement_info = f"\nListing Details Used: {'Yes' if st.session_state.use_listing_details else 'No'}"
+        if st.session_state.use_listing_details:
+            details = st.session_state.listing_details
+            enhancement_info += f"\nASIN: {details.get('asin', 'N/A')}"
+            enhancement_info += f"\nBrand: {details.get('brand', 'N/A')}"
+        
         text_report = f"""
 AMAZON LISTING ANALYSIS REPORT
 Generated: {datetime.now().strftime('%B %d, %Y')}
+{enhancement_info}
 
 EXECUTIVE SUMMARY
 Health Score: {metrics['listing_health_score']['total_score']:.0f}/100
@@ -1037,6 +1448,9 @@ def display_comprehensive_view():
             st.metric("Health Score", f"{metrics['listing_health_score']['total_score']:.0f}/100")
             st.metric("Average Rating", f"{metrics['basic_stats']['average_rating']}/5")
             st.metric("Total Reviews", metrics['basic_stats']['total_reviews'])
+            
+            if st.session_state.use_listing_details and st.session_state.listing_details.get('asin'):
+                st.metric("ASIN", st.session_state.listing_details['asin'])
         
         with col2:
             st.markdown('<div class="neon-box"><h3>Key Issues</h3></div>', unsafe_allow_html=True)
@@ -1077,6 +1491,16 @@ def generate_comprehensive_excel_report(metrics, ai_results):
                     f"{(metrics['sentiment_breakdown']['positive'] / sum(metrics['sentiment_breakdown'].values()) * 100):.0f}%"
                 ]
             }
+            
+            if st.session_state.use_listing_details:
+                summary_data['Metric'].extend(['ASIN', 'Brand', 'Auto-Populated'])
+                details = st.session_state.listing_details
+                summary_data['Value'].extend([
+                    details.get('asin', 'N/A'),
+                    details.get('brand', 'N/A'),
+                    'Yes' if st.session_state.auto_populated else 'No'
+                ])
+            
             pd.DataFrame(summary_data).to_excel(writer, sheet_name='Summary', index=False)
             
             # Issues
@@ -1090,6 +1514,8 @@ def generate_comprehensive_excel_report(metrics, ai_results):
         # CSV fallback
         csv_data = f"Health Score,{metrics['listing_health_score']['total_score']:.0f}/100\n"
         csv_data += f"Average Rating,{metrics['basic_stats']['average_rating']}/5\n"
+        if st.session_state.use_listing_details:
+            csv_data += f"ASIN,{st.session_state.listing_details.get('asin', 'N/A')}\n"
         buffer.write(csv_data.encode('utf-8'))
     
     buffer.seek(0)
