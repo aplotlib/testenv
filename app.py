@@ -135,7 +135,7 @@ def inject_cyberpunk_css():
     .user-message {{ background: rgba(255, 0, 110, 0.1); border-left: 3px solid var(--secondary); }}
     .ai-message {{ background: rgba(0, 217, 255, 0.1); border-left: 3px solid var(--primary); }}
     
-    .priority-high {{ border-left: 4px solid var(--danger); }
+    .priority-high {{ border-left: 4px solid var(--danger); }}
     .priority-medium {{ border-left: 4px solid var(--warning); }}
     .priority-low {{ border-left: 4px solid var(--success); }}
     
