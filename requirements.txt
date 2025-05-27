@@ -6,3 +6,4 @@ beautifulsoup4
 xlsxwriter
 reportlab
 openpyxl
+openai
