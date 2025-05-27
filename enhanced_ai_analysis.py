@@ -7,7 +7,7 @@ Provides robust AI-powered analysis using OpenAI GPT-4o with comprehensive
 error handling and Amazon-specific optimization focus.
 
 Author: Assistant
-Version: 5.0 - Amazon Optimization Edition
+Version: 5.1 - Medical Device Quality Management Edition
 """
 
 import logging
@@ -35,7 +35,7 @@ requests, has_requests = safe_import('requests')
 # API Configuration
 API_TIMEOUT = 30
 MAX_RETRIES = 2
-MAX_TOKENS = 1500
+MAX_TOKENS = 2000  # Increased for comprehensive analysis
 
 class APIClient:
     """Robust OpenAI API client with error handling"""
@@ -47,6 +47,12 @@ class APIClient:
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}" if self.api_key else ""
         }
+        
+        # Log API key status
+        if self.api_key:
+            logger.info(f"API key configured (first 10 chars): {self.api_key[:10]}...")
+        else:
+            logger.warning("No API key found - AI features will be disabled")
     
     def _get_api_key(self) -> Optional[str]:
         """Get API key from multiple sources"""
@@ -54,20 +60,27 @@ class APIClient:
         try:
             import streamlit as st
             if hasattr(st, 'secrets'):
-                for key_name in ["openai_api_key", "OPENAI_API_KEY"]:
+                # Try multiple possible key names
+                for key_name in ["openai_api_key", "OPENAI_API_KEY", "openai", "api_key"]:
                     if key_name in st.secrets:
-                        logger.info("Found API key in Streamlit secrets")
-                        return st.secrets[key_name]
-        except:
-            pass
+                        logger.info(f"Found API key in Streamlit secrets under '{key_name}'")
+                        return str(st.secrets[key_name])
+                    
+                # Check nested secrets
+                if "openai" in st.secrets and "api_key" in st.secrets["openai"]:
+                    logger.info("Found API key in nested Streamlit secrets")
+                    return str(st.secrets["openai"]["api_key"])
+        except Exception as e:
+            logger.debug(f"Streamlit secrets not available: {e}")
         
         # Try environment variable
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if api_key:
-            logger.info("Found API key in environment")
-            return api_key
+        for env_name in ["OPENAI_API_KEY", "OPENAI_API", "API_KEY"]:
+            api_key = os.environ.get(env_name)
+            if api_key:
+                logger.info(f"Found API key in environment variable '{env_name}'")
+                return api_key
         
-        logger.warning("No OpenAI API key found")
+        logger.warning("No OpenAI API key found in Streamlit secrets or environment")
         return None
     
     def is_available(self) -> bool:
@@ -75,17 +88,21 @@ class APIClient:
         return bool(self.api_key and has_requests)
     
     def call_api(self, messages: List[Dict[str, str]], 
-                model: str = "gpt-4o",
-                temperature: float = 0.1,
+                model: str = "gpt-4o-mini",  # Using mini for cost efficiency
+                temperature: float = 0.3,
                 max_tokens: int = MAX_TOKENS) -> Dict[str, Any]:
-        """Make API call with retry logic"""
+        """Make API call with retry logic - matches main app's expectations"""
         
         if not self.is_available():
             return {
                 "success": False,
                 "error": "API not available - missing key or requests module",
-                "result": None
+                "result": "AI analysis requires OpenAI API key. Please add OPENAI_API_KEY to your Streamlit secrets or environment variables."
             }
+        
+        # Ensure we're using the correct model name
+        if model == "gpt-4o":
+            model = "gpt-4o-mini"  # Use the more cost-effective version
         
         payload = {
             "model": model,
@@ -96,7 +113,7 @@ class APIClient:
         
         for attempt in range(MAX_RETRIES):
             try:
-                logger.info(f"Making API call (attempt {attempt + 1}/{MAX_RETRIES})")
+                logger.info(f"Making API call to {model} (attempt {attempt + 1}/{MAX_RETRIES})")
                 
                 response = requests.post(
                     self.base_url,
@@ -105,14 +122,29 @@ class APIClient:
                     timeout=API_TIMEOUT
                 )
                 
+                logger.info(f"API response status: {response.status_code}")
+                
                 if response.status_code == 200:
                     result = response.json()
+                    content = result["choices"][0]["message"]["content"]
+                    logger.info(f"API call successful, response length: {len(content)} chars")
+                    
                     return {
                         "success": True,
-                        "result": result["choices"][0]["message"]["content"],
+                        "result": content,
                         "usage": result.get("usage", {}),
                         "model": model
                     }
+                    
+                elif response.status_code == 401:
+                    error_msg = "Invalid API key. Please check your OpenAI API key configuration."
+                    logger.error(error_msg)
+                    return {
+                        "success": False,
+                        "error": error_msg,
+                        "result": None
+                    }
+                    
                 elif response.status_code == 429:
                     # Rate limit - wait and retry
                     import time
@@ -120,9 +152,11 @@ class APIClient:
                     logger.warning(f"Rate limited, waiting {wait_time} seconds")
                     time.sleep(wait_time)
                     continue
+                    
                 else:
-                    error_msg = f"API error {response.status_code}: {response.text[:200]}"
-                    logger.error(error_msg)
+                    error_data = response.json() if response.text else {}
+                    error_msg = error_data.get('error', {}).get('message', f'API error {response.status_code}')
+                    logger.error(f"API error: {error_msg}")
                     return {
                         "success": False,
                         "error": error_msg,
@@ -152,550 +186,181 @@ class APIClient:
             "result": None
         }
 
-class PromptTemplates:
-    """AI prompt templates optimized for Amazon listing analysis"""
-    
-    @staticmethod
-    def create_review_analysis_prompt(product_info: Dict[str, Any], 
-                                    review_summaries: List[str]) -> str:
-        """Create prompt for Amazon-specific review analysis"""
-        
-        product_name = product_info.get('name', 'Unknown Product')
-        product_category = product_info.get('category', 'Amazon Product')
-        asin = product_info.get('asin', 'Unknown ASIN')
-        
-        return f"""You are an elite Amazon listing optimization expert analyzing customer reviews for immediate listing improvements.
-
-PRODUCT: {product_name}
-CATEGORY: {product_category}
-ASIN: {asin}
-TOTAL REVIEWS: {len(review_summaries)}
-
-CUSTOMER REVIEWS:
-{chr(10).join(review_summaries)}
-
-Provide AMAZON-SPECIFIC analysis in this EXACT format:
-
-## TITLE OPTIMIZATION OPPORTUNITIES
-[Specific keywords from reviews that should be in title]
-[Exact new title suggestion - 200 chars max]
-
-## BULLET POINT GAPS
-[Top 5 customer concerns not addressed in current bullets]
-[Specific language customers use that should be in bullets]
-
-## A9 ALGORITHM INSIGHTS
-[Hidden keywords from reviews competitors likely miss]
-[Long-tail search terms customers actually use]
-[Backend search term recommendations]
-
-## MAIN IMAGE REQUIREMENTS
-[Visual concerns mentioned in reviews]
-[What customers need to see to buy]
-
-## CONVERSION KILLERS
-[Top 3 issues causing customers to not purchase]
-[Exact copy to address each concern]
-
-## COMPETITOR ADVANTAGES
-[What competitors are mentioned and why]
-[How to position against them]
-
-## IMMEDIATE ACTIONS (DO TODAY)
-1. [Most impactful change - be specific]
-2. [Second priority - exact implementation]
-3. [Third priority - copy to use]
-
-## REVIEW RESPONSE TEMPLATES
-[Template for 1-2 star reviews]
-[Key phrases to use consistently]
-
-Focus on actionable changes that will improve Best Seller Rank and conversion rate within 7 days."""
-    
-    @staticmethod
-    def create_listing_optimization_prompt(metrics: Dict[str, Any], 
-                                         top_issues: List[str]) -> str:
-        """Create prompt for listing optimization recommendations"""
-        
-        return f"""As an Amazon listing optimization expert, create specific listing improvements based on this data:
-
-METRICS:
-- Average Rating: {metrics.get('avg_rating', 'N/A')}/5
-- Negative Review %: {metrics.get('negative_pct', 'N/A')}%
-- Main Issues: {', '.join(top_issues[:5])}
-
-Provide EXACT copy for:
-
-## NEW TITLE (200 chars max)
-[Include main keywords, brand, key feature, and size/count]
-
-## OPTIMIZED BULLETS (5 bullets)
-• [Bullet 1 - Address biggest concern]
-• [Bullet 2 - Highlight unique benefit]
-• [Bullet 3 - Size/compatibility info]
-• [Bullet 4 - Quality/durability]
-• [Bullet 5 - Guarantee/support]
-
-## A+ CONTENT MODULES
-1. [Module type and content focus]
-2. [Module type and content focus]
-3. [Module type and content focus]
-
-## BACKEND KEYWORDS
-[Comma-separated list of 250 chars]
-
-## FAQ SECTION (Top 5)
-Q1: [Question]
-A1: [Answer]
-[Continue for Q2-Q5]
-
-Be specific. Use emotional triggers. Address every major concern."""
-    
-    @staticmethod
-    def create_competitive_analysis_prompt(competitor_mentions: List[str],
-                                         product_strengths: List[str]) -> str:
-        """Create prompt for competitive positioning"""
-        
-        return f"""Analyze these competitor mentions from reviews and create differentiation strategy:
-
-COMPETITOR MENTIONS:
-{chr(10).join(competitor_mentions[:10])}
-
-OUR STRENGTHS:
-{chr(10).join(product_strengths[:5])}
-
-Provide:
-
-## COMPETITIVE POSITIONING STATEMENT
-[2-3 sentences for product description]
-
-## COMPARISON CHART ELEMENTS
-[5 key differentiators to highlight]
-
-## COUNTER-MESSAGING
-[How to address each competitor advantage]
-
-## PRICING STRATEGY
-[Price positioning recommendations]
-
-## UNIQUE VALUE PROPS
-[Top 3 USPs to emphasize everywhere]
-
-Make it compelling and specific to Amazon buyers."""
-
-class ResponseParser:
-    """Parse and structure AI responses for Amazon optimization"""
-    
-    @staticmethod
-    def parse_review_analysis(content: str) -> Dict[str, Any]:
-        """Parse review analysis response"""
-        
-        parsed = {
-            'title_optimization': '',
-            'bullet_gaps': [],
-            'a9_insights': '',
-            'image_requirements': '',
-            'conversion_killers': [],
-            'competitor_advantages': '',
-            'immediate_actions': [],
-            'review_templates': ''
-        }
-        
-        try:
-            # Extract sections using regex
-            sections = {
-                'title_optimization': r'## TITLE OPTIMIZATION OPPORTUNITIES\s*\n(.*?)(?=## |$)',
-                'bullet_gaps': r'## BULLET POINT GAPS\s*\n(.*?)(?=## |$)',
-                'a9_insights': r'## A9 ALGORITHM INSIGHTS\s*\n(.*?)(?=## |$)',
-                'image_requirements': r'## MAIN IMAGE REQUIREMENTS\s*\n(.*?)(?=## |$)',
-                'conversion_killers': r'## CONVERSION KILLERS\s*\n(.*?)(?=## |$)',
-                'competitor_advantages': r'## COMPETITOR ADVANTAGES\s*\n(.*?)(?=## |$)',
-                'immediate_actions': r'## IMMEDIATE ACTIONS.*?\s*\n(.*?)(?=## |$)',
-                'review_templates': r'## REVIEW RESPONSE TEMPLATES\s*\n(.*?)(?=## |$)'
-            }
-            
-            for section_name, pattern in sections.items():
-                match = re.search(pattern, content, re.DOTALL)
-                if match:
-                    section_content = match.group(1).strip()
-                    
-                    # Parse lists for certain sections
-                    if section_name in ['bullet_gaps', 'conversion_killers', 'immediate_actions']:
-                        # Extract numbered or bulleted lists
-                        items = []
-                        lines = section_content.split('\n')
-                        for line in lines:
-                            line = line.strip()
-                            if line and (line[0].isdigit() or line.startswith('-') or line.startswith('•')):
-                                # Clean up the line
-                                cleaned = re.sub(r'^[\d\.\-•\s]+', '', line).strip()
-                                if cleaned:
-                                    items.append(cleaned)
-                        parsed[section_name] = items if items else [section_content]
-                    else:
-                        parsed[section_name] = section_content
-            
-            return parsed
-            
-        except Exception as e:
-            logger.error(f"Error parsing review analysis: {str(e)}")
-            return parsed
-    
-    @staticmethod
-    def parse_listing_optimization(content: str) -> Dict[str, Any]:
-        """Parse listing optimization response"""
-        
-        parsed = {
-            'new_title': '',
-            'optimized_bullets': [],
-            'a_plus_modules': [],
-            'backend_keywords': '',
-            'faq_section': []
-        }
-        
-        try:
-            sections = {
-                'new_title': r'## NEW TITLE.*?\s*\n(.*?)(?=## |$)',
-                'optimized_bullets': r'## OPTIMIZED BULLETS.*?\s*\n(.*?)(?=## |$)',
-                'a_plus_modules': r'## A\+ CONTENT MODULES\s*\n(.*?)(?=## |$)',
-                'backend_keywords': r'## BACKEND KEYWORDS\s*\n(.*?)(?=## |$)',
-                'faq_section': r'## FAQ SECTION.*?\s*\n(.*?)(?=## |$)'
-            }
-            
-            for section_name, pattern in sections.items():
-                match = re.search(pattern, content, re.DOTALL)
-                if match:
-                    section_content = match.group(1).strip()
-                    
-                    if section_name in ['optimized_bullets', 'a_plus_modules']:
-                        # Extract bullet points
-                        items = []
-                        lines = section_content.split('\n')
-                        for line in lines:
-                            line = line.strip()
-                            if line and (line.startswith('•') or line.startswith('-') or line[0].isdigit()):
-                                cleaned = re.sub(r'^[•\-\d\.\s]+', '', line).strip()
-                                if cleaned:
-                                    items.append(cleaned)
-                        parsed[section_name] = items
-                    elif section_name == 'faq_section':
-                        # Parse Q&A pairs
-                        qa_pairs = []
-                        lines = section_content.split('\n')
-                        current_q = None
-                        current_a = None
-                        
-                        for line in lines:
-                            line = line.strip()
-                            if line.startswith('Q') and ':' in line:
-                                if current_q and current_a:
-                                    qa_pairs.append({'question': current_q, 'answer': current_a})
-                                current_q = line.split(':', 1)[1].strip()
-                                current_a = None
-                            elif line.startswith('A') and ':' in line and current_q:
-                                current_a = line.split(':', 1)[1].strip()
-                        
-                        if current_q and current_a:
-                            qa_pairs.append({'question': current_q, 'answer': current_a})
-                        
-                        parsed[section_name] = qa_pairs
-                    else:
-                        parsed[section_name] = section_content
-            
-            return parsed
-            
-        except Exception as e:
-            logger.error(f"Error parsing listing optimization: {str(e)}")
-            return parsed
-
 class EnhancedAIAnalyzer:
-    """Main AI analyzer class optimized for Amazon listings"""
+    """Main AI analyzer class optimized for Amazon listings and medical devices"""
     
     def __init__(self):
         self.api_client = APIClient()
-        self.prompt_templates = PromptTemplates()
-        self.response_parser = ResponseParser()
-        
-        if self.api_client.is_available():
-            logger.info("Enhanced AI Analyzer initialized - API available")
-        else:
-            logger.warning("Enhanced AI Analyzer initialized - API not available")
+        logger.info(f"Enhanced AI Analyzer initialized - API available: {self.api_client.is_available()}")
     
     def get_api_status(self) -> Dict[str, Any]:
-        """Get API availability status"""
-        if not self.api_client.api_key:
-            return {
-                'available': False,
-                'error': 'API key not configured',
-                'suggestions': [
-                    'Add OPENAI_API_KEY to environment variables',
-                    'Add openai_api_key to Streamlit secrets'
-                ]
-            }
+        """Get API availability status - matches main app's expectations"""
+        is_available = self.api_client.is_available()
         
-        if not has_requests:
-            return {
-                'available': False,
-                'error': 'Requests module not available',
-                'suggestions': ['Install requests module: pip install requests']
-            }
-        
-        # Test API with minimal call
-        test_response = self.api_client.call_api([
-            {"role": "user", "content": "Test connection"}
-        ], max_tokens=10)
-        
-        return {
-            'available': test_response['success'],
-            'error': test_response.get('error'),
-            'model': test_response.get('model', 'gpt-4o')
+        status = {
+            'available': is_available,
+            'configured': bool(self.api_client.api_key)
         }
+        
+        if not self.api_client.api_key:
+            status['error'] = 'API key not configured'
+            status['message'] = 'Add OPENAI_API_KEY to Streamlit secrets or environment'
+        elif not has_requests:
+            status['error'] = 'Requests module not available'
+            status['message'] = 'Install requests: pip install requests'
+        else:
+            # Try a test call with minimal tokens
+            test_response = self.api_client.call_api(
+                [{"role": "user", "content": "Hi"}],
+                max_tokens=5
+            )
+            
+            if test_response['success']:
+                status['message'] = 'API is working correctly'
+                status['model'] = test_response.get('model', 'gpt-4o-mini')
+            else:
+                status['available'] = False
+                status['error'] = test_response.get('error', 'Unknown error')
+                status['message'] = f"API test failed: {status['error']}"
+        
+        logger.info(f"API status check: {status}")
+        return status
     
-    def analyze_reviews_comprehensive(self, product_info: Dict[str, Any],
-                                    reviews: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Comprehensive AI analysis of reviews for Amazon optimization"""
-        
-        if not self.api_client.is_available():
-            return {
-                'success': False,
-                'error': 'AI analysis not available',
-                'ai_analysis_available': False
-            }
-        
+    def analyze_reviews_for_listing_optimization(self, 
+                                                reviews: List[Dict],
+                                                product_info: Dict,
+                                                listing_details: Optional[Dict] = None) -> str:
+        """
+        Main method called by the app for AI analysis
+        Returns a formatted string with optimization recommendations
+        """
         try:
             # Prepare review summaries
-            review_summaries = self._prepare_review_summaries(reviews)
+            review_texts = []
+            for i, review in enumerate(reviews[:30], 1):  # Limit to 30 reviews
+                rating = review.get('rating', 3)
+                title = review.get('title', '')[:100]
+                body = review.get('body', '')[:300]
+                verified = " [Verified]" if review.get('verified') else ""
+                
+                review_text = f"Review {i} ({rating}/5){verified}: {title} - {body}"
+                review_texts.append(review_text)
             
-            if not review_summaries:
-                return {
-                    'success': False,
-                    'error': 'No review data to analyze',
-                    'ai_analysis_available': False
-                }
+            # Build the comprehensive prompt
+            listing_context = ""
+            if listing_details:
+                listing_context = f"""
+CURRENT LISTING DETAILS:
+Title: {listing_details.get('title', 'Not provided')}
+Brand: {listing_details.get('brand', 'Not provided')}
+Category: {listing_details.get('category', 'Not provided')}
+ASIN: {listing_details.get('asin', 'Not provided')}
+
+Current Bullet Points:
+{chr(10).join([f'• {b}' for b in listing_details.get('bullet_points', []) if b.strip()])}
+
+Current Description Preview:
+{listing_details.get('description', 'Not provided')[:500]}
+"""
             
-            # Create analysis prompt
-            prompt = self.prompt_templates.create_review_analysis_prompt(
-                product_info, review_summaries
+            # Medical device context for quality management
+            medical_device_context = """
+Note: This is a medical device product. Pay special attention to:
+- Safety concerns and adverse events
+- Quality and reliability issues
+- Usability and user training needs
+- Regulatory compliance implications
+- Documentation and instruction clarity
+"""
+            
+            prompt = f"""You are an expert Amazon listing optimization specialist with medical device expertise.
+Analyze these customer reviews to provide SPECIFIC, ACTIONABLE listing improvements.
+
+PRODUCT INFORMATION:
+ASIN: {product_info.get('asin', 'Unknown')}
+Total Reviews Analyzed: {len(reviews)}
+Average Rating: {sum(r.get('rating', 3) for r in reviews) / len(reviews):.1f}/5
+
+{listing_context}
+
+{medical_device_context}
+
+CUSTOMER REVIEWS:
+{chr(10).join(review_texts)}
+
+Provide optimization recommendations in this EXACT format:
+
+## TITLE OPTIMIZATION
+Current issues identified from reviews:
+[List specific problems mentioned]
+
+Recommended new title (max 200 chars):
+[Exact title incorporating customer language and addressing concerns]
+
+## BULLET POINT REWRITE
+Based on customer feedback, rewrite all 5 bullet points:
+
+• Bullet 1 (Address #1 concern): [Complete bullet point text]
+• Bullet 2 (Highlight safety/quality): [Complete bullet point text]
+• Bullet 3 (Usability/ease of use): [Complete bullet point text]
+• Bullet 4 (Specifications/compatibility): [Complete bullet point text]
+• Bullet 5 (Support/warranty): [Complete bullet point text]
+
+## A9 ALGORITHM OPTIMIZATION
+Backend keywords extracted from customer language:
+[Comma-separated list, max 250 chars]
+
+## IMMEDIATE QUICK WINS
+1. [Most critical change based on negative reviews]
+2. [Second priority addressing common complaints]
+3. [Third priority for conversion improvement]
+
+Focus on medical device quality, safety, and compliance while improving conversion."""
+
+            # Make the API call
+            response = self.api_client.call_api(
+                messages=[
+                    {
+                        "role": "system", 
+                        "content": "You are an Amazon listing optimization expert specializing in medical devices. Provide specific, implementable recommendations based on customer feedback."
+                    },
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                max_tokens=2000
             )
             
-            # Make API call with Amazon-specific system prompt
-            response = self.api_client.call_api([
-                {"role": "system", "content": """You are the top Amazon listing optimization expert with deep knowledge of:
-                - A9 algorithm and ranking factors
-                - Conversion rate optimization for Amazon
-                - Keyword research from customer language
-                - Competitive positioning on Amazon
-                - Review management strategies
+            if response['success']:
+                logger.info("AI analysis completed successfully")
+                return response['result']
+            else:
+                error_msg = response.get('error', 'Unknown error')
+                logger.error(f"AI analysis failed: {error_msg}")
                 
-                Always provide specific, actionable recommendations that can be implemented immediately.
-                Focus on changes that will improve BSR and conversion rate within days."""},
-                {"role": "user", "content": prompt}
-            ])
-            
-            if not response['success']:
-                return {
-                    'success': False,
-                    'error': response['error'],
-                    'ai_analysis_available': False
-                }
-            
-            # Parse response
-            analysis_results = self.response_parser.parse_review_analysis(response['result'])
-            
-            # Add metadata
-            analysis_results.update({
-                'success': True,
-                'ai_analysis_available': True,
-                'analysis_timestamp': datetime.now().isoformat(),
-                'reviews_analyzed': len(reviews),
-                'model_used': response.get('model', 'gpt-4o'),
-                'raw_response': response['result']  # For debugging
-            })
-            
-            logger.info(f"AI analysis completed for {len(reviews)} reviews")
-            return analysis_results
-            
+                # Return a helpful error message
+                return f"""## AI Analysis Error
+
+{error_msg}
+
+### Troubleshooting Steps:
+1. Check that your OpenAI API key is correctly configured
+2. Verify the API key has sufficient credits
+3. Ensure you're using a valid API key that starts with 'sk-'
+
+### Manual Analysis Recommendations:
+While AI is unavailable, focus on:
+- Addressing the most common complaints in reviews
+- Adding safety and quality assurances to bullet points
+- Including customer keywords in your title
+- Updating backend search terms with review language"""
+                
         except Exception as e:
-            logger.error(f"Error in comprehensive analysis: {str(e)}")
-            return {
-                'success': False,
-                'error': str(e),
-                'ai_analysis_available': False
-            }
-    
-    def generate_listing_optimization(self, metrics: Dict[str, Any],
-                                    top_issues: List[str]) -> Dict[str, Any]:
-        """Generate specific listing optimization recommendations"""
-        
-        if not self.api_client.is_available():
-            return {
-                'success': False,
-                'error': 'AI optimization not available'
-            }
-        
-        try:
-            # Create optimization prompt
-            prompt = self.prompt_templates.create_listing_optimization_prompt(
-                metrics, top_issues
-            )
-            
-            # Make API call
-            response = self.api_client.call_api([
-                {"role": "system", "content": """You are an Amazon copywriting expert who writes listing copy that:
-                - Ranks on page 1 for target keywords
-                - Converts browsers into buyers
-                - Addresses customer objections preemptively
-                - Uses emotional triggers effectively
-                - Follows Amazon's style guidelines
-                
-                Every word must serve a purpose. Be specific and compelling."""},
-                {"role": "user", "content": prompt}
-            ])
-            
-            if not response['success']:
-                return {
-                    'success': False,
-                    'error': response['error']
-                }
-            
-            # Parse response
-            optimization_results = self.response_parser.parse_listing_optimization(response['result'])
-            
-            # Add metadata
-            optimization_results.update({
-                'success': True,
-                'generation_timestamp': datetime.now().isoformat(),
-                'model_used': response.get('model', 'gpt-4o')
-            })
-            
-            return optimization_results
-            
-        except Exception as e:
-            logger.error(f"Error in listing optimization: {str(e)}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
-    
-    def analyze_competitive_position(self, competitor_mentions: List[str],
-                                   product_strengths: List[str]) -> Dict[str, Any]:
-        """Analyze competitive positioning"""
-        
-        if not self.api_client.is_available():
-            return {
-                'success': False,
-                'error': 'AI competitive analysis not available'
-            }
-        
-        try:
-            # Create competitive analysis prompt
-            prompt = self.prompt_templates.create_competitive_analysis_prompt(
-                competitor_mentions, product_strengths
-            )
-            
-            # Make API call
-            response = self.api_client.call_api([
-                {"role": "system", "content": """You are an Amazon competitive strategy expert who understands:
-                - How to differentiate products on Amazon
-                - Price-value positioning
-                - Creating compelling comparison content
-                - Winning the Buy Box
-                - Building brand loyalty on Amazon
-                
-                Create strategies that make competitors irrelevant."""},
-                {"role": "user", "content": prompt}
-            ])
-            
-            if not response['success']:
-                return {
-                    'success': False,
-                    'error': response['error']
-                }
-            
-            # For now, return raw response (can add parser later)
-            return {
-                'success': True,
-                'analysis': response['result'],
-                'timestamp': datetime.now().isoformat()
-            }
-            
-        except Exception as e:
-            logger.error(f"Error in competitive analysis: {str(e)}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
-    
-    def _prepare_review_summaries(self, reviews: List[Dict[str, Any]]) -> List[str]:
-        """Prepare review summaries for AI analysis"""
-        summaries = []
-        
-        # Sort by rating (lowest first for issue identification)
-        sorted_reviews = sorted(reviews, key=lambda x: x.get('rating', 3))
-        
-        # Take up to 15 reviews (balanced sample)
-        selected_reviews = sorted_reviews[:15]
-        
-        for i, review in enumerate(selected_reviews, 1):
-            try:
-                text = review.get('text', '').strip()
-                if not text:
-                    continue
-                
-                # Limit text length
-                text = text[:400]
-                
-                # Add rating if available
-                rating_text = ""
-                if review.get('rating') is not None:
-                    rating_text = f" (Rating: {review['rating']}/5)"
-                
-                # Add verification if available
-                verified_text = ""
-                if review.get('verified') == 'Verified Purchase':
-                    verified_text = " [Verified]"
-                
-                summary = f"Review {i}{rating_text}{verified_text}: {text}"
-                summaries.append(summary)
-                
-            except Exception as e:
-                logger.warning(f"Error preparing review summary: {str(e)}")
-                continue
-        
-        return summaries
-    
-    def analyze_product_comprehensive(self, product_info: Dict[str, Any],
-                                    reviews: List[Dict[str, Any]] = None,
-                                    returns: List[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Comprehensive product analysis (main interface)"""
-        
-        # Combine reviews and returns
-        all_feedback = []
-        
-        if reviews:
-            all_feedback.extend(reviews)
-        
-        if returns:
-            # Convert returns to review format
-            for return_item in returns:
-                feedback_item = {
-                    'text': return_item.get('return_reason', ''),
-                    'type': 'return',
-                    'rating': 1,  # Assume low satisfaction for returns
-                    'date': return_item.get('date', ''),
-                    'source': 'return_data'
-                }
-                all_feedback.append(feedback_item)
-        
-        if not all_feedback:
-            return {
-                'success': False,
-                'error': 'No feedback data provided',
-                'ai_analysis_available': False
-            }
-        
-        # Run comprehensive analysis
-        return self.analyze_reviews_comprehensive(product_info, all_feedback)
+            logger.error(f"Error in analyze_reviews_for_listing_optimization: {str(e)}")
+            return f"""## Analysis Error
+
+An error occurred during analysis: {str(e)}
+
+Please check your configuration and try again."""
 
 # Export main class
 __all__ = ['EnhancedAIAnalyzer', 'APIClient']
