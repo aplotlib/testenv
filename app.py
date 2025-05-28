@@ -1,6 +1,6 @@
 """
 Amazon Review Analyzer - Advanced Listing Optimization Engine
-Vive Health | Cyberpunk Edition v8.1 - URL Auto-Population
+Vive Health | Cyberpunk Edition v9.0 - Marketplace Data Integration
 """
 
 import streamlit as st
@@ -46,10 +46,17 @@ except ImportError:
     AI_AVAILABLE = False
     logger.warning("AI module not available")
 
+try:
+    from amazon_file_detector import AmazonFileDetector
+    DETECTOR_AVAILABLE = True
+except ImportError:
+    DETECTOR_AVAILABLE = False
+    logger.warning("Amazon file detector module not available")
+
 # Configuration
 APP_CONFIG = {
     'title': 'Vive Health Review Intelligence',
-    'version': '8.1',
+    'version': '9.0',
     'company': 'Vive Health',
     'support_email': 'alexander.popoff@vivehealth.com'
 }
@@ -81,7 +88,13 @@ def initialize_session_state():
             'title': '', 'bullet_points': ['', '', '', '', ''], 'description': '',
             'backend_keywords': '', 'brand': '', 'category': '', 'asin': '', 'url': ''
         },
-        'scraping_status': None, 'auto_populated': False
+        'scraping_status': None, 'auto_populated': False, 'analyze_all_reviews': True,
+        'marketplace_files': {
+            'reimbursements': None,
+            'fba_returns': None,
+            'fbm_returns': None
+        },
+        'marketplace_data': None
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -299,10 +312,28 @@ def inject_cyberpunk_css():
         box-shadow: 0 0 20px rgba(0, 217, 255, 0.4), inset 0 0 20px rgba(0, 217, 255, 0.1);
     }}
     
+    .help-box {{
+        background: rgba(0, 217, 255, 0.1); border: 1px solid var(--primary);
+        border-radius: 10px; padding: 1rem; margin: 1rem 0;
+        box-shadow: 0 0 10px rgba(0, 217, 255, 0.2);
+    }}
+    
     .url-input-box {{
         background: rgba(26, 26, 46, 0.9); border: 2px solid var(--accent);
         border-radius: 15px; padding: 2rem; margin: 1rem 0;
         box-shadow: 0 0 25px rgba(255, 183, 0, 0.3);
+    }}
+    
+    .marketplace-box {{
+        background: rgba(255, 0, 110, 0.1); border: 2px solid var(--secondary);
+        border-radius: 15px; padding: 2rem; margin: 1rem 0;
+        box-shadow: 0 0 25px rgba(255, 0, 110, 0.3);
+    }}
+    
+    .file-upload-status {{
+        background: rgba(0, 245, 160, 0.1); border: 1px solid var(--success);
+        border-radius: 8px; padding: 0.75rem; margin: 0.5rem 0;
+        display: flex; align-items: center; justify-content: space-between;
     }}
     
     .success-box {{
@@ -376,9 +407,9 @@ def display_header():
     <div class="cyber-header">
         <h1 style="font-size: 3em; margin: 0;">VIVE HEALTH REVIEW INTELLIGENCE</h1>
         <p style="color: var(--primary); text-transform: uppercase; letter-spacing: 3px;">
-            Advanced Amazon Listing Optimization Engine v8.1
+            Advanced Amazon Listing Optimization Engine v9.0
         </p>
-        <p style="color: var(--accent); font-size: 0.9em;">✨ Now with URL Auto-Population</p>
+        <p style="color: var(--accent); font-size: 0.9em;">✨ Now with Marketplace Data Integration & Return Analysis</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -386,18 +417,21 @@ def display_header():
     col1, col2, col3, col4, col5, col6 = st.columns(6)
     
     with col1:
-        if st.button("💬 AI CHAT", use_container_width=True, type="primary"):
+        if st.button("💬 AI CHAT", use_container_width=True, type="primary", help="Discuss analysis results with AI"):
             st.session_state.show_ai_chat = not st.session_state.show_ai_chat
             st.rerun()
     
     with col2:
         if st.button("🔄 New Analysis", use_container_width=True):
-            for key in ['uploaded_data', 'analysis_results', 'current_view', 'auto_populated', 'scraping_status']:
+            for key in ['uploaded_data', 'analysis_results', 'current_view', 'auto_populated', 'scraping_status', 'marketplace_files', 'marketplace_data']:
                 if key == 'current_view':
                     st.session_state[key] = 'upload'
+                elif key == 'marketplace_files':
+                    st.session_state[key] = {'reimbursements': None, 'fba_returns': None, 'fbm_returns': None}
                 else:
                     st.session_state[key] = None if key != 'auto_populated' else False
             st.session_state.show_ai_chat = False
+            st.session_state.analyze_all_reviews = True
             # Reset listing details
             st.session_state.listing_details = {
                 'title': '', 'bullet_points': ['', '', '', '', ''], 'description': '',
@@ -424,7 +458,7 @@ def display_header():
                     key='selected_timeframe', format_func=lambda x: {
                         'all': 'All Time', '30d': 'Last 30 Days', '90d': 'Last 90 Days',
                         '180d': 'Last 6 Months', '365d': 'Last Year'
-                    }[x])
+                    }[x], help="Filter reviews by date (affects metrics display, not AI analysis by default)")
     
     with col5:
         st.selectbox("⭐ Rating Filter", options=['all', '5', '4', '3', '2', '1', 'positive', 'negative'],
@@ -432,7 +466,7 @@ def display_header():
                         'all': 'All Ratings', '5': '5 Stars Only', '4': '4 Stars Only',
                         '3': '3 Stars Only', '2': '2 Stars Only', '1': '1 Star Only',
                         'positive': '4-5 Stars', 'negative': '1-2 Stars'
-                    }[x])
+                    }[x], help="Filter reviews by rating (affects metrics display)")
     
     with col6:
         st.selectbox("🎯 Analysis Depth", options=['quick', 'standard', 'comprehensive'],
@@ -444,9 +478,21 @@ def get_ai_chat_response(user_input: str) -> str:
         return "AI service is currently unavailable."
     
     try:
-        system_prompt = """You are an expert Amazon listing optimization specialist.
+        # Include context about the current analysis if available
+        context = ""
+        if st.session_state.analysis_results:
+            context = "\n\nContext: I've just completed an analysis of Amazon reviews"
+            if st.session_state.use_listing_details and st.session_state.listing_details.get('asin'):
+                context += f" for ASIN {st.session_state.listing_details['asin']}"
+            context += ". The user may be asking about the analysis results."
+        
+        if st.session_state.marketplace_data:
+            context += "\n\nI also have marketplace data including returns and reimbursements analysis."
+        
+        system_prompt = f"""You are an expert Amazon listing optimization specialist for medical devices.
         Provide specific, actionable advice for improving Amazon listings, focusing on
-        conversion rate optimization and reducing negative reviews. Be concise but comprehensive."""
+        conversion rate optimization and reducing negative reviews. Be concise but comprehensive.
+        {context}"""
         
         result = st.session_state.ai_analyzer.api_client.call_api([
             {"role": "system", "content": system_prompt},
@@ -466,6 +512,25 @@ def display_ai_chat():
     </div>
     """, unsafe_allow_html=True)
     
+    # Help text
+    if not st.session_state.chat_messages:
+        st.markdown("""
+        <div class="help-box">
+            <h4 style="color: var(--primary); margin-top: 0;">💡 How to use AI Chat:</h4>
+            <ul style="margin: 0.5rem 0;">
+                <li>Ask about specific recommendations from your analysis</li>
+                <li>Get help implementing the suggested changes</li>
+                <li>Discuss competitor strategies and differentiation</li>
+                <li>Request alternative title or bullet point variations</li>
+                <li>Ask about medical device compliance considerations</li>
+                <li>Inquire about return patterns and how to address them</li>
+            </ul>
+            <p style="margin-top: 0.5rem; color: var(--accent);">
+                <strong>Tip:</strong> After running an analysis, ask me to explain specific recommendations or provide implementation strategies!
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+    
     # Display messages
     for message in st.session_state.chat_messages:
         msg_class = "user-message" if message["role"] == "user" else "ai-message"
@@ -476,7 +541,8 @@ def display_ai_chat():
     # Input
     col1, col2 = st.columns([5, 1])
     with col1:
-        user_input = st.text_input("💬 Ask about Amazon listings...", key="chat_input", label_visibility="collapsed")
+        user_input = st.text_input("💬 Ask about Amazon listings, analysis results, or optimization strategies...", 
+                                   key="chat_input", label_visibility="collapsed")
     with col2:
         send_button = st.button("Send", type="primary", use_container_width=True)
     
@@ -499,6 +565,7 @@ def display_url_input_section():
         <h3 style="color: var(--accent); margin-top: 0;">🔗 AUTO-POPULATE FROM AMAZON URL</h3>
         <p style="color: var(--text); margin-bottom: 1rem;">
             Paste your Amazon product URL below to automatically extract title, bullet points, and other details.
+            This enables more targeted AI analysis by comparing your current listing with customer feedback.
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -575,6 +642,9 @@ def display_url_input_section():
         <div class="success-box">
             <h4 style="color: var(--success); margin-top: 0;">🎉 Auto-Population Successful!</h4>
             <p>Product details have been extracted and populated below. You can review and edit them before analysis.</p>
+            <p style="color: var(--primary); margin-top: 0.5rem;">
+                <strong>AI Analysis Enhancement:</strong> The AI will now compare your current listing with customer feedback to identify specific keyword gaps and optimization opportunities.
+            </p>
         </div>
         """, unsafe_allow_html=True)
         
@@ -694,7 +764,147 @@ def display_listing_details_form():
     else:
         st.session_state.use_listing_details = False
 
-# ... [Rest of the existing functions remain the same: parse_amazon_date, calculate_basic_stats, etc.] ...
+def display_marketplace_file_upload():
+    """Display marketplace file upload section"""
+    st.markdown("""
+    <div class="marketplace-box">
+        <h3 style="color: var(--secondary); margin-top: 0;">📂 MARKETPLACE DATA FILES (OPTIONAL)</h3>
+        <p style="color: var(--text); margin-bottom: 1rem;">
+            Upload Amazon marketplace data files to analyze return patterns, reimbursements, and correlate issues with your product.
+            Files are automatically detected by their structure.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    if not DETECTOR_AVAILABLE:
+        st.warning("⚠️ Amazon file detector module not available. Marketplace file analysis will be limited.")
+        return
+    
+    # File upload columns
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown("#### 💰 Reimbursements")
+        st.markdown('<small style="color: #666;">18 columns, CSV format</small>', unsafe_allow_html=True)
+        reimb_file = st.file_uploader(
+            "Upload Reimbursements",
+            type=['csv'],
+            key="reimb_upload",
+            label_visibility="collapsed"
+        )
+        
+        if reimb_file:
+            process_marketplace_file(reimb_file, 'reimbursements')
+    
+    with col2:
+        st.markdown("#### 📦 FBA Returns")
+        st.markdown('<small style="color: #666;">13 columns, CSV format</small>', unsafe_allow_html=True)
+        fba_file = st.file_uploader(
+            "Upload FBA Returns",
+            type=['csv'],
+            key="fba_upload",
+            label_visibility="collapsed"
+        )
+        
+        if fba_file:
+            process_marketplace_file(fba_file, 'fba_returns')
+    
+    with col3:
+        st.markdown("#### 🚚 FBM Returns")
+        st.markdown('<small style="color: #666;">34 columns, TSV/CSV format</small>', unsafe_allow_html=True)
+        fbm_file = st.file_uploader(
+            "Upload FBM Returns",
+            type=['csv', 'tsv', 'txt'],
+            key="fbm_upload",
+            label_visibility="collapsed"
+        )
+        
+        if fbm_file:
+            process_marketplace_file(fbm_file, 'fbm_returns')
+    
+    # Display status of uploaded files
+    if any(st.session_state.marketplace_files.values()):
+        st.markdown("---")
+        st.markdown("#### 📊 Uploaded Marketplace Files:")
+        
+        for file_type, data in st.session_state.marketplace_files.items():
+            if data:
+                file_name = file_type.replace('_', ' ').title()
+                st.markdown(f"""
+                <div class="file-upload-status">
+                    <span>✅ {file_name}: {data['summary']['row_count']} rows</span>
+                    <span style="color: var(--primary);">Ready for analysis</span>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Show key metrics
+                if file_type == 'reimbursements' and 'total_cash_reimbursed' in data['summary']:
+                    st.info(f"Total reimbursed: ${data['summary']['total_cash_reimbursed']:.2f}")
+                elif file_type in ['fba_returns', 'fbm_returns'] and 'total_returns' in data['summary']:
+                    st.info(f"Total returns: {data['summary']['total_returns']}")
+
+def process_marketplace_file(uploaded_file, expected_type: str):
+    """Process a marketplace file upload"""
+    try:
+        # Read file content
+        file_content = uploaded_file.read()
+        
+        # Process with detector
+        result = AmazonFileDetector.process_file(file_content, uploaded_file.name)
+        
+        if result['success']:
+            detected_type = result['file_type']
+            
+            # Verify file type matches expected
+            if detected_type != expected_type:
+                st.warning(f"⚠️ File appears to be {detected_type.replace('_', ' ').title()}, not {expected_type.replace('_', ' ').title()}")
+                if not st.checkbox(f"Upload as {expected_type.replace('_', ' ').title()} anyway?", key=f"override_{expected_type}"):
+                    return
+            
+            # Store the processed data
+            st.session_state.marketplace_files[expected_type] = {
+                'dataframe': result['dataframe'],
+                'summary': result['summary'],
+                'filename': uploaded_file.name
+            }
+            
+            st.success(f"✅ {expected_type.replace('_', ' ').title()} file processed successfully!")
+            
+            # Process correlations if we have an ASIN
+            if st.session_state.listing_details.get('asin'):
+                process_marketplace_correlations()
+                
+        else:
+            st.error(f"❌ Error: {result['error']}")
+            
+    except Exception as e:
+        st.error(f"❌ Failed to process file: {str(e)}")
+        logger.error(f"Marketplace file processing error: {e}")
+
+def process_marketplace_correlations():
+    """Process correlations between marketplace data and current ASIN"""
+    if not st.session_state.listing_details.get('asin'):
+        return
+    
+    target_asin = st.session_state.listing_details['asin']
+    
+    # Prepare dataframes
+    marketplace_dfs = {}
+    for file_type, data in st.session_state.marketplace_files.items():
+        if data:
+            marketplace_dfs[file_type] = data['dataframe']
+    
+    if marketplace_dfs:
+        # Get correlations
+        correlations = AmazonFileDetector.correlate_with_asin(marketplace_dfs, target_asin)
+        st.session_state.marketplace_data = correlations
+        
+        # Show immediate insights if data found
+        if correlations.get('return_patterns') or correlations.get('financial_impact'):
+            st.info(f"🔍 Found marketplace data for ASIN {target_asin}")
+
+# ... [Continue with the rest of the existing functions from PA9.py - they remain the same]
+# Including: parse_amazon_date, calculate_basic_stats, analyze_sentiment_patterns, etc.
 
 def parse_amazon_date(date_string):
     """Parse Amazon review dates"""
@@ -983,10 +1193,12 @@ def prepare_reviews_for_ai(df):
     
     reviews.sort(key=lambda x: (x['rating'], x['date']))
     
-    if len(reviews) > 50:
-        low = [r for r in reviews if r['rating'] <= 2][:15]
-        mid = [r for r in reviews if r['rating'] == 3][:10]
-        high = [r for r in reviews if r['rating'] >= 4][:25]
+    # Include more reviews for comprehensive analysis
+    if len(reviews) > 100:
+        # Balanced sampling across ratings
+        low = [r for r in reviews if r['rating'] <= 2][:25]
+        mid = [r for r in reviews if r['rating'] == 3][:15]
+        high = [r for r in reviews if r['rating'] >= 4][:35]
         reviews = low + mid + high
     
     return reviews
@@ -998,64 +1210,62 @@ def run_comprehensive_ai_analysis(df, metrics, product_info):
         return None
     
     try:
-        reviews = prepare_reviews_for_ai(df)
+        # Determine which dataframe to use based on user preference
+        if st.session_state.analyze_all_reviews and 'df' in st.session_state.uploaded_data:
+            # Use ALL reviews for AI analysis
+            analysis_df = st.session_state.uploaded_data['df']
+            analysis_note = f"Analyzing ALL {len(analysis_df)} reviews"
+        else:
+            # Use filtered reviews
+            analysis_df = df
+            analysis_note = f"Analyzing {len(analysis_df)} filtered reviews"
+        
+        reviews = prepare_reviews_for_ai(analysis_df)
         if not reviews:
             st.error("No reviews to analyze")
             return None
         
-        st.info(f"🤖 Analyzing {len(reviews)} reviews with AI...")
+        # Add marketplace data note if available
+        if st.session_state.marketplace_data:
+            analysis_note += " + marketplace data"
+        
+        st.info(f"🤖 {analysis_note} with AI...")
         
         listing_context = ""
         if st.session_state.use_listing_details:
             details = st.session_state.listing_details
             listing_context = f"""
-            CURRENT LISTING:
+            CURRENT LISTING (Auto-populated: {'Yes' if st.session_state.auto_populated else 'No'}):
             Title: {details['title'] or 'Not provided'}
+            ASIN: {details['asin'] or 'Not provided'}
+            Brand: {details['brand'] or 'Not provided'}
+            Category: {details['category'] or 'Not provided'}
             Bullet Points: {chr(10).join([f'• {b}' for b in details['bullet_points'] if b.strip()])}
             Description: {details['description'][:500] if details['description'] else 'Not provided'}
             Backend Keywords: {details['backend_keywords'] or 'Not provided'}
-            Brand: {details['brand'] or 'Not provided'}
-            ASIN: {details['asin'] or 'Not provided'}
             """
         
-        prompt = f"""
-        Analyze these Amazon reviews for LISTING OPTIMIZATION.
+        # Pass listing details, metrics, and marketplace data to the enhanced analyzer
+        result = st.session_state.ai_analyzer.analyze_reviews_for_listing_optimization(
+            reviews=reviews,
+            product_info=product_info,
+            listing_details=st.session_state.listing_details if st.session_state.use_listing_details else None,
+            metrics=metrics,
+            marketplace_data=st.session_state.marketplace_data
+        )
         
-        Product: {product_info.get('asin', 'Unknown')}
-        Total Reviews: {len(reviews)}
-        Average Rating: {metrics['basic_stats']['average_rating']}/5
-        {listing_context}
-        
-        METRICS:
-        - Positive: {metrics['sentiment_breakdown']['positive']} vs Negative: {metrics['sentiment_breakdown']['negative']}
-        - Top Issues: {', '.join([k for k, v in metrics['issue_categories'].items() if v > 5])}
-        
-        PROVIDE:
-        1. **TITLE OPTIMIZATION** - New title (200 chars max) with customer keywords
-        2. **BULLET POINT REWRITE** - 5 bullets addressing concerns
-        3. **A9 ALGORITHM OPTIMIZATION** - Backend keywords from reviews
-        4. **IMMEDIATE QUICK WINS** - Top 3 changes to implement today
-        
-        Be specific with exact copy to use.
-        """
-        
-        reviews_text = "\n".join([f"[{r['rating']}/5]: {r['body'][:200]}" for r in reviews[:30]])
-        prompt += f"\n\nREVIEWS:\n{reviews_text}"
-        
-        result = st.session_state.ai_analyzer.api_client.call_api([
-            {"role": "system", "content": "You are an Amazon listing optimization expert. Provide specific, actionable recommendations."},
-            {"role": "user", "content": prompt}
-        ], max_tokens=2000, temperature=0.3)
-        
-        if result['success']:
+        if result:
             return {
                 'success': True,
-                'analysis': result['result'],
+                'analysis': result,
                 'timestamp': datetime.now(),
-                'reviews_analyzed': len(reviews)
+                'reviews_analyzed': len(reviews),
+                'total_reviews': len(analysis_df),
+                'analysis_scope': 'all_reviews' if st.session_state.analyze_all_reviews else 'filtered_reviews',
+                'marketplace_data_included': bool(st.session_state.marketplace_data)
             }
         else:
-            st.error(f"AI Error: {result.get('error', 'Unknown')}")
+            st.error("AI analysis failed")
             return None
             
     except Exception as e:
@@ -1071,146 +1281,181 @@ def handle_file_upload():
     </div>
     """, unsafe_allow_html=True)
     
-    with st.expander("🔗 Add Current Listing Details (URL Auto-Population Available)", expanded=not st.session_state.auto_populated):
+    # Add AI analysis scope toggle
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.checkbox("🎯 Analyze ALL reviews with AI (ignore time/rating filters)", 
+                   value=st.session_state.analyze_all_reviews,
+                   key="analyze_all_checkbox",
+                   help="When checked, AI will analyze all reviews regardless of filters. Unchecked = AI only analyzes filtered reviews.")
+    st.session_state.analyze_all_reviews = st.session_state.analyze_all_checkbox
+    
+    # Tab layout for better organization
+    tab1, tab2, tab3 = st.tabs(["📝 Listing Details", "📂 Marketplace Data", "📊 Review Data"])
+    
+    with tab1:
         display_listing_details_form()
     
-    uploaded_file = st.file_uploader("Drop your review file here", type=['csv', 'xlsx', 'xls'])
+    with tab2:
+        display_marketplace_file_upload()
     
-    if uploaded_file:
-        try:
-            # Read file
-            with st.spinner("🔄 Processing data..."):
-                if uploaded_file.name.endswith('.csv'):
-                    try:
-                        df = pd.read_csv(uploaded_file, encoding='utf-8')
-                    except UnicodeDecodeError:
-                        uploaded_file.seek(0)
-                        df = pd.read_csv(uploaded_file, encoding='latin-1')
+    with tab3:
+        uploaded_file = st.file_uploader("Drop your review file here", type=['csv', 'xlsx', 'xls'])
+        
+        if uploaded_file:
+            try:
+                # Read file
+                with st.spinner("🔄 Processing data..."):
+                    if uploaded_file.name.endswith('.csv'):
+                        try:
+                            df = pd.read_csv(uploaded_file, encoding='utf-8')
+                        except UnicodeDecodeError:
+                            uploaded_file.seek(0)
+                            df = pd.read_csv(uploaded_file, encoding='latin-1')
+                    else:
+                        df = pd.read_excel(uploaded_file, engine='openpyxl')
+                
+                # Validate columns
+                required_cols = ['Title', 'Body', 'Rating']
+                missing = [col for col in required_cols if col not in df.columns]
+                
+                if missing:
+                    st.error(f"❌ Missing required columns: {', '.join(missing)}")
+                    return
+                
+                # Clean data
+                df = df.dropna(subset=['Rating', 'Body'])
+                df['Rating'] = pd.to_numeric(df['Rating'], errors='coerce')
+                df = df[df['Rating'].between(1, 5)]
+                
+                # Apply filters
+                df_filtered = apply_filters(df)
+                
+                if len(df_filtered) == 0:
+                    st.warning("⚠️ No reviews match the current filters.")
+                    return
+                
+                # Calculate metrics
+                metrics = calculate_advanced_metrics(df_filtered)
+                
+                if not metrics:
+                    st.error("❌ Failed to calculate metrics.")
+                    return
+                
+                # Store data
+                st.session_state.uploaded_data = {
+                    'df': df,
+                    'df_filtered': df_filtered,
+                    'product_info': {
+                        'asin': st.session_state.listing_details.get('asin') or df['Variation'].iloc[0] if 'Variation' in df.columns else 'Unknown',
+                        'total_reviews': len(df),
+                        'filtered_reviews': len(df_filtered)
+                    },
+                    'metrics': metrics
+                }
+                
+                # Display preview metrics
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    score = metrics['listing_health_score']['total_score']
+                    color = 'var(--success)' if score >= 70 else 'var(--warning)' if score >= 50 else 'var(--danger)'
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <h3 style="color: {color};">{score:.0f}</h3>
+                        <p>Health Score</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with col2:
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <h3 style="color: var(--primary);">{metrics['basic_stats']['average_rating']}/5</h3>
+                        <p>Avg Rating</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with col3:
+                    positive_pct = (metrics['sentiment_breakdown']['positive'] / sum(metrics['sentiment_breakdown'].values()) * 100) if sum(metrics['sentiment_breakdown'].values()) > 0 else 0
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <h3 style="color: var(--success);">{positive_pct:.0f}%</h3>
+                        <p>Positive</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with col4:
+                    trend = metrics['temporal_trends'].get('trend', 'stable')
+                    trend_icon = '📈' if trend == 'improving' else '📉' if trend == 'declining' else '➡️'
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <h3>{trend_icon}</h3>
+                        <p>{trend}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                # Show analysis scope info
+                if st.session_state.analyze_all_reviews:
+                    st.info(f"📊 Metrics shown: {len(df_filtered)} filtered reviews | 🤖 AI will analyze: ALL {len(df)} reviews")
                 else:
-                    df = pd.read_excel(uploaded_file, engine='openpyxl')
-            
-            # Validate columns
-            required_cols = ['Title', 'Body', 'Rating']
-            missing = [col for col in required_cols if col not in df.columns]
-            
-            if missing:
-                st.error(f"❌ Missing required columns: {', '.join(missing)}")
-                return
-            
-            # Clean data
-            df = df.dropna(subset=['Rating', 'Body'])
-            df['Rating'] = pd.to_numeric(df['Rating'], errors='coerce')
-            df = df[df['Rating'].between(1, 5)]
-            
-            # Apply filters
-            df_filtered = apply_filters(df)
-            
-            if len(df_filtered) == 0:
-                st.warning("⚠️ No reviews match the current filters.")
-                return
-            
-            # Calculate metrics
-            metrics = calculate_advanced_metrics(df_filtered)
-            
-            if not metrics:
-                st.error("❌ Failed to calculate metrics.")
-                return
-            
-            # Store data
-            st.session_state.uploaded_data = {
-                'df': df,
-                'df_filtered': df_filtered,
-                'product_info': {
-                    'asin': st.session_state.listing_details.get('asin') or df['Variation'].iloc[0] if 'Variation' in df.columns else 'Unknown',
-                    'total_reviews': len(df),
-                    'filtered_reviews': len(df_filtered)
-                },
-                'metrics': metrics
-            }
-            
-            # Display preview metrics
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                score = metrics['listing_health_score']['total_score']
-                color = 'var(--success)' if score >= 70 else 'var(--warning)' if score >= 50 else 'var(--danger)'
-                st.markdown(f"""
-                <div class="metric-card">
-                    <h3 style="color: {color};">{score:.0f}</h3>
-                    <p>Health Score</p>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            with col2:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <h3 style="color: var(--primary);">{metrics['basic_stats']['average_rating']}/5</h3>
-                    <p>Avg Rating</p>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            with col3:
-                positive_pct = (metrics['sentiment_breakdown']['positive'] / sum(metrics['sentiment_breakdown'].values()) * 100) if sum(metrics['sentiment_breakdown'].values()) > 0 else 0
-                st.markdown(f"""
-                <div class="metric-card">
-                    <h3 style="color: var(--success);">{positive_pct:.0f}%</h3>
-                    <p>Positive</p>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            with col4:
-                trend = metrics['temporal_trends'].get('trend', 'stable')
-                trend_icon = '📈' if trend == 'improving' else '📉' if trend == 'declining' else '➡️'
-                st.markdown(f"""
-                <div class="metric-card">
-                    <h3>{trend_icon}</h3>
-                    <p>{trend}</p>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            # Show auto-population status
-            if st.session_state.auto_populated:
-                st.markdown("""
-                <div class="success-box">
-                    <h4 style="color: var(--success); margin-top: 0;">✨ Listing Details Auto-Populated</h4>
-                    <p>AI analysis will use the extracted listing details for more targeted recommendations.</p>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            # Action buttons
-            st.markdown("### 🚀 Choose Your Analysis Path")
-            
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                if st.button("📊 VIEW DETAILED METRICS", use_container_width=True):
-                    st.session_state.current_view = 'metrics'
-                    st.rerun()
-            
-            with col2:
-                if check_ai_status():
-                    button_text = "🚀 RUN AI ANALYSIS" + (" (Enhanced)" if st.session_state.use_listing_details else "")
-                    if st.button(button_text, type="primary", use_container_width=True):
-                        with st.spinner("🤖 AI analyzing..."):
-                            ai_results = run_comprehensive_ai_analysis(df_filtered, metrics, st.session_state.uploaded_data['product_info'])
-                            if ai_results:
-                                st.session_state.analysis_results = ai_results
-                                st.session_state.current_view = 'ai_results'
-                                st.rerun()
-                else:
-                    st.button("🚀 AI UNAVAILABLE", disabled=True, use_container_width=True)
-            
-            with col3:
-                if st.session_state.analysis_results:
-                    if st.button("🎯 FULL REPORT", use_container_width=True):
-                        st.session_state.current_view = 'comprehensive'
+                    st.info(f"📊 Metrics & AI will analyze: {len(df_filtered)} filtered reviews")
+                
+                # Show status messages
+                status_messages = []
+                
+                if st.session_state.auto_populated:
+                    status_messages.append("✨ Listing details auto-populated from URL")
+                
+                if st.session_state.marketplace_data:
+                    status_messages.append("📂 Marketplace data loaded and correlated")
+                
+                if status_messages:
+                    st.markdown(f"""
+                    <div class="success-box">
+                        <h4 style="color: var(--success); margin-top: 0;">Ready for Enhanced Analysis</h4>
+                        {"<br>".join(status_messages)}
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                # Action buttons
+                st.markdown("### 🚀 Choose Your Analysis Path")
+                
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    if st.button("📊 VIEW DETAILED METRICS", use_container_width=True):
+                        st.session_state.current_view = 'metrics'
                         st.rerun()
-                else:
-                    st.info("Run AI Analysis first")
-                    
-        except Exception as e:
-            st.error(f"❌ Error: {str(e)}")
-            logger.error(f"Upload error: {e}", exc_info=True)
+                
+                with col2:
+                    if check_ai_status():
+                        button_text = "🚀 RUN AI ANALYSIS"
+                        if st.session_state.use_listing_details:
+                            button_text += " (Enhanced)"
+                        if st.session_state.marketplace_data:
+                            button_text += " +"
+                            
+                        if st.button(button_text, type="primary", use_container_width=True):
+                            with st.spinner("🤖 AI analyzing..."):
+                                ai_results = run_comprehensive_ai_analysis(df_filtered, metrics, st.session_state.uploaded_data['product_info'])
+                                if ai_results:
+                                    st.session_state.analysis_results = ai_results
+                                    st.session_state.current_view = 'ai_results'
+                                    st.rerun()
+                    else:
+                        st.button("🚀 AI UNAVAILABLE", disabled=True, use_container_width=True)
+                
+                with col3:
+                    if st.session_state.analysis_results:
+                        if st.button("🎯 FULL REPORT", use_container_width=True):
+                            st.session_state.current_view = 'comprehensive'
+                            st.rerun()
+                    else:
+                        st.info("Run AI Analysis first")
+                        
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
+                logger.error(f"Upload error: {e}", exc_info=True)
 
 def create_visualization_data(df, metrics):
     """Prepare data for visualizations"""
@@ -1289,6 +1534,33 @@ def display_metrics_dashboard(metrics):
         if 'trend' in viz_data and len(viz_data['trend']) > 0:
             st.markdown("#### 📈 Rating Trend")
             st.line_chart(viz_data['trend'].set_index('Month')['Average Rating'], color='#00D9FF')
+    
+    # Add marketplace data insights if available
+    if st.session_state.marketplace_data:
+        st.markdown("---")
+        st.markdown("### 📂 Marketplace Data Insights")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        marketplace = st.session_state.marketplace_data
+        
+        with col1:
+            if 'return_patterns' in marketplace:
+                total_returns = sum(
+                    data.get('count', 0) 
+                    for data in marketplace['return_patterns'].values()
+                )
+                st.metric("Total Returns", total_returns)
+        
+        with col2:
+            if 'financial_impact' in marketplace and 'reimbursements' in marketplace['financial_impact']:
+                total_reimb = marketplace['financial_impact']['reimbursements'].get('total_amount', 0)
+                st.metric("Total Reimbursed", f"${total_reimb:.2f}")
+        
+        with col3:
+            if 'related_products' in marketplace:
+                related_count = sum(len(asins) for asins in marketplace['related_products'].values())
+                st.metric("Related Products", related_count)
 
 def display_ai_insights(analysis):
     """Display AI insights"""
@@ -1296,7 +1568,9 @@ def display_ai_insights(analysis):
         'TITLE OPTIMIZATION': '🎯',
         'BULLET POINT REWRITE': '📝',
         'A9 ALGORITHM OPTIMIZATION': '🔍',
-        'IMMEDIATE QUICK WINS': '⚡'
+        'IMMEDIATE QUICK WINS': '⚡',
+        'QUALITY & SAFETY PRIORITIES': '🏥',
+        'RETURN REDUCTION STRATEGY': '📦'
     }
     
     for section, icon in sections.items():
@@ -1366,22 +1640,41 @@ def display_ai_results():
     metrics = st.session_state.uploaded_data['metrics']
     
     enhancement_note = " (Enhanced with Listing Details)" if st.session_state.use_listing_details else ""
+    if results.get('marketplace_data_included'):
+        enhancement_note += " + Marketplace Data"
+    scope_note = f" - Analyzed {'ALL' if results.get('analysis_scope') == 'all_reviews' else 'FILTERED'} reviews"
     
     st.markdown(f"""
     <div class="neon-box">
         <h2 style="color: var(--success);">✅ AI ANALYSIS COMPLETE{enhancement_note}</h2>
-        <p>Analyzed {results['reviews_analyzed']} reviews • {results['timestamp'].strftime('%B %d, %Y at %I:%M %p')}</p>
+        <p>Analyzed {results['reviews_analyzed']} of {results['total_reviews']} total reviews{scope_note}</p>
+        <p>{results['timestamp'].strftime('%B %d, %Y at %I:%M %p')}</p>
     </div>
     """, unsafe_allow_html=True)
     
-    tabs = st.tabs(["🎯 AI Insights", "📊 Key Metrics", "📥 Export"])
+    # Help box for AI Chat
+    st.markdown("""
+    <div class="help-box">
+        <h4 style="color: var(--primary); margin-top: 0;">💡 Pro Tip: Use AI Chat for Deeper Insights!</h4>
+        <p>Click the <strong>💬 AI CHAT</strong> button in the top menu to:</p>
+        <ul style="margin: 0.5rem 0;">
+            <li>Ask follow-up questions about these recommendations</li>
+            <li>Get alternative title or bullet point variations</li>
+            <li>Discuss implementation strategies for your specific situation</li>
+            <li>Request help with medical device compliance considerations</li>
+            <li>Explore return reduction strategies based on the data</li>
+        </ul>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    tabs = st.tabs(["🎯 AI Insights", "📊 Key Metrics", "📂 Marketplace Analysis", "📥 Export"])
     
     with tabs[0]:
         if st.session_state.use_listing_details:
             st.markdown("""
             <div class="success-box">
                 <h4 style="color: var(--success); margin-top: 0;">✨ Enhanced Analysis</h4>
-                <p>This analysis used your current listing details for more targeted recommendations.</p>
+                <p>This analysis compared your current listing with customer feedback to identify specific optimization opportunities.</p>
             </div>
             """, unsafe_allow_html=True)
         
@@ -1400,22 +1693,58 @@ def display_ai_results():
             st.metric("Trend", metrics['temporal_trends'].get('trend', 'stable').title())
     
     with tabs[2]:
+        if st.session_state.marketplace_data:
+            marketplace = st.session_state.marketplace_data
+            
+            st.markdown("### 📦 Return Analysis")
+            if 'return_patterns' in marketplace:
+                for return_type, data in marketplace['return_patterns'].items():
+                    if data:
+                        st.markdown(f"#### {return_type.upper()} Returns")
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric("Count", data.get('count', 0))
+                            st.metric("Quantity", data.get('quantity', 0))
+                        with col2:
+                            if 'reasons' in data and data['reasons']:
+                                st.markdown("**Top Reasons:**")
+                                for reason, count in list(data['reasons'].items())[:3]:
+                                    st.markdown(f"- {reason}: {count}")
+            
+            st.markdown("### 💰 Financial Impact")
+            if 'financial_impact' in marketplace and 'reimbursements' in marketplace['financial_impact']:
+                reimb = marketplace['financial_impact']['reimbursements']
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Reimbursement Count", reimb.get('count', 0))
+                with col2:
+                    st.metric("Total Amount", f"${reimb.get('total_amount', 0):.2f}")
+        else:
+            st.info("No marketplace data uploaded. Upload files in the Marketplace Data tab for additional insights.")
+    
+    with tabs[3]:
         # Export options
         enhancement_info = f"\nListing Details Used: {'Yes' if st.session_state.use_listing_details else 'No'}"
         if st.session_state.use_listing_details:
             details = st.session_state.listing_details
             enhancement_info += f"\nASIN: {details.get('asin', 'N/A')}"
             enhancement_info += f"\nBrand: {details.get('brand', 'N/A')}"
+            enhancement_info += f"\nAuto-populated: {'Yes' if st.session_state.auto_populated else 'No'}"
+        
+        if st.session_state.marketplace_data:
+            enhancement_info += "\nMarketplace Data: Included"
         
         text_report = f"""
 AMAZON LISTING ANALYSIS REPORT
 Generated: {datetime.now().strftime('%B %d, %Y')}
 {enhancement_info}
+Analysis Scope: {'All Reviews' if results.get('analysis_scope') == 'all_reviews' else 'Filtered Reviews'}
 
 EXECUTIVE SUMMARY
 Health Score: {metrics['listing_health_score']['total_score']:.0f}/100
 Average Rating: {metrics['basic_stats']['average_rating']}/5
 Total Reviews: {metrics['basic_stats']['total_reviews']}
+Reviews Analyzed by AI: {results['reviews_analyzed']}
 
 AI ANALYSIS
 {results['analysis']}
@@ -1437,7 +1766,7 @@ def display_comprehensive_view():
     
     st.markdown('<div class="cyber-header"><h1>COMPREHENSIVE ANALYSIS REPORT</h1></div>', unsafe_allow_html=True)
     
-    tabs = st.tabs(["📊 Overview", "📈 Metrics", "🤖 AI Insights", "🎯 Action Plan"])
+    tabs = st.tabs(["📊 Overview", "📈 Metrics", "🤖 AI Insights", "📂 Marketplace", "🎯 Action Plan"])
     
     with tabs[0]:
         metrics = st.session_state.uploaded_data['metrics']
@@ -1457,6 +1786,20 @@ def display_comprehensive_view():
             for issue, count in sorted(metrics['issue_categories'].items(), key=lambda x: x[1], reverse=True)[:3]:
                 if count > 0:
                     st.markdown(f"- {issue.replace('_', ' ').title()}: {count} mentions")
+            
+            if st.session_state.marketplace_data:
+                st.markdown("---")
+                st.markdown("**Marketplace Insights:**")
+                marketplace = st.session_state.marketplace_data
+                if 'return_patterns' in marketplace:
+                    total_returns = sum(
+                        data.get('count', 0) 
+                        for data in marketplace['return_patterns'].values()
+                    )
+                    st.markdown(f"- Total Returns: {total_returns}")
+                if 'financial_impact' in marketplace and 'reimbursements' in marketplace['financial_impact']:
+                    reimb_amount = marketplace['financial_impact']['reimbursements'].get('total_amount', 0)
+                    st.markdown(f"- Reimbursements: ${reimb_amount:.2f}")
     
     with tabs[1]:
         display_metrics_dashboard(metrics)
@@ -1465,6 +1808,44 @@ def display_comprehensive_view():
         display_ai_insights(st.session_state.analysis_results['analysis'])
     
     with tabs[3]:
+        if st.session_state.marketplace_data:
+            st.markdown("### 📂 Marketplace Data Analysis")
+            
+            marketplace = st.session_state.marketplace_data
+            
+            # Return patterns
+            if 'return_patterns' in marketplace:
+                st.markdown("#### 📦 Return Patterns")
+                for return_type, data in marketplace['return_patterns'].items():
+                    if data:
+                        with st.expander(f"{return_type.upper()} Returns ({data.get('count', 0)} total)"):
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.metric("Quantity Returned", data.get('quantity', 0))
+                                if 'refund_amount' in data:
+                                    st.metric("Refund Amount", f"${data['refund_amount']:.2f}")
+                            with col2:
+                                if 'reasons' in data and data['reasons']:
+                                    st.markdown("**Top Return Reasons:**")
+                                    for reason, count in list(data['reasons'].items())[:5]:
+                                        pct = (count / data.get('count', 1)) * 100
+                                        st.markdown(f"- {reason}: {count} ({pct:.1f}%)")
+            
+            # Financial impact
+            if 'financial_impact' in marketplace:
+                st.markdown("#### 💰 Financial Impact")
+                for impact_type, data in marketplace['financial_impact'].items():
+                    if data:
+                        st.markdown(f"**{impact_type.title()}:**")
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric("Count", data.get('count', 0))
+                        with col2:
+                            st.metric("Total Amount", f"${data.get('total_amount', 0):.2f}")
+        else:
+            st.info("No marketplace data uploaded. Consider uploading return and reimbursement files for deeper insights.")
+    
+    with tabs[4]:
         st.markdown('<div class="neon-box"><h3>🎯 IMPLEMENTATION TIMELINE</h3></div>', unsafe_allow_html=True)
         
         st.markdown("#### Today")
@@ -1472,7 +1853,11 @@ def display_comprehensive_view():
             st.checkbox(task)
         
         st.markdown("#### This Week")
-        for task in ["Complete bullet revisions", "Update images", "Backend keyword changes"]:
+        for task in ["Complete bullet revisions", "Update images", "Backend keyword changes", "Address top return reasons"]:
+            st.checkbox(task)
+        
+        st.markdown("#### This Month")
+        for task in ["Monitor rating trends", "Implement quality improvements", "Update documentation", "Review competitor changes"]:
             st.checkbox(task)
 
 def generate_comprehensive_excel_report(metrics, ai_results):
@@ -1510,6 +1895,24 @@ def generate_comprehensive_excel_report(metrics, ai_results):
             
             # AI Insights
             pd.DataFrame({'AI Analysis': [ai_results['analysis']]}).to_excel(writer, sheet_name='AI Insights', index=False)
+            
+            # Marketplace data if available
+            if st.session_state.marketplace_data:
+                marketplace_summary = []
+                marketplace = st.session_state.marketplace_data
+                
+                if 'return_patterns' in marketplace:
+                    for return_type, data in marketplace['return_patterns'].items():
+                        if data:
+                            marketplace_summary.append({
+                                'Type': f"{return_type} Returns",
+                                'Count': data.get('count', 0),
+                                'Quantity': data.get('quantity', 0),
+                                'Top Reason': list(data.get('reasons', {}).keys())[0] if data.get('reasons') else 'N/A'
+                            })
+                
+                if marketplace_summary:
+                    pd.DataFrame(marketplace_summary).to_excel(writer, sheet_name='Marketplace Data', index=False)
     else:
         # CSV fallback
         csv_data = f"Health Score,{metrics['listing_health_score']['total_score']:.0f}/100\n"
