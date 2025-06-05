@@ -5,7 +5,7 @@ Vive Health | Streamlined Return Reason Categorization
 
 import streamlit as st
 
-# Streamlit page config must be first
+# Streamlit page config MUST be the absolute first Streamlit command
 st.set_page_config(
     page_title="Vive Health Return Analysis Tool",
     page_icon="🔍",
@@ -13,6 +13,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+# Now import other libraries
 import pandas as pd
 import numpy as np
 import logging
@@ -22,8 +23,6 @@ from typing import Dict, List, Any, Optional, Tuple
 import re
 from collections import Counter, defaultdict
 from io import BytesIO
-import requests
-from bs4 import BeautifulSoup
 import time
 import json
 
@@ -45,7 +44,7 @@ except ImportError:
         PDF_LIBRARY = 'PyPDF2'
     except ImportError:
         PDF_AVAILABLE = False
-        st.error("Please install pdfplumber or PyPDF2: pip install pdfplumber")
+        st.error("Please install pdfplumber or PyPDF2 for PDF parsing")
 else:
     PDF_LIBRARY = 'pdfplumber'
 
@@ -839,7 +838,8 @@ def generate_excel_report(results: Dict) -> BytesIO:
         
         # Sort by total returns
         product_df = pd.DataFrame(product_data)
-        product_df = product_df.sort_values('Total Returns', ascending=False)
+        if not product_df.empty:
+            product_df = product_df.sort_values('Total Returns', ascending=False)
         product_df.to_excel(writer, sheet_name='By Product', index=False)
         
         # Format product sheet
@@ -974,14 +974,6 @@ CATEGORY BREAKDOWN:
         summary += "\n• Review product usability and consider design improvements"
     
     return summary
-
-# Streamlit page config must be first
-st.set_page_config(
-    page_title="Vive Health Return Analysis Tool",
-    page_icon="🔍",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
 
 def main():
     initialize_session_state()
