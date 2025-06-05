@@ -25,16 +25,15 @@ from collections import Counter, defaultdict
 from io import BytesIO
 import time
 import json
-import requests  # Added for API functionality
-import csv  # Added for CSV export
+import requests
+import csv
 
-# Import handling with fallbacks
+# Import handling with fallbacks - NO STREAMLIT CALLS HERE
 try:
     import xlsxwriter
     EXCEL_AVAILABLE = True
 except ImportError:
     EXCEL_AVAILABLE = False
-    st.warning("xlsxwriter not installed. Excel export will be limited.")
 
 try:
     import pdfplumber
@@ -48,7 +47,6 @@ except ImportError:
     except ImportError:
         PDF_AVAILABLE = False
         PDF_LIBRARY = None
-        st.error("Please install pdfplumber or PyPDF2 for PDF parsing")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -218,6 +216,14 @@ def check_ai_status():
 
 def parse_pdf_returns(pdf_file) -> Dict[str, Any]:
     """Parse Amazon Manage Returns PDF"""
+    if not PDF_AVAILABLE:
+        return {
+            'success': False,
+            'returns': [],
+            'total_count': 0,
+            'error': 'PDF parsing libraries not available. Please install pdfplumber or PyPDF2.'
+        }
+    
     try:
         returns_data = []
         
@@ -229,20 +235,12 @@ def parse_pdf_returns(pdf_file) -> Dict[str, Any]:
                         returns = extract_return_entries_from_text(text)
                         returns_data.extend(returns)
         elif PDF_LIBRARY == 'PyPDF2':
-            # PyPDF2 fallback
             reader = PyPDF2.PdfReader(pdf_file)
             for page in reader.pages:
                 text = page.extract_text()
                 if text:
                     returns = extract_return_entries_from_text(text)
                     returns_data.extend(returns)
-        else:
-            return {
-                'success': False,
-                'returns': [],
-                'total_count': 0,
-                'error': 'No PDF library available'
-            }
         
         return {
             'success': True,
@@ -309,12 +307,11 @@ def parse_fba_return_report(file_content: str) -> Dict[str, Any]:
         # Try to parse as TSV
         df = pd.read_csv(io.StringIO(file_content), sep='\t', encoding='utf-8')
         
-        # Verify expected columns - handle both with and without trailing tabs
-        expected_cols = ['return-date', 'order-id', 'sku', 'asin', 'product-name', 'reason', 'customer-comments']
-        
         # Clean column names (remove trailing whitespace)
         df.columns = df.columns.str.strip()
         
+        # Verify expected columns
+        expected_cols = ['return-date', 'order-id', 'sku', 'asin', 'product-name', 'reason', 'customer-comments']
         missing_cols = [col for col in expected_cols if col not in df.columns]
         
         if missing_cols:
@@ -428,6 +425,13 @@ def display_header():
 
 def display_upload_section():
     """Display file upload section"""
+    # Show warnings if libraries are missing
+    if not EXCEL_AVAILABLE:
+        st.warning("⚠️ xlsxwriter not installed. Excel export will be limited.")
+    
+    if not PDF_AVAILABLE:
+        st.error("⚠️ PDF parsing libraries not available. Please install pdfplumber or PyPDF2 for PDF support.")
+    
     st.markdown("""
     <div class="neon-box">
         <h2 style="color: var(--primary);">📤 UPLOAD RETURN DATA</h2>
@@ -443,22 +447,25 @@ def display_upload_section():
     
     with col1:
         st.markdown("### 📄 PDF Returns (Manage Returns Page)")
-        pdf_file = st.file_uploader(
-            "Upload PDF",
-            type=['pdf'],
-            key="pdf_upload",
-            help="Export from Seller Central > Returns > Manage Returns > Print as PDF"
-        )
-        
-        if pdf_file:
-            with st.spinner("🔍 Parsing PDF..."):
-                result = parse_pdf_returns(pdf_file)
-                
-                if result['success']:
-                    st.session_state.pdf_data = result
-                    st.success(f"✅ Found {result['total_count']} returns in PDF")
-                else:
-                    st.error(f"❌ Error: {result['error']}")
+        if PDF_AVAILABLE:
+            pdf_file = st.file_uploader(
+                "Upload PDF",
+                type=['pdf'],
+                key="pdf_upload",
+                help="Export from Seller Central > Returns > Manage Returns > Print as PDF"
+            )
+            
+            if pdf_file:
+                with st.spinner("🔍 Parsing PDF..."):
+                    result = parse_pdf_returns(pdf_file)
+                    
+                    if result['success']:
+                        st.session_state.pdf_data = result
+                        st.success(f"✅ Found {result['total_count']} returns in PDF")
+                    else:
+                        st.error(f"❌ Error: {result['error']}")
+        else:
+            st.info("PDF support requires pdfplumber or PyPDF2. You can still use FBA reports.")
     
     with col2:
         st.markdown("### 📊 FBA Return Report")
@@ -679,6 +686,8 @@ def display_analysis_results():
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
+        else:
+            st.info("Excel export requires xlsxwriter. CSV export is available below.")
         
         # CSV export
         csv_buffer = generate_csv_report(results)
@@ -812,36 +821,7 @@ def generate_excel_report(results: Dict) -> BytesIO:
                 worksheet.set_column('C:C', 15)  # SKU
                 worksheet.set_column('D:D', 40)  # Product
                 worksheet.set_column('E:E', 25)  # Return Reason
-            # 6. Return Rate Analysis sheet - Additional insights
-        if all_returns_data:
-            # Calculate return rates if we have quantity data
-            asin_summary = []
-            for asin, details in asin_details.items():
-                total_returns = product_returns[asin]['total']
-                quality_returns = product_returns[asin].get('QUALITY_DEFECTS', 0)
-                quality_rate = (quality_returns / total_returns * 100) if total_returns > 0 else 0
-                
-                asin_summary.append({
-                    'ASIN': asin,
-                    'Product Name': details.get('product_name', 'Unknown'),
-                    'Total Returns': total_returns,
-                    'Quality Defects': quality_returns,
-                    'Quality Defect Rate': f"{quality_rate:.1f}%",
-                    'Action Required': 'YES' if quality_rate > 20 else 'Monitor' if quality_rate > 10 else 'OK'
-                })
-            
-            summary_df = pd.DataFrame(asin_summary)
-            summary_df = summary_df.sort_values('Quality Defect Rate', ascending=False)
-            summary_df.to_excel(writer, sheet_name='Quality Summary', index=False)
-            
-            # Format summary sheet
-            worksheet = writer.sheets['Quality Summary']
-            worksheet.set_column('A:A', 12)  # ASIN
-            worksheet.set_column('B:B', 40)  # Product Name
-            worksheet.set_column('C:C', 15)  # Total Returns
-            worksheet.set_column('D:D', 15)  # Quality Defects
-            worksheet.set_column('E:E', 20)  # Quality Defect Rate
-            worksheet.set_column('F:F', 15)  # Action Required
+                worksheet.set_column('F:F', 40)  # Customer Comment
         
         # 4. Product analysis sheet - Group by ASIN
         product_data = []
@@ -945,7 +925,8 @@ def generate_excel_report(results: Dict) -> BytesIO:
                 })
             
             summary_df = pd.DataFrame(asin_summary)
-            summary_df = summary_df.sort_values('Quality Defect Rate', ascending=False)
+            if not summary_df.empty:
+                summary_df = summary_df.sort_values('Total Returns', ascending=False)
             summary_df.to_excel(writer, sheet_name='Quality Summary', index=False)
             
             # Format summary sheet
