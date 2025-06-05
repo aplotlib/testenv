@@ -31,8 +31,8 @@ requests, has_requests = safe_import('requests')
 
 # API Configuration
 API_TIMEOUT = 30
-MAX_RETRIES = 2
-MAX_TOKENS = 2000
+MAX_RETRIES = 3
+MAX_TOKENS = 9700
 
 # Return categories for AI understanding
 RETURN_CATEGORY_DEFINITIONS = """
@@ -220,7 +220,7 @@ class EnhancedAIAnalyzer:
             # Try a test call with minimal tokens
             test_response = self.api_client.call_api(
                 [{"role": "user", "content": "Hi"}],
-                max_tokens=5
+                max_tokens=150
             )
             
             if test_response['success']:
@@ -254,7 +254,7 @@ Respond with ONLY the category name (e.g., SIZE_FIT_ISSUES)."""
                 {"role": "user", "content": prompt}
             ],
             temperature=0,
-            max_tokens=20
+            max_tokens=750
         )
         
         if response['success']:
@@ -340,7 +340,7 @@ Focus on medical device quality, safety, compliance, and user experience."""
                 {"role": "user", "content": prompt}
             ],
             temperature=0.3,
-            max_tokens=1500
+            max_tokens=9500
         )
         
         if response['success']:
@@ -493,7 +493,7 @@ Focus on medical device quality, safety, and compliance while improving conversi
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.3,
-                max_tokens=2000
+                max_tokens=9000
             )
             
             if response['success']:
