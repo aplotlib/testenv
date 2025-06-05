@@ -25,6 +25,8 @@ from collections import Counter, defaultdict
 from io import BytesIO
 import time
 import json
+import requests  # Added for API functionality
+import csv  # Added for CSV export
 
 # Import handling with fallbacks
 try:
@@ -37,6 +39,7 @@ except ImportError:
 try:
     import pdfplumber
     PDF_AVAILABLE = True
+    PDF_LIBRARY = 'pdfplumber'
 except ImportError:
     try:
         import PyPDF2
@@ -44,9 +47,8 @@ except ImportError:
         PDF_LIBRARY = 'PyPDF2'
     except ImportError:
         PDF_AVAILABLE = False
+        PDF_LIBRARY = None
         st.error("Please install pdfplumber or PyPDF2 for PDF parsing")
-else:
-    PDF_LIBRARY = 'pdfplumber'
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -223,15 +225,24 @@ def parse_pdf_returns(pdf_file) -> Dict[str, Any]:
             with pdfplumber.open(pdf_file) as pdf:
                 for page in pdf.pages:
                     text = page.extract_text()
-                    returns = extract_return_entries_from_text(text)
-                    returns_data.extend(returns)
-        else:
+                    if text:
+                        returns = extract_return_entries_from_text(text)
+                        returns_data.extend(returns)
+        elif PDF_LIBRARY == 'PyPDF2':
             # PyPDF2 fallback
             reader = PyPDF2.PdfReader(pdf_file)
             for page in reader.pages:
                 text = page.extract_text()
-                returns = extract_return_entries_from_text(text)
-                returns_data.extend(returns)
+                if text:
+                    returns = extract_return_entries_from_text(text)
+                    returns_data.extend(returns)
+        else:
+            return {
+                'success': False,
+                'returns': [],
+                'total_count': 0,
+                'error': 'No PDF library available'
+            }
         
         return {
             'success': True,
@@ -269,7 +280,7 @@ def extract_return_entries_from_text(text: str) -> List[Dict]:
         return_data = {
             'order_id': match.group(1),
             'buyer': extract_field(return_block, r'Buyer:\s*(.+?)(?:Marketplace|$)'),
-            'product_name': extract_field(return_block, r'([^\\n]+?)Return Quantity'),
+            'product_name': extract_field(return_block, r'Product:\s*([^\\n]+?)(?:Return Quantity|ASIN|$)') or extract_field(return_block, r'([^\\n]+?)Return Quantity'),
             'asin': extract_field(return_block, r'ASIN:\s*([A-Z0-9]{10})'),
             'sku': extract_field(return_block, r'SKU:\s*([A-Z0-9-]+)'),
             'return_reason': extract_field(return_block, r'Return Reason:\s*(.+?)(?:Buyer Comment|$)'),
@@ -298,8 +309,12 @@ def parse_fba_return_report(file_content: str) -> Dict[str, Any]:
         # Try to parse as TSV
         df = pd.read_csv(io.StringIO(file_content), sep='\t', encoding='utf-8')
         
-        # Verify expected columns
+        # Verify expected columns - handle both with and without trailing tabs
         expected_cols = ['return-date', 'order-id', 'sku', 'asin', 'product-name', 'reason', 'customer-comments']
+        
+        # Clean column names (remove trailing whitespace)
+        df.columns = df.columns.str.strip()
+        
         missing_cols = [col for col in expected_cols if col not in df.columns]
         
         if missing_cols:
@@ -309,14 +324,14 @@ def parse_fba_return_report(file_content: str) -> Dict[str, Any]:
         returns_data = []
         for _, row in df.iterrows():
             return_data = {
-                'order_id': row.get('order-id', ''),
-                'asin': row.get('asin', ''),
-                'sku': row.get('sku', ''),
-                'product_name': row.get('product-name', ''),
-                'return_reason': row.get('reason', ''),
-                'buyer_comment': row.get('customer-comments', ''),
-                'return_date': row.get('return-date', ''),
-                'quantity': row.get('quantity', 1)
+                'order_id': str(row.get('order-id', '')).strip(),
+                'asin': str(row.get('asin', '')).strip(),
+                'sku': str(row.get('sku', '')).strip(),
+                'product_name': str(row.get('product-name', '')).strip(),
+                'return_reason': str(row.get('reason', '')).strip(),
+                'buyer_comment': str(row.get('customer-comments', '')).strip(),
+                'return_date': str(row.get('return-date', '')).strip(),
+                'quantity': int(row.get('quantity', 1)) if pd.notna(row.get('quantity')) else 1
             }
             returns_data.append(return_data)
         
@@ -355,25 +370,12 @@ def categorize_return(return_data: Dict, use_ai: bool = False) -> str:
     # If no match and AI is available, use AI
     if use_ai and check_ai_status():
         try:
-            result = st.session_state.ai_analyzer.api_client.call_api(
-                messages=[
-                    {
-                        "role": "system",
-                        "content": f"Categorize this Amazon return into one of these categories: {', '.join([k for k in RETURN_CATEGORIES.keys() if k != 'UNCATEGORIZED'])}. Respond with ONLY the category name."
-                    },
-                    {
-                        "role": "user",
-                        "content": f"Return reason: {return_data.get('return_reason', 'None')}\nCustomer comment: {return_data.get('buyer_comment', 'None')}"
-                    }
-                ],
-                max_tokens=10,
-                temperature=0
+            category = st.session_state.ai_analyzer.categorize_return(
+                return_data.get('return_reason', ''),
+                return_data.get('buyer_comment', '')
             )
-            
-            if result['success']:
-                ai_category = result['result'].strip().upper().replace(' ', '_')
-                if ai_category in RETURN_CATEGORIES:
-                    return ai_category
+            if category != 'UNCATEGORIZED':
+                return category
         except Exception as e:
             logger.error(f"AI categorization error: {e}")
     
@@ -697,6 +699,25 @@ def display_analysis_results():
             mime="text/plain",
             use_container_width=True
         )
+        
+        # AI Analysis Report if available
+        if check_ai_status():
+            if st.button("🤖 Generate AI Quality Insights", use_container_width=True):
+                with st.spinner("🔍 Analyzing return patterns for quality insights..."):
+                    ai_insights = st.session_state.ai_analyzer.analyze_return_patterns(
+                        results['categorized']
+                    )
+                    st.markdown("### 🎯 AI Quality Management Insights")
+                    st.markdown(ai_insights)
+                    
+                    # Allow download of AI insights
+                    st.download_button(
+                        "📄 Download AI Insights",
+                        data=ai_insights,
+                        file_name=f"ai_quality_insights_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
+                        mime="text/markdown",
+                        use_container_width=True
+                    )
 
 def generate_excel_report(results: Dict) -> BytesIO:
     """Generate comprehensive Excel report with all return details"""
@@ -791,7 +812,36 @@ def generate_excel_report(results: Dict) -> BytesIO:
                 worksheet.set_column('C:C', 15)  # SKU
                 worksheet.set_column('D:D', 40)  # Product
                 worksheet.set_column('E:E', 25)  # Return Reason
-                worksheet.set_column('F:F', 40)  # Customer Comment
+            # 6. Return Rate Analysis sheet - Additional insights
+        if all_returns_data:
+            # Calculate return rates if we have quantity data
+            asin_summary = []
+            for asin, details in asin_details.items():
+                total_returns = product_returns[asin]['total']
+                quality_returns = product_returns[asin].get('QUALITY_DEFECTS', 0)
+                quality_rate = (quality_returns / total_returns * 100) if total_returns > 0 else 0
+                
+                asin_summary.append({
+                    'ASIN': asin,
+                    'Product Name': details.get('product_name', 'Unknown'),
+                    'Total Returns': total_returns,
+                    'Quality Defects': quality_returns,
+                    'Quality Defect Rate': f"{quality_rate:.1f}%",
+                    'Action Required': 'YES' if quality_rate > 20 else 'Monitor' if quality_rate > 10 else 'OK'
+                })
+            
+            summary_df = pd.DataFrame(asin_summary)
+            summary_df = summary_df.sort_values('Quality Defect Rate', ascending=False)
+            summary_df.to_excel(writer, sheet_name='Quality Summary', index=False)
+            
+            # Format summary sheet
+            worksheet = writer.sheets['Quality Summary']
+            worksheet.set_column('A:A', 12)  # ASIN
+            worksheet.set_column('B:B', 40)  # Product Name
+            worksheet.set_column('C:C', 15)  # Total Returns
+            worksheet.set_column('D:D', 15)  # Quality Defects
+            worksheet.set_column('E:E', 20)  # Quality Defect Rate
+            worksheet.set_column('F:F', 15)  # Action Required
         
         # 4. Product analysis sheet - Group by ASIN
         product_data = []
@@ -875,6 +925,37 @@ def generate_excel_report(results: Dict) -> BytesIO:
             worksheet.set_column('D:D', 20)  # Order ID
             worksheet.set_column('E:E', 25)  # Return Reason
             worksheet.set_column('F:F', 40)  # Customer Comment
+        
+        # 6. Return Rate Analysis sheet - Additional insights
+        if all_returns_data:
+            # Calculate return rates if we have quantity data
+            asin_summary = []
+            for asin, details in asin_details.items():
+                total_returns = product_returns[asin]['total']
+                quality_returns = product_returns[asin].get('QUALITY_DEFECTS', 0)
+                quality_rate = (quality_returns / total_returns * 100) if total_returns > 0 else 0
+                
+                asin_summary.append({
+                    'ASIN': asin,
+                    'Product Name': details.get('product_name', 'Unknown'),
+                    'Total Returns': total_returns,
+                    'Quality Defects': quality_returns,
+                    'Quality Defect Rate': f"{quality_rate:.1f}%",
+                    'Action Required': 'YES' if quality_rate > 20 else 'Monitor' if quality_rate > 10 else 'OK'
+                })
+            
+            summary_df = pd.DataFrame(asin_summary)
+            summary_df = summary_df.sort_values('Quality Defect Rate', ascending=False)
+            summary_df.to_excel(writer, sheet_name='Quality Summary', index=False)
+            
+            # Format summary sheet
+            worksheet = writer.sheets['Quality Summary']
+            worksheet.set_column('A:A', 12)  # ASIN
+            worksheet.set_column('B:B', 40)  # Product Name
+            worksheet.set_column('C:C', 15)  # Total Returns
+            worksheet.set_column('D:D', 15)  # Quality Defects
+            worksheet.set_column('E:E', 20)  # Quality Defect Rate
+            worksheet.set_column('F:F', 15)  # Action Required
     
     buffer.seek(0)
     return buffer
@@ -916,7 +997,6 @@ def generate_csv_report(results: Dict) -> str:
     
     # Convert to CSV
     output = io.StringIO()
-    import csv
     writer = csv.writer(output)
     writer.writerows(rows)
     
