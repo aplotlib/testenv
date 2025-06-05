@@ -4,6 +4,15 @@ Vive Health | Streamlined Return Reason Categorization
 """
 
 import streamlit as st
+
+# Streamlit page config must be first
+st.set_page_config(
+    page_title="Vive Health Return Analysis Tool",
+    page_icon="🔍",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
 import pandas as pd
 import numpy as np
 import logging
@@ -691,7 +700,7 @@ def display_analysis_results():
         )
 
 def generate_excel_report(results: Dict) -> BytesIO:
-    """Generate comprehensive Excel report"""
+    """Generate comprehensive Excel report with all return details"""
     buffer = BytesIO()
     
     with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
@@ -707,9 +716,9 @@ def generate_excel_report(results: Dict) -> BytesIO:
             'border': 1
         })
         
-        # Summary sheet
+        # 1. Summary sheet
         summary_data = []
-        for category, stats in results['stats'].items():
+        for category, stats in sorted(results['stats'].items(), key=lambda x: x[1]['count'], reverse=True):
             if stats['count'] > 0:
                 summary_data.append({
                     'Category': category.replace('_', ' ').title(),
@@ -720,10 +729,45 @@ def generate_excel_report(results: Dict) -> BytesIO:
         summary_df = pd.DataFrame(summary_data)
         summary_df.to_excel(writer, sheet_name='Summary', index=False)
         
-        # Category sheets
+        # Format summary sheet
+        worksheet = writer.sheets['Summary']
+        worksheet.set_column('A:A', 30)
+        worksheet.set_column('B:C', 15)
+        
+        # 2. All Returns sheet - Most important for quality analyst
+        all_returns_data = []
+        for category, returns_list in results['categorized'].items():
+            for ret in returns_list:
+                all_returns_data.append({
+                    'Order ID': ret.get('order_id', ''),
+                    'ASIN': ret.get('asin', ''),
+                    'SKU': ret.get('sku', ''),
+                    'Product Name': ret.get('product_name', ''),
+                    'Category': category.replace('_', ' ').title(),
+                    'Return Reason': ret.get('return_reason', ''),
+                    'Customer Comment': ret.get('buyer_comment', ''),
+                    'Date': ret.get('return_date', ret.get('request_date', '')),
+                    'Quantity': ret.get('quantity', 1)
+                })
+        
+        all_returns_df = pd.DataFrame(all_returns_data)
+        all_returns_df.to_excel(writer, sheet_name='All Returns', index=False)
+        
+        # Format all returns sheet
+        worksheet = writer.sheets['All Returns']
+        worksheet.set_column('A:A', 20)  # Order ID
+        worksheet.set_column('B:B', 12)  # ASIN
+        worksheet.set_column('C:C', 15)  # SKU
+        worksheet.set_column('D:D', 40)  # Product Name
+        worksheet.set_column('E:E', 20)  # Category
+        worksheet.set_column('F:F', 25)  # Return Reason
+        worksheet.set_column('G:G', 40)  # Customer Comment
+        worksheet.set_column('H:H', 12)  # Date
+        worksheet.set_column('I:I', 10)  # Quantity
+        
+        # 3. Category sheets with full details
         for category, returns_list in results['categorized'].items():
             if returns_list:
-                # Create dataframe for this category
                 cat_data = []
                 for ret in returns_list:
                     cat_data.append({
@@ -733,38 +777,104 @@ def generate_excel_report(results: Dict) -> BytesIO:
                         'Product': ret.get('product_name', ''),
                         'Return Reason': ret.get('return_reason', ''),
                         'Customer Comment': ret.get('buyer_comment', ''),
-                        'Date': ret.get('return_date', ret.get('request_date', ''))
+                        'Date': ret.get('return_date', ret.get('request_date', '')),
+                        'Quantity': ret.get('quantity', 1)
                     })
                 
                 cat_df = pd.DataFrame(cat_data)
                 sheet_name = category.replace('_', ' ')[:31]  # Excel sheet name limit
                 cat_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                
+                # Format category sheet
+                worksheet = writer.sheets[sheet_name]
+                worksheet.set_column('A:A', 20)  # Order ID
+                worksheet.set_column('B:B', 12)  # ASIN
+                worksheet.set_column('C:C', 15)  # SKU
+                worksheet.set_column('D:D', 40)  # Product
+                worksheet.set_column('E:E', 25)  # Return Reason
+                worksheet.set_column('F:F', 40)  # Customer Comment
         
-        # Product analysis sheet
+        # 4. Product analysis sheet - Group by ASIN
         product_data = []
         product_returns = defaultdict(lambda: defaultdict(int))
         
+        # Collect all unique ASINs with their data
+        asin_details = {}
         for category, returns_list in results['categorized'].items():
             for ret in returns_list:
                 asin = ret.get('asin', 'Unknown')
-                product_returns[asin]['name'] = ret.get('product_name', 'Unknown')
+                if asin not in asin_details:
+                    asin_details[asin] = {
+                        'product_name': ret.get('product_name', 'Unknown'),
+                        'sku': ret.get('sku', '')
+                    }
                 product_returns[asin]['total'] += 1
                 product_returns[asin][category] += 1
         
-        for asin, data in product_returns.items():
+        # Create product summary
+        for asin, counts in product_returns.items():
             row = {
                 'ASIN': asin,
-                'Product Name': data['name'],
-                'Total Returns': data['total']
+                'SKU': asin_details.get(asin, {}).get('sku', ''),
+                'Product Name': asin_details.get(asin, {}).get('product_name', 'Unknown'),
+                'Total Returns': counts['total']
             }
-            # Add category counts
+            
+            # Add category breakdowns
             for cat in RETURN_CATEGORIES.keys():
                 if cat != 'UNCATEGORIZED':
-                    row[cat.replace('_', ' ').title()] = data.get(cat, 0)
+                    count = counts.get(cat, 0)
+                    percentage = (count / counts['total'] * 100) if counts['total'] > 0 else 0
+                    row[cat.replace('_', ' ').title()] = f"{count} ({percentage:.1f}%)" if count > 0 else "0"
+            
+            # Identify top issue for this product
+            top_issue = max(
+                [(k, v) for k, v in counts.items() if k != 'total' and k in RETURN_CATEGORIES],
+                key=lambda x: x[1],
+                default=('None', 0)
+            )
+            row['Top Issue'] = top_issue[0].replace('_', ' ').title() if top_issue[1] > 0 else 'None'
+            
             product_data.append(row)
         
+        # Sort by total returns
         product_df = pd.DataFrame(product_data)
+        product_df = product_df.sort_values('Total Returns', ascending=False)
         product_df.to_excel(writer, sheet_name='By Product', index=False)
+        
+        # Format product sheet
+        worksheet = writer.sheets['By Product']
+        worksheet.set_column('A:A', 12)  # ASIN
+        worksheet.set_column('B:B', 15)  # SKU
+        worksheet.set_column('C:C', 40)  # Product Name
+        worksheet.set_column('D:D', 15)  # Total Returns
+        
+        # 5. Quality Focus sheet - Only quality defects
+        quality_defects = results['categorized'].get('QUALITY_DEFECTS', [])
+        if quality_defects:
+            quality_data = []
+            for ret in quality_defects:
+                quality_data.append({
+                    'ASIN': ret.get('asin', ''),
+                    'SKU': ret.get('sku', ''),
+                    'Product': ret.get('product_name', ''),
+                    'Order ID': ret.get('order_id', ''),
+                    'Return Reason': ret.get('return_reason', ''),
+                    'Customer Comment': ret.get('buyer_comment', ''),
+                    'Date': ret.get('return_date', ret.get('request_date', ''))
+                })
+            
+            quality_df = pd.DataFrame(quality_data)
+            quality_df.to_excel(writer, sheet_name='Quality Defects', index=False)
+            
+            # Format quality sheet
+            worksheet = writer.sheets['Quality Defects']
+            worksheet.set_column('A:A', 12)  # ASIN
+            worksheet.set_column('B:B', 15)  # SKU
+            worksheet.set_column('C:C', 40)  # Product
+            worksheet.set_column('D:D', 20)  # Order ID
+            worksheet.set_column('E:E', 25)  # Return Reason
+            worksheet.set_column('F:F', 40)  # Customer Comment
     
     buffer.seek(0)
     return buffer
@@ -865,14 +975,15 @@ CATEGORY BREAKDOWN:
     
     return summary
 
+# Streamlit page config must be first
+st.set_page_config(
+    page_title="Vive Health Return Analysis Tool",
+    page_icon="🔍",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
 def main():
-    st.set_page_config(
-        page_title=APP_CONFIG['title'],
-        page_icon="🔍",
-        layout="wide",
-        initial_sidebar_state="collapsed"
-    )
-    
     initialize_session_state()
     inject_cyberpunk_css()
     display_header()
