@@ -3,6 +3,13 @@ Vive Health Quality Complaint Categorizer
 AI-Powered Return Reason Classification Tool
 Version 3.0 - Enhanced for FBA Returns & Complaints Ledger
 
+Requirements:
+- streamlit
+- pandas
+- numpy
+- openpyxl or xlsxwriter (for Excel export)
+- enhanced_ai_analysis module (must be in same directory)
+
 This tool processes:
 1. Product Complaints Ledger (Excel files with complaint text)
 2. FBA Return Reports (.txt tab-separated files from Amazon Seller Central)
@@ -39,7 +46,23 @@ try:
     AI_AVAILABLE = True
 except ImportError:
     AI_AVAILABLE = False
-    st.error("AI module not found. Please ensure enhanced_ai_analysis.py is in the same directory.")
+    logger.warning("AI module not available")
+
+# Check for xlsxwriter
+try:
+    import xlsxwriter
+    EXCEL_AVAILABLE = True
+except ImportError:
+    EXCEL_AVAILABLE = False
+    logger.warning("xlsxwriter not available - Excel export will use basic format")
+
+# Check for openpyxl as fallback
+try:
+    import openpyxl
+    OPENPYXL_AVAILABLE = True
+except ImportError:
+    OPENPYXL_AVAILABLE = False
+    logger.warning("openpyxl not available - Excel export may fail")
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -244,6 +267,8 @@ def initialize_session_state():
         st.session_state.category_mapping = None
     if 'file_type' not in st.session_state:
         st.session_state.file_type = None
+    if 'reason_summary' not in st.session_state:
+        st.session_state.reason_summary = {}
 
 def get_api_client():
     """Get or create API client"""
@@ -737,37 +762,41 @@ def display_results_summary(df: pd.DataFrame):
     # Sort reasons by count
     sorted_reasons = sorted(st.session_state.reason_summary.items(), key=lambda x: x[1], reverse=True)
     
+    # Sort reasons by count
+    sorted_reasons = sorted(st.session_state.reason_summary.items(), key=lambda x: x[1], reverse=True)
+    
     # Create two columns for the breakdown
     col1, col2 = st.columns(2)
     
     with col1:
         st.markdown("#### Top 10 Return Reasons")
-        for i, (reason, count) in enumerate(sorted_reasons[:10]):
-            percentage = (count / len(df)) * 100
-            
-            # Determine color based on reason type
-            if 'defective' in reason or 'bad' in reason or 'broken' in reason:
-                color = COLORS['danger']
-            elif 'too' in reason or 'wrong' in reason:
-                color = COLORS['warning']
-            elif 'no issue' in reason or 'no longer needed' in reason:
-                color = COLORS['success']
-            else:
-                color = COLORS['primary']
-            
-            st.markdown(f"""
-            <div style="margin: 0.5rem 0;">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <span class="reason-badge" style="background: {color}20; border-color: {color}; color: {color};">
-                        {reason}
-                    </span>
-                    <span>{count} ({percentage:.1f}%)</span>
+        if sorted_reasons:
+            for i, (reason, count) in enumerate(sorted_reasons[:10]):
+                percentage = (count / len(df)) * 100
+                
+                # Determine color based on reason type
+                if 'defective' in reason or 'bad' in reason or 'broken' in reason:
+                    color = COLORS['danger']
+                elif 'too' in reason or 'wrong' in reason:
+                    color = COLORS['warning']
+                elif 'no issue' in reason or 'no longer needed' in reason:
+                    color = COLORS['success']
+                else:
+                    color = COLORS['primary']
+                
+                st.markdown(f"""
+                <div style="margin: 0.5rem 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span class="reason-badge" style="background: {color}40; border-color: {color}; color: {color};">
+                            {reason}
+                        </span>
+                        <span>{count} ({percentage:.1f}%)</span>
+                    </div>
+                    <div style="background: rgba(255,255,255,0.1); border-radius: 10px; height: 10px; margin-top: 5px;">
+                        <div style="background: {color}; width: {percentage}%; height: 100%; border-radius: 10px;"></div>
+                    </div>
                 </div>
-                <div style="background: rgba(255,255,255,0.1); border-radius: 10px; height: 10px; margin-top: 5px;">
-                    <div style="background: {color}; width: {percentage}%; height: 100%; border-radius: 10px;"></div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+                """, unsafe_allow_html=True)
     
     with col2:
         # Quality insights
@@ -863,17 +892,20 @@ def export_categorized_data(df: pd.DataFrame) -> bytes:
         worksheet2.set_column('B:B', 10)
         worksheet2.set_column('C:C', 12)
         
-        # Add chart
+        # Add chart only if we have data
         if len(summary_df) > 0:
-            chart = workbook.add_chart({'type': 'pie'})
-            chart.add_series({
-                'categories': ['Summary', 1, 0, min(10, len(summary_df)), 0],
-                'values': ['Summary', 1, 1, min(10, len(summary_df)), 1],
-                'name': 'Top 10 Return Reasons'
-            })
-            chart.set_title({'name': 'Return Reason Distribution'})
-            chart.set_size({'width': 600, 'height': 400})
-            worksheet2.insert_chart('E2', chart)
+            try:
+                chart = workbook.add_chart({'type': 'pie'})
+                chart.add_series({
+                    'categories': ['Summary', 1, 0, min(10, len(summary_df)), 0],
+                    'values': ['Summary', 1, 1, min(10, len(summary_df)), 1],
+                    'name': 'Top 10 Return Reasons'
+                })
+                chart.set_title({'name': 'Return Reason Distribution'})
+                chart.set_size({'width': 600, 'height': 400})
+                worksheet2.insert_chart('E2', chart)
+            except Exception as e:
+                logger.warning(f"Could not add chart to Excel: {e}")
     
     output.seek(0)
     return output.getvalue()
@@ -885,6 +917,12 @@ def main():
         layout="wide",
         initial_sidebar_state="collapsed"
     )
+    
+    # Check AI availability after page config
+    if not AI_AVAILABLE:
+        st.error("❌ Critical Error: AI module (enhanced_ai_analysis.py) not found!")
+        st.info("Please ensure the enhanced_ai_analysis.py file is in the same directory as this app.")
+        st.stop()
     
     initialize_session_state()
     inject_cyberpunk_css()
@@ -1028,11 +1066,20 @@ def main():
                 
                 # Download button
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                
+                # Determine file type
+                if EXCEL_AVAILABLE or OPENPYXL_AVAILABLE:
+                    file_extension = "xlsx"
+                    mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                else:
+                    file_extension = "csv"
+                    mime_type = "text/csv"
+                
                 st.download_button(
-                    label="📥 DOWNLOAD CATEGORIZED DATA",
+                    label=f"📥 DOWNLOAD CATEGORIZED DATA",
                     data=excel_data,
-                    file_name=f"categorized_complaints_{timestamp}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    file_name=f"categorized_complaints_{timestamp}.{file_extension}",
+                    mime=mime_type,
                     use_container_width=True
                 )
                 
@@ -1065,8 +1112,10 @@ def main():
                 quality_count = sum(count for _, count in quality_reasons)
                 
                 # Get top reason
-                sorted_reasons = sorted(st.session_state.reason_summary.items(), key=lambda x: x[1], reverse=True)
-                top_reason = sorted_reasons[0][0] if sorted_reasons else 'None'
+                if st.session_state.reason_summary:
+                    top_reason = max(st.session_state.reason_summary.items(), key=lambda x: x[1])[0]
+                else:
+                    top_reason = 'None'
                 
                 col1, col2 = st.columns(2)
                 
@@ -1092,8 +1141,4 @@ def main():
                     """)
 
 if __name__ == "__main__":
-    if AI_AVAILABLE:
-        main()
-    else:
-        st.error("❌ Critical Error: AI module (enhanced_ai_analysis.py) not found!")
-        st.info("Please ensure the enhanced_ai_analysis.py file is in the same directory as this app.")
+    main()
