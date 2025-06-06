@@ -14,8 +14,6 @@ This enhanced version supports:
 """
 
 import streamlit as st
-
-# Now safe to import everything else
 import pandas as pd
 import numpy as np
 import logging
@@ -26,6 +24,7 @@ import json
 import time
 from collections import Counter, defaultdict
 import re
+import os
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -33,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 # Check for required modules
 try:
-    from enhanced_ai_analysis import EnhancedAIAnalyzer, APIClient
+    from enhanced_ai_analysis import EnhancedAIAnalyzer, APIClient, AIProvider
     AI_AVAILABLE = True
     api_error_message = None
 except ImportError as e:
@@ -280,13 +279,39 @@ def initialize_session_state():
         'ledger_data': None,
         'unified_data': None,
         'selected_provider': 'openai',
-        'api_key_openai': '',
-        'api_key_claude': ''
+        'api_key_configured': False
     }
     
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
+
+def check_and_set_api_keys():
+    """Check for API keys in Streamlit secrets and set them in environment"""
+    api_key_found = False
+    
+    # Check for OpenAI key in secrets
+    if hasattr(st, 'secrets'):
+        # Try various possible key names for OpenAI
+        openai_key_names = ['OPENAI_API_KEY', 'openai_api_key', 'openai', 'api_key']
+        for key_name in openai_key_names:
+            if key_name in st.secrets:
+                os.environ['OPENAI_API_KEY'] = str(st.secrets[key_name])
+                st.session_state.api_key_configured = True
+                api_key_found = True
+                logger.info(f"Found OpenAI API key in Streamlit secrets under '{key_name}'")
+                break
+        
+        # Check for Claude key in secrets
+        claude_key_names = ['ANTHROPIC_API_KEY', 'anthropic_api_key', 'claude_api_key', 'claude']
+        for key_name in claude_key_names:
+            if key_name in st.secrets:
+                os.environ['ANTHROPIC_API_KEY'] = str(st.secrets[key_name])
+                api_key_found = True
+                logger.info(f"Found Claude API key in Streamlit secrets under '{key_name}'")
+                break
+    
+    return api_key_found
 
 def setup_ai_provider():
     """Setup AI provider based on user selection"""
@@ -296,70 +321,80 @@ def setup_ai_provider():
     </div>
     """, unsafe_allow_html=True)
     
-    col1, col2, col3 = st.columns(3)
+    # Check if API keys are already in Streamlit secrets
+    api_keys_in_secrets = check_and_set_api_keys()
     
-    with col1:
-        provider = st.selectbox(
-            "Select AI Provider",
-            ["openai", "claude", "both"],
-            key="provider_select"
-        )
-        st.session_state.selected_provider = provider
-    
-    with col2:
-        if provider in ["openai", "both"]:
-            openai_key = st.text_input(
-                "OpenAI API Key",
-                type="password",
-                placeholder="sk-...",
-                key="openai_key_input"
-            )
-            if openai_key:
-                st.session_state.api_key_openai = openai_key
-                # Set environment variable for the module to use
-                import os
-                os.environ['OPENAI_API_KEY'] = openai_key
-    
-    with col3:
-        if provider in ["claude", "both"]:
-            claude_key = st.text_input(
-                "Claude API Key",
-                type="password",
-                placeholder="sk-ant-...",
-                key="claude_key_input"
-            )
-            if claude_key:
-                st.session_state.api_key_claude = claude_key
-                # Set environment variable for the module to use
-                import os
-                os.environ['ANTHROPIC_API_KEY'] = claude_key
-    
-    # Show provider status
-    if provider == "openai" and st.session_state.api_key_openai:
-        st.success("✅ OpenAI configured")
-    elif provider == "claude" and st.session_state.api_key_claude:
-        st.success("✅ Claude configured")
-    elif provider == "both" and st.session_state.api_key_openai and st.session_state.api_key_claude:
-        st.success("✅ Both providers configured")
+    if api_keys_in_secrets:
+        st.success("✅ API keys loaded from Streamlit secrets")
+        st.info("Using OpenAI provider with pre-configured API key")
+        st.session_state.selected_provider = 'openai'
     else:
-        st.warning("⚠️ Please enter API key(s) above")
+        # Manual configuration
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            provider = st.selectbox(
+                "Select AI Provider",
+                ["openai", "claude", "both"],
+                key="provider_select"
+            )
+            st.session_state.selected_provider = provider
+        
+        with col2:
+            if provider in ["openai", "both"]:
+                openai_key = st.text_input(
+                    "OpenAI API Key",
+                    type="password",
+                    placeholder="sk-...",
+                    key="openai_key_input"
+                )
+                if openai_key:
+                    os.environ['OPENAI_API_KEY'] = openai_key
+                    st.session_state.api_key_configured = True
+        
+        with col3:
+            if provider in ["claude", "both"]:
+                claude_key = st.text_input(
+                    "Claude API Key",
+                    type="password",
+                    placeholder="sk-ant-...",
+                    key="claude_key_input"
+                )
+                if claude_key:
+                    os.environ['ANTHROPIC_API_KEY'] = claude_key
+                    st.session_state.api_key_configured = True
 
 def get_ai_client():
     """Get or create AI client based on selected provider"""
     if st.session_state.ai_client is None and AI_AVAILABLE:
-        # Create appropriate client based on selection
-        provider = st.session_state.selected_provider
-        
-        if provider == "openai" and st.session_state.api_key_openai:
-            st.session_state.ai_client = APIClient()
-        elif provider == "claude" and st.session_state.api_key_claude:
-            # Note: The provided enhanced_ai_analysis module uses OpenAI format
-            # You would need to modify it to support Claude or use a different module
-            st.session_state.ai_client = APIClient()
-        elif provider == "both":
-            st.session_state.ai_client = APIClient()
+        try:
+            # Create appropriate client based on selection
+            provider = st.session_state.selected_provider
+            
+            if provider == "openai":
+                st.session_state.ai_client = APIClient(AIProvider.OPENAI)
+            elif provider == "claude":
+                st.session_state.ai_client = APIClient(AIProvider.CLAUDE)
+            elif provider == "both":
+                st.session_state.ai_client = APIClient(AIProvider.BOTH)
+        except Exception as e:
+            logger.error(f"Error creating AI client: {e}")
+            st.error(f"Error initializing AI: {str(e)}")
             
     return st.session_state.ai_client
+
+def clean_dataframe_columns(df):
+    """Clean dataframe to ensure no duplicate columns"""
+    if df is None:
+        return None
+    
+    # First, remove any duplicate columns
+    df = df.loc[:, ~df.columns.duplicated()]
+    
+    # Also strip whitespace from column names
+    df.columns = df.columns.str.strip()
+    
+    return df
 
 def parse_pdf_returns(pdf_file) -> pd.DataFrame:
     """Parse Amazon Seller Central returns PDF"""
@@ -429,7 +464,7 @@ def parse_pdf_returns(pdf_file) -> pd.DataFrame:
         
         if returns_data:
             df = pd.DataFrame(returns_data)
-            return df
+            return clean_dataframe_columns(df)
         else:
             st.warning("No return data found in PDF. Please check the file format.")
             return None
@@ -482,7 +517,7 @@ def process_fba_returns(file_content, filename: str) -> pd.DataFrame:
             except:
                 pass
         
-        return std_df
+        return clean_dataframe_columns(std_df)
         
     except Exception as e:
         logger.error(f"Error processing FBA returns: {e}")
@@ -505,13 +540,30 @@ def process_complaints_file(file_content, filename: str) -> pd.DataFrame:
         else:  # Excel
             df = pd.read_excel(io.BytesIO(file_content))
         
+        # Clean column names and remove duplicates
+        df = clean_dataframe_columns(df)
+        
         # Check for complaint column (case-insensitive)
         complaint_found = False
+        complaint_columns = []
+        
         for col in df.columns:
             if 'complaint' in col.lower():
-                df.rename(columns={col: 'Complaint'}, inplace=True)
-                complaint_found = True
-                break
+                complaint_columns.append(col)
+        
+        # If we have multiple complaint columns, keep only the first one
+        if len(complaint_columns) > 1:
+            # Keep the first complaint column and rename it
+            df = df.rename(columns={complaint_columns[0]: 'Complaint'})
+            # Drop other complaint columns
+            for col in complaint_columns[1:]:
+                if col in df.columns and col != 'Complaint':
+                    df = df.drop(columns=[col])
+            complaint_found = True
+        elif len(complaint_columns) == 1:
+            # Rename the single complaint column
+            df = df.rename(columns={complaint_columns[0]: 'Complaint'})
+            complaint_found = True
         
         # Ensure standard columns exist
         standard_columns = [
@@ -525,6 +577,9 @@ def process_complaints_file(file_content, filename: str) -> pd.DataFrame:
                 df[col] = ''
         
         df['data_source'] = 'Ledger'
+        
+        # Final cleanup
+        df = clean_dataframe_columns(df)
         
         return df
         
@@ -697,13 +752,13 @@ def prepare_export_data(df: pd.DataFrame) -> pd.DataFrame:
     # Column A - Date
     export_df['Date'] = df['Date'] if 'Date' in df.columns else ''
     
-    # Column B - Combined Complaint + Product info 
+    # Column B - Complaint with Product info 
     if 'Complaint' in df.columns and 'Product Identifier Tag' in df.columns:
-        export_df['Complaint'] = df['Complaint'].astype(str) + ' - ' + df['Product Identifier Tag'].astype(str)
+        export_df['Complaint_Full'] = df['Complaint'].astype(str) + ' - ' + df['Product Identifier Tag'].astype(str)
     elif 'Complaint' in df.columns:
-        export_df['Complaint'] = df['Complaint']
+        export_df['Complaint_Full'] = df['Complaint']
     else:
-        export_df['Complaint'] = ''
+        export_df['Complaint_Full'] = ''
     
     # Column C - Product Identifier
     export_df['Product Identifier'] = df['Product Identifier Tag'] if 'Product Identifier Tag' in df.columns else ''
@@ -726,7 +781,7 @@ def prepare_export_data(df: pd.DataFrame) -> pd.DataFrame:
     # Column I - Categorizing / Investigating Agent
     export_df['Categorizing / Investigating Agent'] = df.get('Categorizing / Investigating Agent', 'Carolina')
     
-    # Column J - Complaint
+    # Column J - Complaint (raw complaint text)
     export_df['Complaint'] = df['Complaint'] if 'Complaint' in df.columns else ''
     
     # Column K - The output: AI categorized return category
@@ -865,6 +920,14 @@ def export_categorized_data(df: pd.DataFrame) -> bytes:
     # Prepare export data
     export_df = prepare_export_data(df)
     
+    # Rename 'Complaint_Full' back to 'Complaint' for column B in the export
+    export_columns = export_df.columns.tolist()
+    if 'Complaint_Full' in export_columns:
+        # Find the index and rename
+        idx = export_columns.index('Complaint_Full')
+        export_columns[idx] = 'Complaint (Full)'  # Use a different name to avoid confusion
+        export_df.columns = export_columns
+    
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         # Write main data
         export_df.to_excel(writer, sheet_name='Categorized Complaints', index=False)
@@ -891,7 +954,7 @@ def export_categorized_data(df: pd.DataFrame) -> bytes:
         # Set column widths
         column_widths = {
             'A': 12,   # Date
-            'B': 50,   # Complaint text
+            'B': 50,   # Complaint (Full)
             'C': 25,   # Product Identifier
             'D': 20,   # Imported SKU  
             'E': 15,   # ASIN
@@ -956,11 +1019,16 @@ def main():
     # AI Provider Setup
     setup_ai_provider()
     
+    # Check if API key is configured
+    if not st.session_state.api_key_configured:
+        st.warning("⚠️ Please configure API key to continue")
+        st.stop()
+    
     # Instructions
     with st.expander("📖 How to Use This Tool", expanded=False):
         st.markdown("""
         ### Quick Start Guide
-        1. **Configure AI Provider**: Enter your OpenAI or Claude API key above
+        1. **AI is already configured** from Streamlit secrets
         2. **Upload your files**:
            - Product Complaints Ledger Excel file (.xlsx)
            - Product Complaints Ledger CSV file (.csv)
@@ -978,7 +1046,7 @@ def main():
         
         ### Output Format:
         - Columns A-J: Your original data preserved
-        - **Column K: AI-categorized return reason** (e.g., "too small", "defective seat")
+        - **Column K: AI-categorized return reason** (e.g., "Size/Fit Issues", "Product Defects/Quality")
         - Available in both Excel (.xlsx) and CSV (.csv) formats
         
         The tool maintains your exact data structure and adds the categorized return reason in Column K.
@@ -1014,6 +1082,7 @@ def main():
                 if filename.endswith('.pdf'):
                     if PDFPLUMBER_AVAILABLE:
                         st.info(f"📄 Processing PDF: {filename}")
+                        uploaded_file.seek(0)  # Reset file pointer
                         df = parse_pdf_returns(uploaded_file)
                         if df is not None:
                             st.session_state.data_sources.add('PDF')
@@ -1033,11 +1102,18 @@ def main():
                         st.session_state.data_sources.add('Ledger')
                 
                 if df is not None:
+                    # Clean the dataframe before adding to list
+                    df = clean_dataframe_columns(df)
                     all_data.append(df)
         
         # Combine all data
         if all_data:
+            # Combine dataframes
             combined_df = pd.concat(all_data, ignore_index=True)
+            
+            # Final cleanup of combined dataframe
+            combined_df = clean_dataframe_columns(combined_df)
+            
             st.session_state.processed_data = combined_df
             
             # Show file info
@@ -1047,10 +1123,24 @@ def main():
             # Show sample data
             st.markdown("#### Sample Data")
             display_cols = ['Date', 'Product Identifier Tag', 'Order #', 'Complaint']
-            available_cols = [col for col in display_cols if col in combined_df.columns]
+            
+            # Get available columns that exist in the dataframe
+            available_cols = []
+            for col in display_cols:
+                if col in combined_df.columns:
+                    available_cols.append(col)
             
             if available_cols:
-                st.dataframe(combined_df[available_cols].head(5), use_container_width=True)
+                try:
+                    # Create a copy of the data for display
+                    display_df = combined_df[available_cols].head(5).copy()
+                    st.dataframe(display_df, use_container_width=True)
+                except Exception as e:
+                    st.warning(f"Could not display sample data: {str(e)}")
+                    st.info(f"Available columns: {', '.join(combined_df.columns.tolist())}")
+            else:
+                st.warning("None of the expected columns found in the data")
+                st.info(f"Available columns: {', '.join(combined_df.columns.tolist())}")
             
             # Categorize button
             if st.button("🚀 CATEGORIZE ALL RETURNS", type="primary", use_container_width=True):
@@ -1143,13 +1233,16 @@ def main():
                         label="📥 DOWNLOAD EXCEL (.xlsx)",
                         data=excel_data,
                         file_name=f"categorized_returns_{timestamp}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True
                     )
                 
                 with col2:
                     # Also provide CSV option
-                    csv_data = prepare_export_data(display_data).to_csv(index=False)
+                    csv_export_df = prepare_export_data(display_data)
+                    # Rename 'Complaint_Full' for clarity in CSV
+                    if 'Complaint_Full' in csv_export_df.columns:
+                        csv_export_df = csv_export_df.rename(columns={'Complaint_Full': 'Complaint (Full)'})
+                    csv_data = csv_export_df.to_csv(index=False)
                     st.download_button(
                         label="📥 DOWNLOAD CSV (.csv)",
                         data=csv_data,
@@ -1163,6 +1256,9 @@ def main():
                 
                 # Show key columns including Column K
                 preview_df = prepare_export_data(st.session_state.categorized_data).head(10)
+                # Rename 'Complaint_Full' for display clarity
+                if 'Complaint_Full' in preview_df.columns:
+                    preview_df = preview_df.rename(columns={'Complaint_Full': 'Complaint (Full)'})
                 st.dataframe(preview_df, use_container_width=True)
                 
                 # Quality team action items
