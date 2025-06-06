@@ -1,8 +1,8 @@
 """
 Enhanced AI Analysis Module - Multi-Provider Edition
-Supports both OpenAI and Claude for return categorization
+Supports both OpenAI and Claude for medical device return categorization
 
-Version: 7.0 - Dual Provider Support
+Version: 7.0 - Medical Device Categories
 Author: Vive Health Quality Team
 """
 
@@ -55,6 +55,55 @@ PRICING = {
     'gpt-4': {'input': 0.03, 'output': 0.06},
     'claude-3-haiku-20240307': {'input': 0.00025, 'output': 0.00125},
     'claude-3-sonnet-20240229': {'input': 0.003, 'output': 0.015}
+}
+
+# Medical Device Return Categories (15 total)
+MEDICAL_DEVICE_CATEGORIES = [
+    'Size/Fit Issues',
+    'Comfort Issues',
+    'Product Defects/Quality',
+    'Performance/Effectiveness',
+    'Stability/Positioning Issues',
+    'Equipment Compatibility',
+    'Design/Material Issues',
+    'Wrong Product/Misunderstanding',
+    'Missing Components',
+    'Customer Error/Changed Mind',
+    'Shipping/Fulfillment Issues',
+    'Assembly/Usage Difficulty',
+    'Medical/Health Concerns',
+    'Price/Value',
+    'Other/Miscellaneous'
+]
+
+# FBA reason code mapping to medical device categories
+FBA_REASON_MAP = {
+    'NOT_COMPATIBLE': 'Equipment Compatibility',
+    'DAMAGED_BY_FC': 'Product Defects/Quality',
+    'DAMAGED_BY_CARRIER': 'Shipping/Fulfillment Issues',
+    'DEFECTIVE': 'Product Defects/Quality',
+    'NOT_AS_DESCRIBED': 'Wrong Product/Misunderstanding',
+    'WRONG_ITEM': 'Wrong Product/Misunderstanding',
+    'MISSING_PARTS': 'Missing Components',
+    'QUALITY_NOT_ADEQUATE': 'Performance/Effectiveness',
+    'UNWANTED_ITEM': 'Customer Error/Changed Mind',
+    'UNAUTHORIZED_PURCHASE': 'Customer Error/Changed Mind',
+    'CUSTOMER_DAMAGED': 'Customer Error/Changed Mind',
+    'SWITCHEROO': 'Wrong Product/Misunderstanding',
+    'EXPIRED_ITEM': 'Product Defects/Quality',
+    'DAMAGED_GLASS_VIAL': 'Product Defects/Quality',
+    'DIFFERENT_PRODUCT': 'Wrong Product/Misunderstanding',
+    'MISSING_ITEM': 'Missing Components',
+    'NOT_DELIVERED': 'Shipping/Fulfillment Issues',
+    'ORDERED_WRONG_ITEM': 'Customer Error/Changed Mind',
+    'UNNEEDED_ITEM': 'Customer Error/Changed Mind',
+    'BAD_GIFT': 'Customer Error/Changed Mind',
+    'INACCURATE_WEBSITE_DESCRIPTION': 'Wrong Product/Misunderstanding',
+    'BETTER_PRICE_AVAILABLE': 'Price/Value',
+    'DOES_NOT_FIT': 'Size/Fit Issues',
+    'NOT_COMPATIBLE_WITH_DEVICE': 'Equipment Compatibility',
+    'UNSATISFACTORY_PRODUCT': 'Performance/Effectiveness',
+    'ARRIVED_LATE': 'Shipping/Fulfillment Issues'
 }
 
 class AIProvider(Enum):
@@ -430,6 +479,46 @@ class EnhancedAIAnalyzer:
         
         return status
     
+    def fallback_categorization(self, complaint: str, fba_reason: str = None) -> str:
+        """Fallback keyword-based categorization when AI is unavailable"""
+        
+        # First check FBA reason mapping
+        if fba_reason and fba_reason in FBA_REASON_MAP:
+            return FBA_REASON_MAP[fba_reason]
+        
+        complaint_lower = complaint.lower() if complaint else ""
+        
+        # Define keyword mappings for medical device categories
+        keyword_map = {
+            'Size/Fit Issues': ['small', 'large', 'size', 'fit', 'tight', 'loose', 'narrow', 'wide', 'big', 'tiny'],
+            'Comfort Issues': ['uncomfortable', 'comfort', 'hurts', 'painful', 'pressure', 'sore', 'pain', 'ache'],
+            'Product Defects/Quality': ['defective', 'broken', 'damaged', 'quality', 'malfunction', 'faulty', 'poor quality', 'defect', 'crack', 'tear', 'rip'],
+            'Performance/Effectiveness': ['not work', 'ineffective', 'useless', 'performance', 'doesn\'t work', 'does not work', 'not effective'],
+            'Stability/Positioning Issues': ['unstable', 'slides', 'moves', 'position', 'falls', 'tips', 'wobbly', 'shift'],
+            'Equipment Compatibility': ['compatible', 'fit toilet', 'fit wheelchair', 'walker', 'doesn\'t fit', 'not compatible', 'incompatible'],
+            'Design/Material Issues': ['heavy', 'bulky', 'material', 'design', 'flimsy', 'thin', 'cheap material'],
+            'Wrong Product/Misunderstanding': ['wrong', 'different', 'not as described', 'expected', 'not what', 'incorrect', 'mistake'],
+            'Missing Components': ['missing', 'incomplete', 'no instructions', 'parts missing', 'not included'],
+            'Customer Error/Changed Mind': ['mistake', 'changed mind', 'no longer', 'patient died', 'don\'t need', 'ordered wrong'],
+            'Shipping/Fulfillment Issues': ['shipping', 'damaged arrival', 'late', 'package', 'delivery', 'arrived damaged'],
+            'Assembly/Usage Difficulty': ['difficult', 'hard to', 'confusing', 'complicated', 'instructions', 'assembly', 'setup'],
+            'Medical/Health Concerns': ['doctor', 'medical', 'health', 'allergic', 'reaction', 'injury', 'condition'],
+            'Price/Value': ['price', 'expensive', 'value', 'cheaper', 'cost', 'overpriced']
+        }
+        
+        # Score each category
+        scores = {}
+        for category, keywords in keyword_map.items():
+            score = sum(1 for keyword in keywords if keyword in complaint_lower)
+            if score > 0:
+                scores[category] = score
+        
+        # Return highest scoring category
+        if scores:
+            return max(scores.items(), key=lambda x: x[1])[0]
+        
+        return 'Other/Miscellaneous'
+    
     def categorize_return(self, complaint: str, return_reason: str = None, 
                          fba_reason: str = None, use_both: bool = False) -> Union[str, Dict[str, str]]:
         """Categorize a return using AI"""
@@ -485,73 +574,55 @@ class EnhancedAIAnalyzer:
     def _build_categorization_prompt(self, complaint: str, return_reason: str, fba_reason: str) -> str:
         """Build categorization prompt"""
         
-        # Standard return reasons
-        return_reasons = [
-            'too small', 'too large', 'received used/damaged', 'wrong item',
-            'too heavy', 'bad brakes', 'bad wheels', 'uncomfortable',
-            'difficult to use', 'missing parts', 'defective seat', 'no issue',
-            'not as advertised', 'defective handles', 'defective frame',
-            'defective/does not work properly', 'missing or broken parts',
-            'performance or quality not adequate', 'incompatible or not useful',
-            'no longer needed', 'bought by mistake', 'wrong size',
-            'style not as expected', 'different from website description',
-            'damaged during shipping', 'item never arrived', 'unauthorized purchase',
-            'better price available', 'ordered wrong item', 'changed mind',
-            'arrived too late', 'poor quality', 'not compatible',
-            'missing accessories', 'installation issues', 'customer damaged', 'other'
-        ]
-        
-        reasons_list = "\n".join([f"- {reason}" for reason in return_reasons])
+        # Medical device return categories
+        reasons_list = "\n".join([f"- {reason}" for reason in MEDICAL_DEVICE_CATEGORIES])
         
         # Add context
         context = ""
         if return_reason:
             context += f"\nOriginal return reason: {return_reason}"
-        if fba_reason:
+        if fba_reason and fba_reason in FBA_REASON_MAP:
+            suggested = FBA_REASON_MAP[fba_reason]
+            context += f"\nFBA reason code: {fba_reason} (typically indicates: {suggested})"
+        elif fba_reason:
             context += f"\nFBA reason code: {fba_reason}"
         
-        return f"""Analyze this return and select the SINGLE MOST APPROPRIATE reason.
+        return f"""You are a quality management expert for medical devices. Analyze this return and select the SINGLE MOST APPROPRIATE category.
 
 Complaint: {complaint}{context}
 
-Available Return Reasons:
+Available Medical Device Return Categories:
 {reasons_list}
 
-Respond with ONLY the exact return reason text from the list."""
+Instructions:
+1. Consider medical device quality and safety implications
+2. Choose the ONE category that best matches the primary issue
+3. If multiple categories apply, choose the most specific one
+4. Only use "Other/Miscellaneous" if no other category fits
+
+Respond with ONLY the exact category text from the list."""
     
     def _parse_categorization_result(self, result: str) -> str:
         """Parse and validate categorization result"""
         
         # Clean the result
-        result = result.strip().lower()
+        result = result.strip()
         
-        # List of valid reasons (lowercase)
-        valid_reasons = [
-            'too small', 'too large', 'received used/damaged', 'wrong item',
-            'too heavy', 'bad brakes', 'bad wheels', 'uncomfortable',
-            'difficult to use', 'missing parts', 'defective seat', 'no issue',
-            'not as advertised', 'defective handles', 'defective frame',
-            'defective/does not work properly', 'missing or broken parts',
-            'performance or quality not adequate', 'incompatible or not useful',
-            'no longer needed', 'bought by mistake', 'wrong size',
-            'style not as expected', 'different from website description',
-            'damaged during shipping', 'item never arrived', 'unauthorized purchase',
-            'better price available', 'ordered wrong item', 'changed mind',
-            'arrived too late', 'poor quality', 'not compatible',
-            'missing accessories', 'installation issues', 'customer damaged', 'other'
-        ]
+        # Find exact match (case sensitive first)
+        if result in MEDICAL_DEVICE_CATEGORIES:
+            return result
         
-        # Find exact match
-        for valid in valid_reasons:
-            if result == valid:
+        # Try case-insensitive match
+        for valid in MEDICAL_DEVICE_CATEGORIES:
+            if result.lower() == valid.lower():
                 return valid
         
         # Try partial match
-        for valid in valid_reasons:
-            if valid in result or result in valid:
+        for valid in MEDICAL_DEVICE_CATEGORIES:
+            if valid.lower() in result.lower() or result.lower() in valid.lower():
                 return valid
         
-        return 'other'
+        return 'Other/Miscellaneous'
     
     def generate_quality_insights(self, category_summary: Dict[str, int],
                                 product_summary: Dict[str, Dict[str, int]],
@@ -571,13 +642,21 @@ CATEGORY BREAKDOWN:
 TOP PRODUCTS BY RETURNS:
 {self._format_product_summary(product_summary)}
 
+QUALITY CATEGORIES OF CONCERN:
+- Product Defects/Quality
+- Performance/Effectiveness
+- Missing Components
+- Design/Material Issues
+- Stability/Positioning Issues
+- Medical/Health Concerns
+
 Provide analysis in this format:
 
 ## QUALITY MANAGEMENT SUMMARY
 [Overview of return patterns and key findings]
 
 ## CRITICAL QUALITY ISSUES
-[List top 3-5 quality concerns requiring immediate attention]
+[List top 3-5 quality concerns requiring immediate attention, focusing on medical device safety]
 
 ## ROOT CAUSE ANALYSIS
 [Potential root causes for main return categories]
@@ -588,7 +667,7 @@ Provide analysis in this format:
 3. [Third priority]
 
 ## CAPA RECOMMENDATIONS
-[Specific corrective and preventive actions]
+[Specific corrective and preventive actions for quality issues]
 
 ## FDA CONSIDERATIONS
 [Any patterns requiring MDR evaluation or regulatory action]
@@ -632,10 +711,12 @@ Focus on medical device quality, patient safety, and regulatory compliance."""
                                   total_returns: int) -> str:
         """Generate basic insights when AI is unavailable"""
         
-        # Calculate percentages
-        quality_keywords = ['defective', 'bad', 'broken', 'missing', 'damaged', 'quality', 'not work']
+        # Calculate quality-related returns
+        quality_categories = ['Product Defects/Quality', 'Performance/Effectiveness', 
+                            'Missing Components', 'Design/Material Issues', 
+                            'Stability/Positioning Issues']
         quality_count = sum(count for cat, count in category_summary.items() 
-                          if any(keyword in cat.lower() for keyword in quality_keywords))
+                          if cat in quality_categories)
         quality_pct = (quality_count / total_returns * 100) if total_returns > 0 else 0
         
         # Get top category
