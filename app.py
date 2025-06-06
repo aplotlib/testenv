@@ -1,17 +1,28 @@
 """
 Vive Health Quality Complaint Categorizer
 AI-Powered Return Reason Classification Tool
-Version: 4.0 - Unified API Support (Claude + OpenAI)
+Version: 5.0 - Enhanced with PDF Support & Unified Analysis
 
 This enhanced version supports:
-- Claude API (Haiku, Sonnet, Opus)
-- OpenAI API (GPT-3.5, GPT-4)
-- Hybrid mode comparing both providers
-- Cost tracking and optimization
-- Batch processing for 2000+ rows
+- PDF files from Amazon Seller Central Manage Returns page
+- FBA Return Reports (.txt tab-separated files)
+- Product Complaints Ledger (Excel files)
+- Cross-reference analysis between all data sources
+- Medical device-specific categorization
+- Quality management insights
 """
 
 import streamlit as st
+
+# MUST be the first Streamlit command
+st.set_page_config(
+    page_title='Vive Health Medical Device Return Categorizer',
+    page_icon="🔍",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+# Now safe to import everything else
 import pandas as pd
 import numpy as np
 import logging
@@ -20,34 +31,50 @@ import io
 from typing import Dict, List, Any, Optional, Tuple
 import json
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 import re
-
-# Import the unified AI module
-try:
-    from enhanced_ai_analysis import EnhancedAIAnalyzer, APIProvider, UnifiedAPIClient
-    AI_AVAILABLE = True
-except ImportError:
-    AI_AVAILABLE = False
-    st.error("❌ Critical: enhanced_ai_analysis.py module not found!")
-
-# Excel handling
-try:
-    import xlsxwriter
-    EXCEL_AVAILABLE = True
-except ImportError:
-    EXCEL_AVAILABLE = False
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Check for required modules
+try:
+    from enhanced_ai_analysis import EnhancedAIAnalyzer, APIClient
+    AI_AVAILABLE = True
+    api_error_message = None
+except ImportError as e:
+    AI_AVAILABLE = False
+    api_error_message = f"AI module not available: {str(e)}"
+    logger.error(api_error_message)
+
+try:
+    import xlsxwriter
+    EXCEL_AVAILABLE = True
+except ImportError:
+    EXCEL_AVAILABLE = False
+    logger.warning("xlsxwriter not available - Excel export will use basic format")
+
+try:
+    import openpyxl
+    OPENPYXL_AVAILABLE = True
+except ImportError:
+    OPENPYXL_AVAILABLE = False
+    logger.warning("openpyxl not available")
+
+try:
+    import pdfplumber
+    PDFPLUMBER_AVAILABLE = True
+except ImportError:
+    PDFPLUMBER_AVAILABLE = False
+    logger.warning("pdfplumber not available - PDF parsing will be disabled")
+
 # App Configuration
 APP_CONFIG = {
     'title': 'Vive Health Medical Device Return Categorizer',
-    'version': '4.0',
+    'version': '5.0',
     'company': 'Vive Health',
-    'description': 'AI-Powered Medical Device Return Classification for Quality Management'
+    'description': 'AI-Powered Medical Device Return Classification with PDF Support'
 }
 
 # Cyberpunk color scheme
@@ -83,49 +110,38 @@ MEDICAL_DEVICE_CATEGORIES = [
     'Other/Miscellaneous'
 ]
 
-# Old categories for backward compatibility (will map to new ones)
-OLD_TO_NEW_CATEGORY_MAP = {
-    'too small': 'Size/Fit Issues',
-    'too large': 'Size/Fit Issues',
-    'wrong size': 'Size/Fit Issues',
-    'received used/damaged': 'Product Defects/Quality',
-    'wrong item': 'Wrong Product/Misunderstanding',
-    'too heavy': 'Design/Material Issues',
-    'bad brakes': 'Product Defects/Quality',
-    'bad wheels': 'Product Defects/Quality',
-    'uncomfortable': 'Comfort Issues',
-    'difficult to use': 'Assembly/Usage Difficulty',
-    'missing parts': 'Missing Components',
-    'defective seat': 'Product Defects/Quality',
-    'no issue': 'Customer Error/Changed Mind',
-    'not as advertised': 'Wrong Product/Misunderstanding',
-    'defective handles': 'Product Defects/Quality',
-    'defective frame': 'Product Defects/Quality',
-    'defective/does not work properly': 'Product Defects/Quality',
-    'missing or broken parts': 'Missing Components',
-    'performance or quality not adequate': 'Performance/Effectiveness',
-    'incompatible or not useful': 'Equipment Compatibility',
-    'no longer needed': 'Customer Error/Changed Mind',
-    'bought by mistake': 'Customer Error/Changed Mind',
-    'style not as expected': 'Wrong Product/Misunderstanding',
-    'different from website description': 'Wrong Product/Misunderstanding',
-    'damaged during shipping': 'Shipping/Fulfillment Issues',
-    'item never arrived': 'Shipping/Fulfillment Issues',
-    'unauthorized purchase': 'Customer Error/Changed Mind',
-    'better price available': 'Price/Value',
-    'ordered wrong item': 'Customer Error/Changed Mind',
-    'changed mind': 'Customer Error/Changed Mind',
-    'arrived too late': 'Shipping/Fulfillment Issues',
-    'poor quality': 'Product Defects/Quality',
-    'not compatible': 'Equipment Compatibility',
-    'missing accessories': 'Missing Components',
-    'installation issues': 'Assembly/Usage Difficulty',
-    'customer damaged': 'Customer Error/Changed Mind',
-    'other': 'Other/Miscellaneous'
+# FBA reason code mapping to categories
+FBA_REASON_MAP = {
+    'NOT_COMPATIBLE': 'Equipment Compatibility',
+    'DAMAGED_BY_FC': 'Product Defects/Quality',
+    'DAMAGED_BY_CARRIER': 'Shipping/Fulfillment Issues',
+    'DEFECTIVE': 'Product Defects/Quality',
+    'NOT_AS_DESCRIBED': 'Wrong Product/Misunderstanding',
+    'WRONG_ITEM': 'Wrong Product/Misunderstanding',
+    'MISSING_PARTS': 'Missing Components',
+    'QUALITY_NOT_ADEQUATE': 'Performance/Effectiveness',
+    'UNWANTED_ITEM': 'Customer Error/Changed Mind',
+    'UNAUTHORIZED_PURCHASE': 'Customer Error/Changed Mind',
+    'CUSTOMER_DAMAGED': 'Customer Error/Changed Mind',
+    'SWITCHEROO': 'Wrong Product/Misunderstanding',
+    'EXPIRED_ITEM': 'Product Defects/Quality',
+    'DAMAGED_GLASS_VIAL': 'Product Defects/Quality',
+    'DIFFERENT_PRODUCT': 'Wrong Product/Misunderstanding',
+    'MISSING_ITEM': 'Missing Components',
+    'NOT_DELIVERED': 'Shipping/Fulfillment Issues',
+    'ORDERED_WRONG_ITEM': 'Customer Error/Changed Mind',
+    'UNNEEDED_ITEM': 'Customer Error/Changed Mind',
+    'BAD_GIFT': 'Customer Error/Changed Mind',
+    'INACCURATE_WEBSITE_DESCRIPTION': 'Wrong Product/Misunderstanding',
+    'BETTER_PRICE_AVAILABLE': 'Price/Value',
+    'DOES_NOT_FIT': 'Size/Fit Issues',
+    'NOT_COMPATIBLE_WITH_DEVICE': 'Equipment Compatibility',
+    'UNSATISFACTORY_PRODUCT': 'Performance/Effectiveness',
+    'ARRIVED_LATE': 'Shipping/Fulfillment Issues'
 }
 
 def inject_cyberpunk_css():
-    """Inject cyberpunk-themed CSS with API provider styling"""
+    """Inject cyberpunk-themed CSS"""
     st.markdown(f"""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600;700&display=swap');
@@ -165,76 +181,13 @@ def inject_cyberpunk_css():
         margin-bottom: 0.5em;
     }}
     
-    .api-selector {{
-        background: rgba(0, 217, 255, 0.1);
-        border: 2px solid var(--primary);
+    .pdf-upload-box {{
+        background: rgba(255, 183, 0, 0.1);
+        border: 2px solid var(--accent);
         border-radius: 15px;
-        padding: 1.5rem;
+        padding: 2rem;
         margin: 1rem 0;
-        box-shadow: 0 0 30px rgba(0, 217, 255, 0.3);
-    }}
-    
-    .api-option {{
-        display: inline-block;
-        margin: 0.5rem;
-        padding: 1rem 2rem;
-        background: rgba(26, 26, 46, 0.9);
-        border: 2px solid var(--muted);
-        border-radius: 10px;
-        cursor: pointer;
-        transition: all 0.3s ease;
-    }}
-    
-    .api-option:hover {{
-        border-color: var(--primary);
-        transform: translateY(-2px);
-        box-shadow: 0 5px 20px rgba(0, 217, 255, 0.4);
-    }}
-    
-    .api-option.selected {{
-        border-color: var(--accent);
-        background: rgba(255, 183, 0, 0.2);
-    }}
-    
-    .cost-tracker {{
-        position: fixed;
-        top: 10px;
-        right: 10px;
-        background: rgba(10, 10, 15, 0.95);
-        border: 1px solid var(--primary);
-        border-radius: 10px;
-        padding: 1rem;
-        min-width: 200px;
-        z-index: 1000;
-    }}
-    
-    .model-badge {{
-        display: inline-block;
-        padding: 0.3rem 0.8rem;
-        border-radius: 20px;
-        font-size: 0.85em;
-        font-weight: 600;
-        margin: 0.2rem;
-    }}
-    
-    .badge-openai {{
-        background: rgba(116, 185, 255, 0.2);
-        border: 1px solid #74b9ff;
-        color: #74b9ff;
-    }}
-    
-    .badge-claude {{
-        background: rgba(162, 155, 254, 0.2);
-        border: 1px solid #a29bfe;
-        color: #a29bfe;
-    }}
-    
-    .comparison-result {{
-        background: rgba(26, 26, 46, 0.8);
-        border: 1px solid var(--primary);
-        border-radius: 10px;
-        padding: 1rem;
-        margin: 0.5rem 0;
+        box-shadow: 0 0 30px rgba(255, 183, 0, 0.3);
     }}
     
     .neon-box {{
@@ -254,6 +207,36 @@ def inject_cyberpunk_css():
         box-shadow: 0 0 15px rgba(0, 245, 160, 0.2);
     }}
     
+    .error-box {{
+        background: rgba(255, 0, 84, 0.1);
+        border: 1px solid var(--danger);
+        border-radius: 10px;
+        padding: 1rem;
+        box-shadow: 0 0 15px rgba(255, 0, 84, 0.2);
+    }}
+    
+    .metric-card {{
+        background: rgba(26, 26, 46, 0.8);
+        border: 1px solid rgba(0, 217, 255, 0.4);
+        border-radius: 10px;
+        padding: 1.5rem;
+        text-align: center;
+        transition: all 0.3s ease;
+    }}
+    
+    .metric-card:hover {{
+        transform: translateY(-5px) scale(1.02);
+        box-shadow: 0 10px 30px rgba(0, 217, 255, 0.4);
+    }}
+    
+    .category-badge {{
+        display: inline-block;
+        padding: 0.4rem 0.8rem;
+        border-radius: 5px;
+        font-weight: 600;
+        margin: 0.25rem;
+    }}
+    
     .stButton > button {{
         font-family: 'Rajdhani', sans-serif;
         font-weight: 600;
@@ -268,6 +251,42 @@ def inject_cyberpunk_css():
         letter-spacing: 0.1em;
     }}
     
+    .stButton > button:hover {{
+        transform: translateY(-2px);
+        box-shadow: 0 6px 25px rgba(0, 217, 255, 0.6);
+    }}
+    
+    .data-source-indicator {{
+        display: inline-block;
+        padding: 0.3rem 0.6rem;
+        border-radius: 20px;
+        font-size: 0.85em;
+        font-weight: 600;
+        margin: 0.2rem;
+    }}
+    
+    .source-pdf {{
+        background: rgba(255, 183, 0, 0.2);
+        border: 1px solid var(--accent);
+        color: var(--accent);
+    }}
+    
+    .source-fba {{
+        background: rgba(0, 217, 255, 0.2);
+        border: 1px solid var(--primary);
+        color: var(--primary);
+    }}
+    
+    .source-ledger {{
+        background: rgba(255, 0, 110, 0.2);
+        border: 1px solid var(--secondary);
+        color: var(--secondary);
+    }}
+    
+    .stProgress > div > div > div > div {{
+        background: linear-gradient(90deg, var(--primary) 0%, var(--secondary) 100%);
+    }}
+    
     #MainMenu, footer, header {{
         visibility: hidden;
     }}
@@ -277,22 +296,19 @@ def inject_cyberpunk_css():
 def initialize_session_state():
     """Initialize session state variables"""
     defaults = {
-        'uploaded_file': None,
+        'uploaded_files': [],
         'processed_data': None,
         'categorized_data': None,
         'ai_analyzer': None,
         'processing_complete': False,
-        'category_mapping': None,
-        'file_type': None,
+        'file_types': {},
         'reason_summary': {},
-        'api_provider': 'both',  # Default to both
-        'model_settings': {
-            'openai_categorization': 'gpt-3.5-turbo',
-            'openai_analysis': 'gpt-4o-mini',
-            'claude_categorization': 'claude-3-haiku',
-            'claude_analysis': 'claude-3-sonnet'
-        },
-        'comparison_mode': False,
+        'product_summary': {},
+        'data_sources': set(),
+        'pdf_data': None,
+        'fba_data': None,
+        'ledger_data': None,
+        'unified_data': None,
         'cost_tracking': {'session_cost': 0.0}
     }
     
@@ -300,491 +316,423 @@ def initialize_session_state():
         if key not in st.session_state:
             st.session_state[key] = value
 
-def display_api_selector():
-    """Display API provider selection UI"""
-    st.markdown("""
-    <div class="api-selector">
-        <h3 style="color: var(--primary); margin-top: 0;">🤖 SELECT AI PROVIDER</h3>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
-    
-    with col1:
-        if st.button("🟦 OpenAI", use_container_width=True, 
-                     type="primary" if st.session_state.api_provider == 'openai' else "secondary"):
-            st.session_state.api_provider = 'openai'
-            st.rerun()
-    
-    with col2:
-        if st.button("🟣 Claude", use_container_width=True,
-                     type="primary" if st.session_state.api_provider == 'claude' else "secondary"):
-            st.session_state.api_provider = 'claude'
-            st.rerun()
-    
-    with col3:
-        if st.button("🔀 Both (Smart)", use_container_width=True,
-                     type="primary" if st.session_state.api_provider == 'both' else "secondary"):
-            st.session_state.api_provider = 'both'
-            st.rerun()
-    
-    with col4:
-        st.checkbox("📊 Compare Mode", 
-                   value=st.session_state.comparison_mode,
-                   help="Run on both providers and compare results",
-                   key="comparison_checkbox")
-        st.session_state.comparison_mode = st.session_state.comparison_checkbox
-    
-    # Display current selection
-    provider_info = {
-        'openai': ('🟦 OpenAI', 'Using GPT models for categorization'),
-        'claude': ('🟣 Claude', 'Using Claude models for categorization'),
-        'both': ('🔀 Smart Mode', 'Automatically selects the best provider for each task')
-    }
-    
-    icon, desc = provider_info[st.session_state.api_provider]
-    st.info(f"{icon} **Active**: {desc}")
-    
-    # Advanced settings expander
-    with st.expander("⚙️ Advanced Model Settings", expanded=False):
-        col1, col2 = st.columns(2)
+def parse_pdf_returns(pdf_file) -> pd.DataFrame:
+    """Parse Amazon Seller Central returns PDF"""
+    if not PDFPLUMBER_AVAILABLE:
+        st.error("PDF parsing requires pdfplumber. Install with: pip install pdfplumber")
+        return None
         
-        with col1:
-            st.markdown("### OpenAI Models")
-            openai_cat = st.selectbox(
-                "Categorization Model",
-                ['gpt-3.5-turbo', 'gpt-4o-mini', 'gpt-4-turbo'],
-                index=['gpt-3.5-turbo', 'gpt-4o-mini', 'gpt-4-turbo'].index(
-                    st.session_state.model_settings['openai_categorization']
-                )
-            )
-            st.session_state.model_settings['openai_categorization'] = openai_cat
-            
-            openai_analysis = st.selectbox(
-                "Analysis Model",
-                ['gpt-4o-mini', 'gpt-4-turbo'],
-                index=['gpt-4o-mini', 'gpt-4-turbo'].index(
-                    st.session_state.model_settings['openai_analysis']
-                )
-            )
-            st.session_state.model_settings['openai_analysis'] = openai_analysis
+    try:
+        import pdfplumber
         
-        with col2:
-            st.markdown("### Claude Models")
-            claude_cat = st.selectbox(
-                "Categorization Model",
-                ['claude-3-haiku', 'claude-3-sonnet', 'claude-3-opus'],
-                index=['claude-3-haiku', 'claude-3-sonnet', 'claude-3-opus'].index(
-                    st.session_state.model_settings['claude_categorization']
-                )
-            )
-            st.session_state.model_settings['claude_categorization'] = claude_cat
+        returns_data = []
+        
+        with pdfplumber.open(pdf_file) as pdf:
+            for page_num, page in enumerate(pdf.pages):
+                text = page.extract_text()
+                
+                if not text:
+                    continue
+                
+                # Pattern for Amazon return entries
+                # Order ID: XXX-XXXXXXX-XXXXXXX
+                order_pattern = r'Order ID:\s*(\d{3}-\d{7}-\d{7})'
+                
+                # Split by order IDs
+                order_matches = list(re.finditer(order_pattern, text))
+                
+                for i, match in enumerate(order_matches):
+                    start = match.start()
+                    end = order_matches[i+1].start() if i+1 < len(order_matches) else len(text)
+                    
+                    return_block = text[start:end]
+                    
+                    # Extract fields
+                    order_id = match.group(1)
+                    
+                    # Extract other fields using patterns
+                    asin_match = re.search(r'ASIN:\s*([A-Z0-9]{10})', return_block)
+                    sku_match = re.search(r'SKU:\s*([A-Z0-9-]+)', return_block)
+                    product_match = re.search(r'(Vive[^\\n]+?)(?:Return Quantity|Return Reason)', return_block, re.DOTALL)
+                    reason_match = re.search(r'Return Reason:\s*(.+?)(?:Buyer Comment|Request Date|$)', return_block, re.DOTALL)
+                    comment_match = re.search(r'Buyer Comment:\s*(.+?)(?:Request Date|Order Date|$)', return_block, re.DOTALL)
+                    date_match = re.search(r'Request Date:\s*(\d{2}/\d{2}/\d{4})', return_block)
+                    quantity_match = re.search(r'Return Quantity:\s*(\d+)', return_block)
+                    
+                    return_data = {
+                        'order_id': order_id,
+                        'asin': asin_match.group(1) if asin_match else '',
+                        'sku': sku_match.group(1) if sku_match else '',
+                        'product_name': product_match.group(1).strip() if product_match else '',
+                        'return_reason': reason_match.group(1).strip() if reason_match else '',
+                        'buyer_comment': comment_match.group(1).strip() if comment_match else '',
+                        'request_date': date_match.group(1) if date_match else '',
+                        'quantity': int(quantity_match.group(1)) if quantity_match else 1,
+                        'data_source': 'PDF',
+                        'page_number': page_num + 1
+                    }
+                    
+                    # Clean up extracted text
+                    for key in ['product_name', 'return_reason', 'buyer_comment']:
+                        if return_data[key]:
+                            # Remove extra whitespace and newlines
+                            return_data[key] = ' '.join(return_data[key].split())
+                    
+                    returns_data.append(return_data)
+        
+        if returns_data:
+            df = pd.DataFrame(returns_data)
+            # Standardize column names
+            df = df.rename(columns={
+                'request_date': 'Date',
+                'order_id': 'Order #',
+                'sku': 'Imported SKU',
+                'product_name': 'Product Identifier Tag',
+                'buyer_comment': 'Complaint'
+            })
+            return df
+        else:
+            st.warning("No return data found in PDF. Please check the file format.")
+            return None
             
-            claude_analysis = st.selectbox(
-                "Analysis Model",
-                ['claude-3-sonnet', 'claude-3-opus'],
-                index=['claude-3-sonnet', 'claude-3-opus'].index(
-                    st.session_state.model_settings['claude_analysis']
-                )
-            )
-            st.session_state.model_settings['claude_analysis'] = claude_analysis
+    except Exception as e:
+        logger.error(f"Error parsing PDF: {e}")
+        st.error(f"Error parsing PDF: {str(e)}")
+        return None
+
+def process_fba_returns(file_content, filename: str) -> pd.DataFrame:
+    """Process FBA return report"""
+    try:
+        # Read tab-separated file
+        df = pd.read_csv(io.BytesIO(file_content), sep='\t')
+        
+        # Standardize columns
+        column_mapping = {
+            'return-date': 'Date',
+            'order-id': 'Order #',
+            'sku': 'Imported SKU',
+            'asin': 'ASIN',
+            'product-name': 'Product Identifier Tag',
+            'quantity': 'Quantity',
+            'reason': 'FBA_Reason_Code',
+            'customer-comments': 'Complaint'
+        }
+        
+        df = df.rename(columns=column_mapping)
+        df['data_source'] = 'FBA'
+        
+        return df
+        
+    except Exception as e:
+        logger.error(f"Error processing FBA returns: {e}")
+        st.error(f"Error processing FBA returns: {str(e)}")
+        return None
+
+def process_complaints_ledger(file_content, filename: str) -> pd.DataFrame:
+    """Process complaints ledger Excel file"""
+    try:
+        df = pd.read_excel(io.BytesIO(file_content))
+        
+        # Check for complaint column
+        if 'Complaint' not in df.columns:
+            complaint_cols = [col for col in df.columns if 'complaint' in col.lower() or 'comment' in col.lower()]
+            if complaint_cols:
+                df = df.rename(columns={complaint_cols[0]: 'Complaint'})
+            else:
+                st.error("Could not find 'Complaint' column in the file")
+                st.info(f"Available columns: {', '.join(df.columns)}")
+                return None
+        
+        df['data_source'] = 'Ledger'
+        return df
+        
+    except Exception as e:
+        logger.error(f"Error processing complaints ledger: {e}")
+        st.error(f"Error processing ledger: {str(e)}")
+        return None
+
+def unify_data_sources() -> pd.DataFrame:
+    """Unify data from all sources and identify cross-references"""
+    unified_data = []
+    
+    # Collect all data sources
+    if st.session_state.pdf_data is not None:
+        unified_data.append(st.session_state.pdf_data)
+    if st.session_state.fba_data is not None:
+        unified_data.append(st.session_state.fba_data)
+    if st.session_state.ledger_data is not None:
+        unified_data.append(st.session_state.ledger_data)
+    
+    if not unified_data:
+        return None
+    
+    # Combine all data
+    df_combined = pd.concat(unified_data, ignore_index=True)
+    
+    # Identify cross-references (same order ID appearing in multiple sources)
+    if 'Order #' in df_combined.columns:
+        # Count how many sources each order appears in
+        order_source_counts = df_combined.groupby('Order #')['data_source'].nunique()
+        multi_source_orders = order_source_counts[order_source_counts > 1].index.tolist()
+        
+        # Mark cross-referenced entries
+        df_combined['cross_referenced'] = df_combined['Order #'].isin(multi_source_orders)
+        
+        # Add source count
+        df_combined['source_count'] = df_combined['Order #'].map(order_source_counts)
+    else:
+        df_combined['cross_referenced'] = False
+        df_combined['source_count'] = 1
+    
+    return df_combined
 
 def get_ai_analyzer():
-    """Get or create AI analyzer with selected provider"""
+    """Get or create AI analyzer"""
     if st.session_state.ai_analyzer is None and AI_AVAILABLE:
-        provider_map = {
-            'openai': APIProvider.OPENAI,
-            'claude': APIProvider.CLAUDE,
-            'both': APIProvider.BOTH
-        }
-        provider = provider_map[st.session_state.api_provider]
-        st.session_state.ai_analyzer = EnhancedAIAnalyzer(provider)
-        
-        # Set model preferences
-        analyzer = st.session_state.ai_analyzer
-        settings = st.session_state.model_settings
-        
-        # Map UI names to actual model names
-        model_map = {
-            'gpt-3.5-turbo': 'gpt-3.5-turbo',
-            'gpt-4o-mini': 'gpt-4o-mini',
-            'gpt-4-turbo': 'gpt-4-turbo-preview',
-            'claude-3-haiku': 'claude-3-haiku-20240307',
-            'claude-3-sonnet': 'claude-3-sonnet-20240229',
-            'claude-3-opus': 'claude-3-opus-20240229'
-        }
-        
-        # Set preferences
-        analyzer.api_client.set_model_preference(
-            'categorization', 'openai', model_map[settings['openai_categorization']]
-        )
-        analyzer.api_client.set_model_preference(
-            'analysis', 'openai', model_map[settings['openai_analysis']]
-        )
-        analyzer.api_client.set_model_preference(
-            'categorization', 'claude', model_map[settings['claude_categorization']]
-        )
-        analyzer.api_client.set_model_preference(
-            'analysis', 'claude', model_map[settings['claude_analysis']]
-        )
-    
+        st.session_state.ai_analyzer = EnhancedAIAnalyzer()
     return st.session_state.ai_analyzer
 
-def display_api_status():
-    """Display comprehensive API status"""
-    analyzer = get_ai_analyzer()
-    if not analyzer:
-        st.error("AI analyzer not available")
-        return
-    
-    status = analyzer.get_api_status()
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        if status['openai']['available']:
-            st.success("✅ OpenAI Connected")
-            if 'tested' in status['openai']:
-                st.caption("API test: " + ("✅ Passed" if status['openai']['tested'] else "❌ Failed"))
-        else:
-            st.error("❌ OpenAI Not Configured")
-    
-    with col2:
-        if status['claude']['available']:
-            st.success("✅ Claude Connected")
-            if 'tested' in status['claude']:
-                st.caption("API test: " + ("✅ Passed" if status['claude']['tested'] else "❌ Failed"))
-        else:
-            st.error("❌ Claude Not Configured")
-    
-    with col3:
-        if 'usage' in status and status['usage']['combined_total'] > 0:
-            st.metric("Session Cost", f"${status['usage']['combined_total']:.3f}")
-            with st.expander("Cost Details"):
-                usage = status['usage']
-                if usage['openai']['total_cost'] > 0:
-                    st.write(f"**OpenAI**: ${usage['openai']['total_cost']:.3f}")
-                    st.caption(f"Tokens: {usage['openai']['input_tokens']:,} in, {usage['openai']['output_tokens']:,} out")
-                if usage['claude']['total_cost'] > 0:
-                    st.write(f"**Claude**: ${usage['claude']['total_cost']:.3f}")
-                    st.caption(f"Tokens: {usage['claude']['input_tokens']:,} in, {usage['claude']['output_tokens']:,} out")
-
-def categorize_with_comparison(complaint: str, fba_reason: str = None) -> Dict:
-    """Categorize using comparison mode"""
-    analyzer = get_ai_analyzer()
-    
-    if st.session_state.comparison_mode and st.session_state.api_provider == 'both':
-        # Get results from both providers
-        comparison = analyzer.categorize_return(complaint, fba_reason, use_both=True)
-        
-        # Find consensus or return both results
-        openai_result = comparison.get('openai', {}).get('result', 'ERROR')
-        claude_result = comparison.get('claude', {}).get('result', 'ERROR')
-        
-        if openai_result == claude_result:
-            return {
-                'category': openai_result,
-                'consensus': True,
-                'openai': openai_result,
-                'claude': claude_result,
-                'openai_time': comparison.get('openai', {}).get('time', 0),
-                'claude_time': comparison.get('claude', {}).get('time', 0)
-            }
-        else:
-            # Disagreement - could implement voting or preference logic
-            return {
-                'category': claude_result,  # Default to Claude for categorization
-                'consensus': False,
-                'openai': openai_result,
-                'claude': claude_result,
-                'openai_time': comparison.get('openai', {}).get('time', 0),
-                'claude_time': comparison.get('claude', {}).get('time', 0)
-            }
-    else:
-        # Single provider mode
-        category = analyzer.categorize_return(complaint, fba_reason)
-        return {'category': category, 'consensus': None}
-
-def categorize_all_complaints(df: pd.DataFrame) -> pd.DataFrame:
-    """Categorize all complaints with medical device categories"""
+def categorize_return_with_ai(complaint: str, return_reason: str = None, fba_reason: str = None) -> str:
+    """Use AI to categorize a return into medical device categories"""
     
     analyzer = get_ai_analyzer()
     if not analyzer or not analyzer.api_client.is_available():
-        st.error("No AI provider available. Please configure API keys.")
-        return df
+        # Fallback to rule-based categorization
+        return fallback_categorization(complaint, return_reason, fba_reason)
     
-    # Progress tracking
+    try:
+        # Use the analyzer's categorize_return method
+        category = analyzer.categorize_return(complaint, return_reason, fba_reason)
+        return category
+    except Exception as e:
+        logger.error(f"AI categorization error: {e}")
+        return fallback_categorization(complaint, return_reason, fba_reason)
+
+def fallback_categorization(complaint: str, return_reason: str = None, fba_reason: str = None) -> str:
+    """Rule-based fallback categorization"""
+    
+    # First check FBA reason code mapping
+    if fba_reason and fba_reason in FBA_REASON_MAP:
+        return FBA_REASON_MAP[fba_reason]
+    
+    # Combine all text for analysis
+    text = f"{complaint} {return_reason or ''} {fba_reason or ''}".lower()
+    
+    # Category keyword mappings
+    keyword_map = {
+        'Size/Fit Issues': ['small', 'large', 'size', 'fit', 'tight', 'loose', 'narrow', 'wide'],
+        'Comfort Issues': ['uncomfortable', 'comfort', 'hurts', 'painful', 'pressure', 'sore'],
+        'Product Defects/Quality': ['defective', 'broken', 'damaged', 'quality', 'malfunction', 'faulty', 'poor quality'],
+        'Performance/Effectiveness': ['not work', 'ineffective', 'useless', 'performance', 'doesn\'t work'],
+        'Stability/Positioning Issues': ['unstable', 'slides', 'moves', 'position', 'falls', 'tips'],
+        'Equipment Compatibility': ['compatible', 'fit toilet', 'fit wheelchair', 'walker', 'doesn\'t fit'],
+        'Design/Material Issues': ['heavy', 'bulky', 'material', 'design', 'flimsy', 'thin'],
+        'Wrong Product/Misunderstanding': ['wrong', 'different', 'not as described', 'expected', 'not what'],
+        'Missing Components': ['missing', 'incomplete', 'no instructions', 'parts missing'],
+        'Customer Error/Changed Mind': ['mistake', 'changed mind', 'no longer', 'patient died', 'don\'t need'],
+        'Shipping/Fulfillment Issues': ['shipping', 'damaged arrival', 'late', 'package', 'delivery'],
+        'Assembly/Usage Difficulty': ['difficult', 'hard to', 'confusing', 'complicated', 'instructions'],
+        'Medical/Health Concerns': ['doctor', 'medical', 'health', 'allergic', 'reaction'],
+        'Price/Value': ['price', 'expensive', 'value', 'cheaper', 'cost']
+    }
+    
+    # Score each category
+    scores = {}
+    for category, keywords in keyword_map.items():
+        score = sum(1 for keyword in keywords if keyword in text)
+        if score > 0:
+            scores[category] = score
+    
+    # Return highest scoring category
+    if scores:
+        return max(scores.items(), key=lambda x: x[1])[0]
+    
+    return 'Other/Miscellaneous'
+
+def categorize_all_data(df: pd.DataFrame) -> pd.DataFrame:
+    """Categorize all returns from unified data"""
+    
     progress_bar = st.progress(0)
     status_text = st.empty()
-    cost_text = st.empty()
     
-    # Prepare data for batch processing with all relevant columns
-    returns_data = []
-    for idx, row in df.iterrows():
-        # Get data from specific columns:
-        # A: Date
-        # B: Product Identifier Tag (product name)
-        # C: Imported SKU
-        # F: Order #
-        # I: Complaint
-        
-        complaint = str(row.get('Complaint', '')) if pd.notna(row.get('Complaint')) else ""
-        
-        # For FBA returns, also get the reason code
-        fba_reason = ""
-        if st.session_state.file_type == 'fba_returns':
-            fba_reason = str(row.get('FBA_Reason_Code', '')) if pd.notna(row.get('FBA_Reason_Code')) else ""
-        
-        # Collect product information from the specified columns
-        product_info = {
-            'date': str(row.get('Date', '')) if pd.notna(row.get('Date')) else "",
-            'product_name': str(row.get('Product Identifier Tag', '')) if pd.notna(row.get('Product Identifier Tag')) else "",
-            'sku': str(row.get('Imported SKU', '')) if pd.notna(row.get('Imported SKU')) else "",
-            'order_id': str(row.get('Order #', '')) if pd.notna(row.get('Order #')) else ""
-        }
-        
-        returns_data.append({
-            'index': idx,
-            'complaint': complaint,
-            'reason': fba_reason,
-            'sku': product_info['sku'],
-            'product_name': product_info['product_name'],
-            'order_id': product_info['order_id'],
-            'date': product_info['date']
-        })
-    
-    # Process in batches
-    batch_results = analyzer.batch_categorize(
-        returns_data,
-        batch_size=25,
-        progress_callback=lambda p: progress_bar.progress(p)
-    )
-    
-    # Apply results to dataframe
     df_copy = df.copy()
-    df_copy['Return_Reason'] = ''
-    df_copy['AI_Provider'] = ''
+    df_copy['Return_Category'] = ''
     
-    # If comparison mode, add extra columns
-    if st.session_state.comparison_mode:
-        df_copy['OpenAI_Category'] = ''
-        df_copy['Claude_Category'] = ''
-        df_copy['Consensus'] = ''
+    total_rows = len(df_copy)
+    category_counts = Counter()
+    product_issues = defaultdict(lambda: defaultdict(int))
     
-    # Map results
-    result_map = {r['index']: r for r in batch_results}
-    
-    reason_counts = Counter()
-    provider_counts = Counter()
-    
-    for idx in df_copy.index:
-        if idx in result_map:
-            result = result_map[idx]
-            category = result.get('category', 'Other/Miscellaneous')
-            provider = result.get('provider', 'unknown')
+    for idx, row in df_copy.iterrows():
+        # Get relevant fields
+        complaint = str(row.get('Complaint', '')) if pd.notna(row.get('Complaint')) else ""
+        return_reason = str(row.get('return_reason', '')) if pd.notna(row.get('return_reason')) else ""
+        fba_reason = str(row.get('FBA_Reason_Code', '')) if pd.notna(row.get('FBA_Reason_Code')) else ""
+        
+        # Categorize
+        if complaint or return_reason or fba_reason:
+            category = categorize_return_with_ai(complaint, return_reason, fba_reason)
+            df_copy.at[idx, 'Return_Category'] = category
+            category_counts[category] += 1
             
-            # Ensure we're using valid medical device categories
-            if category not in MEDICAL_DEVICE_CATEGORIES:
-                # Try to map from old categories
-                category = OLD_TO_NEW_CATEGORY_MAP.get(category.lower(), 'Other/Miscellaneous')
-            
-            df_copy.at[idx, 'Return_Reason'] = category
-            df_copy.at[idx, 'AI_Provider'] = provider
-            
-            reason_counts[category] += 1
-            provider_counts[provider] += 1
+            # Track by product
+            product = row.get('Product Identifier Tag', 'Unknown')
+            if product and str(product).strip() and product != 'Unknown':
+                product_issues[product][category] += 1
         else:
-            # Fallback for any missed items
-            df_copy.at[idx, 'Return_Reason'] = 'Other/Miscellaneous'
-            reason_counts['Other/Miscellaneous'] += 1
-    
-    # Update cost display
-    usage = analyzer.api_client.get_usage_summary()
-    cost_text.text(f"Total cost: ${usage['combined_total']:.3f}")
+            df_copy.at[idx, 'Return_Category'] = 'Other/Miscellaneous'
+            category_counts['Other/Miscellaneous'] += 1
+        
+        # Update progress
+        progress = (idx + 1) / total_rows
+        progress_bar.progress(progress)
+        status_text.text(f"Processing: {idx + 1}/{total_rows} returns categorized...")
+        
+        # Small delay every 10 items to avoid rate limiting
+        if (idx + 1) % 10 == 0:
+            time.sleep(0.1)
     
     status_text.text("✅ Categorization complete!")
     
-    # Store summary
-    st.session_state.reason_summary = dict(reason_counts)
-    
-    # Add provider breakdown to summary
-    st.info(f"Processed with: {', '.join([f'{k}: {v}' for k, v in provider_counts.items()])}")
+    # Store summaries
+    st.session_state.reason_summary = dict(category_counts)
+    st.session_state.product_summary = dict(product_issues)
     
     return df_copy
 
-def display_results_with_comparison(df: pd.DataFrame):
-    """Display results including comparison data if available"""
-    
-    # Standard results display
-    display_results_summary(df)
-    
-    # Additional comparison insights if in comparison mode
-    if st.session_state.comparison_mode and 'OpenAI_Category' in df.columns:
-        st.markdown("---")
-        st.markdown("### 🔀 Provider Comparison Analysis")
-        
-        # Calculate agreement rate
-        consensus_mask = df['OpenAI_Category'] == df['Claude_Category']
-        agreement_rate = consensus_mask.sum() / len(df) * 100
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.metric("Agreement Rate", f"{agreement_rate:.1f}%")
-        
-        with col2:
-            disagreements = len(df) - consensus_mask.sum()
-            st.metric("Disagreements", disagreements)
-        
-        with col3:
-            # Show which provider was used more
-            provider_counts = df['AI_Provider'].value_counts()
-            st.metric("Primary Provider", provider_counts.index[0] if len(provider_counts) > 0 else "N/A")
-        
-        # Show disagreement examples
-        if disagreements > 0:
-            with st.expander(f"View {min(disagreements, 10)} Disagreement Examples"):
-                disagreement_df = df[~consensus_mask].head(10)
-                for idx, row in disagreement_df.iterrows():
-                    st.markdown(f"""
-                    <div class="comparison-result">
-                        <strong>Complaint:</strong> {row.get('Complaint', '')[:200]}...<br>
-                        <span class="badge-openai">OpenAI: {row['OpenAI_Category']}</span>
-                        <span class="badge-claude">Claude: {row['Claude_Category']}</span>
-                        <br><strong>Final:</strong> {row['Return_Reason']}
-                    </div>
-                    """, unsafe_allow_html=True)
-
-def display_results_summary(df: pd.DataFrame):
-    """Display summary of categorization results for medical devices"""
+def display_unified_results(df: pd.DataFrame):
+    """Display comprehensive results from all data sources"""
     
     st.markdown("""
     <div class="neon-box">
-        <h2 style="color: var(--primary); text-align: center;">📊 QUALITY CATEGORIZATION RESULTS</h2>
+        <h2 style="color: var(--primary); text-align: center;">📊 UNIFIED QUALITY ANALYSIS</h2>
     </div>
     """, unsafe_allow_html=True)
     
-    # Summary metrics
-    col1, col2, col3, col4 = st.columns(4)
+    # Data source summary
+    if 'data_source' in df.columns:
+        source_counts = df['data_source'].value_counts()
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.markdown(f"""
+            <div class="metric-card">
+                <h3 style="color: var(--primary);">{len(df)}</h3>
+                <p>Total Returns</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col2:
+            pdf_count = source_counts.get('PDF', 0)
+            st.markdown(f"""
+            <div class="metric-card">
+                <h3 style="color: var(--accent);">{pdf_count}</h3>
+                <p>PDF Returns</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col3:
+            fba_count = source_counts.get('FBA', 0)
+            st.markdown(f"""
+            <div class="metric-card">
+                <h3 style="color: var(--primary);">{fba_count}</h3>
+                <p>FBA Returns</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col4:
+            ledger_count = source_counts.get('Ledger', 0)
+            st.markdown(f"""
+            <div class="metric-card">
+                <h3 style="color: var(--secondary);">{ledger_count}</h3>
+                <p>Complaints</p>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    # Category breakdown
+    st.markdown("---")
+    st.markdown("### 📈 Return Categories Analysis")
+    
+    # Sort categories by count
+    sorted_categories = sorted(st.session_state.reason_summary.items(), key=lambda x: x[1], reverse=True)
+    
+    # Create two columns
+    col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown(f"""
-        <div class="metric-card">
-            <h3 style="color: var(--primary);">{len(df)}</h3>
-            <p>Total Returns</p>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown("#### Top Return Categories")
+        
+        for category, count in sorted_categories[:10]:
+            if count > 0:
+                percentage = (count / len(df)) * 100
+                
+                # Determine priority color
+                if category in ['Product Defects/Quality', 'Medical/Health Concerns']:
+                    color = COLORS['danger']
+                    icon = "🚨"
+                elif category in ['Performance/Effectiveness', 'Missing Components', 'Design/Material Issues']:
+                    color = COLORS['warning']
+                    icon = "⚠️"
+                elif category in ['Customer Error/Changed Mind', 'Price/Value']:
+                    color = COLORS['success']
+                    icon = "✅"
+                else:
+                    color = COLORS['primary']
+                    icon = "ℹ️"
+                
+                st.markdown(f"""
+                <div style="margin: 1rem 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="color: {color};">
+                            {icon} <strong>{category}</strong>
+                        </span>
+                        <span>{count} ({percentage:.1f}%)</span>
+                    </div>
+                    <div style="background: rgba(255,255,255,0.1); border-radius: 10px; height: 10px; margin-top: 5px;">
+                        <div style="background: {color}; width: {percentage}%; height: 100%; border-radius: 10px;"></div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
     
     with col2:
-        categorized = len(df[df['Return_Reason'] != ''])
-        st.markdown(f"""
-        <div class="metric-card">
-            <h3 style="color: var(--success);">{categorized}</h3>
-            <p>Categorized</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col3:
+        # Quality metrics
+        st.markdown("#### 🎯 Quality Management Metrics")
+        
         # Calculate quality-related returns
         quality_categories = [
             'Product Defects/Quality', 'Performance/Effectiveness', 
             'Missing Components', 'Design/Material Issues'
         ]
-        quality_count = sum(
-            st.session_state.reason_summary.get(cat, 0) 
-            for cat in quality_categories
-        )
+        quality_count = sum(st.session_state.reason_summary.get(cat, 0) for cat in quality_categories)
         quality_pct = (quality_count / len(df) * 100) if len(df) > 0 else 0
         
+        # Critical categories requiring immediate attention
+        critical_categories = ['Product Defects/Quality', 'Medical/Health Concerns']
+        critical_count = sum(st.session_state.reason_summary.get(cat, 0) for cat in critical_categories)
+        
         st.markdown(f"""
-        <div class="metric-card">
+        <div class="metric-card" style="background: rgba(255, 0, 84, 0.1); border-color: var(--danger);">
             <h3 style="color: var(--danger);">{quality_pct:.1f}%</h3>
-            <p>Quality Issues</p>
+            <p>Quality-Related Returns</p>
+            <small>({quality_count} total)</small>
         </div>
         """, unsafe_allow_html=True)
-    
-    with col4:
-        # Show cost if available
-        analyzer = get_ai_analyzer()
-        if analyzer:
-            usage = analyzer.api_client.get_usage_summary()
-            st.markdown(f"""
-            <div class="metric-card">
-                <h3 style="color: var(--warning);">${usage['combined_total']:.2f}</h3>
-                <p>Processing Cost</p>
-            </div>
-            """, unsafe_allow_html=True)
-    
-    # Continue with rest of display...
-    st.markdown("---")
-    st.markdown("### 📈 Return Category Distribution")
-    
-    # Sort reasons by count
-    sorted_reasons = sorted(st.session_state.reason_summary.items(), key=lambda x: x[1], reverse=True)
-    
-    # Create two columns for the breakdown
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("#### Top Return Categories")
-        for i, (category, count) in enumerate(sorted_reasons[:10]):
-            percentage = (count / len(df)) * 100
-            
-            # Color coding for medical device categories
-            if category in ['Product Defects/Quality', 'Performance/Effectiveness']:
-                color = COLORS['danger']
-                icon = "🚨"
-            elif category in ['Size/Fit Issues', 'Equipment Compatibility']:
-                color = COLORS['warning']
-                icon = "⚠️"
-            elif category in ['Customer Error/Changed Mind', 'Price/Value']:
-                color = COLORS['success']
-                icon = "✅"
-            else:
-                color = COLORS['primary']
-                icon = "ℹ️"
-            
-            st.markdown(f"""
-            <div style="margin: 0.5rem 0;">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <span style="color: {color};">
-                        {icon} <strong>{category}</strong>
-                    </span>
-                    <span>{count} ({percentage:.1f}%)</span>
-                </div>
-                <div style="background: rgba(255,255,255,0.1); border-radius: 10px; height: 10px; margin-top: 5px;">
-                    <div style="background: {color}; width: {percentage}%; height: 100%; border-radius: 10px;"></div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-    
-    with col2:
-        # Quality Management Insights
-        st.markdown("#### 🎯 Quality Management Insights")
         
-        # Group categories by quality relevance
-        quality_breakdown = {
-            'Product Quality': [
-                'Product Defects/Quality', 'Performance/Effectiveness',
-                'Missing Components', 'Design/Material Issues'
-            ],
-            'User Experience': [
-                'Size/Fit Issues', 'Comfort Issues', 'Equipment Compatibility',
-                'Stability/Positioning Issues', 'Assembly/Usage Difficulty'
-            ],
-            'Fulfillment': [
-                'Wrong Product/Misunderstanding', 'Shipping/Fulfillment Issues'
-            ],
-            'Customer': [
-                'Customer Error/Changed Mind', 'Medical/Health Concerns', 'Price/Value'
-            ]
+        if critical_count > 0:
+            st.error(f"⚠️ {critical_count} returns require immediate quality investigation (FDA reportable)")
+        
+        # Group categories by type
+        st.markdown("#### Category Groups")
+        
+        category_groups = {
+            'Quality Issues': ['Product Defects/Quality', 'Performance/Effectiveness', 'Missing Components', 'Design/Material Issues'],
+            'User Experience': ['Size/Fit Issues', 'Comfort Issues', 'Equipment Compatibility', 'Stability/Positioning Issues', 'Assembly/Usage Difficulty'],
+            'Fulfillment': ['Wrong Product/Misunderstanding', 'Shipping/Fulfillment Issues'],
+            'Customer': ['Customer Error/Changed Mind', 'Medical/Health Concerns', 'Price/Value']
         }
         
-        for group_name, categories in quality_breakdown.items():
-            group_count = sum(
-                st.session_state.reason_summary.get(cat, 0) 
-                for cat in categories
-            )
+        for group_name, categories in category_groups.items():
+            group_count = sum(st.session_state.reason_summary.get(cat, 0) for cat in categories)
             if group_count > 0:
                 group_pct = (group_count / len(df)) * 100
                 st.markdown(f"""
@@ -793,106 +741,272 @@ def display_results_summary(df: pd.DataFrame):
                     <strong>{group_name}:</strong> {group_count} returns ({group_pct:.1f}%)
                 </div>
                 """, unsafe_allow_html=True)
-        
-        # FDA/Quality Action Priority
+    
+    # Cross-referenced returns
+    if 'cross_referenced' in df.columns:
+        cross_ref_count = df['cross_referenced'].sum()
+        if cross_ref_count > 0:
+            st.markdown("---")
+            st.markdown(f"### 🔗 Cross-Referenced Returns: {cross_ref_count}")
+            st.info(f"{cross_ref_count} returns found in multiple data sources (same Order ID)")
+            
+            # Show examples
+            cross_ref_df = df[df['cross_referenced'] == True].head(5)
+            if not cross_ref_df.empty:
+                with st.expander("View Cross-Referenced Examples"):
+                    display_cols = ['Order #', 'Product Identifier Tag', 'Return_Category', 'data_source', 'source_count']
+                    available_cols = [col for col in display_cols if col in cross_ref_df.columns]
+                    st.dataframe(cross_ref_df[available_cols], use_container_width=True)
+    
+    # Product-specific insights
+    if st.session_state.product_summary:
         st.markdown("---")
-        st.markdown("#### 🏥 FDA/Quality Action Priority")
+        st.markdown("### 📦 Top Products by Return Volume")
         
-        # Identify critical quality issues
-        critical_categories = ['Product Defects/Quality', 'Medical/Health Concerns']
-        critical_count = sum(
-            st.session_state.reason_summary.get(cat, 0) 
-            for cat in critical_categories
+        # Calculate total returns per product
+        product_totals = {
+            product: sum(categories.values()) 
+            for product, categories in st.session_state.product_summary.items()
+        }
+        
+        # Get top 10 products
+        top_products = sorted(product_totals.items(), key=lambda x: x[1], reverse=True)[:10]
+        
+        for product, total in top_products:
+            if product and str(product).strip() and product != 'Unknown':
+                product_display = str(product)[:60] + "..." if len(str(product)) > 60 else str(product)
+                
+                # Get top issue for this product
+                product_categories = st.session_state.product_summary[product]
+                top_issue = max(product_categories.items(), key=lambda x: x[1])
+                
+                # Check if it's a quality issue
+                is_quality = top_issue[0] in ['Product Defects/Quality', 'Performance/Effectiveness', 'Missing Components']
+                
+                st.markdown(f"""
+                <div style="background: rgba(26, 26, 46, 0.8); border-radius: 10px; 
+                            padding: 0.75rem; margin: 0.5rem 0;
+                            border-left: 4px solid {'var(--danger)' if is_quality else 'var(--primary)'};">
+                    <strong>{product_display}</strong><br>
+                    Returns: {total} | Top Issue: {top_issue[0]} ({top_issue[1]} returns)
+                </div>
+                """, unsafe_allow_html=True)
+
+def generate_quality_insights(df: pd.DataFrame) -> str:
+    """Generate quality management insights using AI"""
+    
+    analyzer = get_ai_analyzer()
+    if not analyzer or not analyzer.api_client.is_available():
+        return generate_fallback_insights(df)
+    
+    try:
+        # Get data sources
+        data_sources = list(st.session_state.data_sources) if st.session_state.data_sources else ['Unknown']
+        
+        # Use the analyzer's generate_quality_insights method
+        insights = analyzer.generate_quality_insights(
+            category_summary=st.session_state.reason_summary,
+            product_summary=st.session_state.product_summary,
+            total_returns=len(df),
+            data_sources=data_sources
         )
         
-        if critical_count > 0:
-            st.error(f"⚠️ {critical_count} returns require immediate quality review")
-        else:
-            st.success("✅ No critical quality issues detected")
-        
-        # Top products with issues (if available)
-        if 'Product Identifier Tag' in df.columns:
-            st.markdown("---")
-            st.markdown("#### 📦 Products with Most Returns")
-            
-            # Get top 5 products by return count
-            product_returns = df.groupby('Product Identifier Tag').size().sort_values(ascending=False).head(5)
-            
-            for product, count in product_returns.items():
-                if product and str(product).strip():
-                    product_display = str(product)[:50] + "..." if len(str(product)) > 50 else str(product)
-                    st.markdown(f"- **{product_display}**: {count} returns")
-
-
-def process_complaints_file(file_content, filename: str) -> pd.DataFrame:
-    """Process uploaded file (unchanged from original)"""
-    try:
-        # Detect file type
-        if filename.endswith(('.xlsx', '.xls')):
-            df = pd.read_excel(io.BytesIO(file_content))
-            file_type = 'complaints_ledger'
-        elif filename.endswith('.txt'):
-            try:
-                df = pd.read_csv(io.BytesIO(file_content), sep='\t')
-                file_type = 'fba_returns'
-            except:
-                df = pd.read_csv(io.BytesIO(file_content))
-                file_type = 'fba_returns'
-        else:
-            df = pd.read_csv(io.BytesIO(file_content))
-            file_type = 'unknown'
-        
-        # Log columns
-        logger.info(f"Columns found: {df.columns.tolist()}")
-        
-        # Process based on file type
-        if 'customer-comments' in df.columns and 'reason' in df.columns:
-            file_type = 'fba_returns'
-            st.info("📦 Detected FBA Return Report format")
-            
-            df = df.rename(columns={
-                'customer-comments': 'Complaint',
-                'return-date': 'Date',
-                'order-id': 'Order #',
-                'product-name': 'Product Identifier Tag',
-                'sku': 'Imported SKU'
-            })
-            
-            if 'reason' in df.columns:
-                df['FBA_Reason_Code'] = df['reason']
-            
-            st.session_state.file_type = 'fba_returns'
-        else:
-            st.info("📋 Detected Complaints Ledger format")
-            
-            if 'Complaint' not in df.columns:
-                complaint_cols = [col for col in df.columns if 'complaint' in col.lower() or 'comment' in col.lower()]
-                if complaint_cols:
-                    df = df.rename(columns={complaint_cols[0]: 'Complaint'})
-                else:
-                    st.error("Could not find complaint column")
-                    return None
-            
-            st.session_state.file_type = 'complaints_ledger'
-        
-        return df
+        return insights
         
     except Exception as e:
-        logger.error(f"Error processing file: {e}")
-        st.error(f"Error reading file: {str(e)}")
+        logger.error(f"AI insights generation error: {e}")
+        return generate_fallback_insights(df)
+
+def generate_fallback_insights(df: pd.DataFrame) -> str:
+    """Generate basic insights when AI is unavailable"""
+    
+    total_returns = len(df)
+    
+    # Calculate quality-related percentage
+    quality_categories = ['Product Defects/Quality', 'Performance/Effectiveness', 'Missing Components', 'Design/Material Issues']
+    quality_count = sum(st.session_state.reason_summary.get(cat, 0) for cat in quality_categories)
+    quality_pct = (quality_count / total_returns * 100) if total_returns > 0 else 0
+    
+    # Get top category
+    top_category = max(st.session_state.reason_summary.items(), key=lambda x: x[1]) if st.session_state.reason_summary else ('Unknown', 0)
+    
+    insights = f"""## QUALITY MANAGEMENT SUMMARY
+
+**Analysis Date:** {datetime.now().strftime('%B %d, %Y')}
+**Total Returns Analyzed:** {total_returns}
+**Quality-Related Returns:** {quality_count} ({quality_pct:.1f}%)
+**Data Sources:** {', '.join(st.session_state.data_sources) if st.session_state.data_sources else 'Unknown'}
+
+## KEY FINDINGS
+
+1. **Primary Return Category:** {top_category[0]} ({top_category[1]} returns, {top_category[1]/total_returns*100:.1f}%)
+2. **Quality Impact:** {quality_pct:.1f}% of returns are quality-related
+3. **Multi-Source Analysis:** Data unified from PDF, FBA, and Ledger sources
+
+## IMMEDIATE ACTIONS REQUIRED
+
+1. **Quality Investigation**
+   - Review all {quality_count} quality-related returns
+   - Identify potential patterns for MDR reporting
+   - Document findings in quality system
+
+2. **Product Focus**
+   - Prioritize top products with highest return rates
+   - Conduct root cause analysis
+   - Update inspection criteria
+
+3. **Customer Safety**
+   - Review Medical/Health Concerns category immediately
+   - Assess need for customer notifications
+   - Document in complaint files
+
+## RECOMMENDATIONS
+
+- Implement enhanced incoming inspection for top return categories
+- Update IFUs to address usage difficulty issues  
+- Consider design modifications for comfort/fit problems
+- Track improvement metrics after interventions
+
+## NEXT STEPS
+
+1. Schedule quality review meeting within 48 hours
+2. Assign CAPA owners for top 3 issues
+3. Report findings to management
+4. Monitor trends weekly for 30 days
+
+*Note: This is an automated analysis. Please review with quality team for final decisions.*
+"""
+    
+    return insights
+
+def export_comprehensive_report(df: pd.DataFrame, insights: str) -> bytes:
+    """Export comprehensive Excel report"""
+    
+    output = io.BytesIO()
+    
+    try:
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            # Sheet 1: Categorized Returns
+            export_df = df.copy()
+            
+            # Reorder columns for clarity
+            priority_cols = ['Date', 'Order #', 'Product Identifier Tag', 'Imported SKU', 
+                            'Return_Category', 'Complaint', 'data_source', 'cross_referenced']
+            other_cols = [col for col in export_df.columns if col not in priority_cols]
+            available_priority = [col for col in priority_cols if col in export_df.columns]
+            ordered_cols = available_priority + other_cols
+            export_df = export_df[ordered_cols]
+            
+            export_df.to_excel(writer, sheet_name='Categorized Returns', index=False)
+            
+            # Sheet 2: Category Summary
+            category_summary = pd.DataFrame(
+                list(st.session_state.reason_summary.items()),
+                columns=['Category', 'Count']
+            ).sort_values('Count', ascending=False)
+            
+            category_summary['Percentage'] = (category_summary['Count'] / len(df) * 100).round(1)
+            category_summary['Quality Impact'] = category_summary['Category'].apply(
+                lambda x: 'High' if x in ['Product Defects/Quality', 'Medical/Health Concerns']
+                else 'Medium' if x in ['Performance/Effectiveness', 'Missing Components', 'Design/Material Issues']
+                else 'Low'
+            )
+            
+            category_summary.to_excel(writer, sheet_name='Category Summary', index=False)
+            
+            # Sheet 3: Product Analysis
+            if st.session_state.product_summary:
+                product_data = []
+                for product, issues in st.session_state.product_summary.items():
+                    if product and str(product).strip():
+                        total = sum(issues.values())
+                        top_issue = max(issues.items(), key=lambda x: x[1]) if issues else ('Unknown', 0)
+                        
+                        # Count quality issues
+                        quality_issues = sum(
+                            count for cat, count in issues.items() 
+                            if cat in ['Product Defects/Quality', 'Performance/Effectiveness', 'Missing Components']
+                        )
+                        
+                        product_data.append({
+                            'Product': str(product)[:100],
+                            'Total Returns': total,
+                            'Top Issue': top_issue[0],
+                            'Top Issue Count': top_issue[1],
+                            'Quality Issues': quality_issues,
+                            'Issue Diversity': len(issues)
+                        })
+                
+                if product_data:
+                    product_df = pd.DataFrame(product_data).sort_values('Total Returns', ascending=False)
+                    product_df.to_excel(writer, sheet_name='Product Analysis', index=False)
+            
+            # Sheet 4: Data Source Analysis
+            if 'data_source' in df.columns:
+                source_pivot = pd.crosstab(df['Return_Category'], df['data_source'], margins=True, margins_name='Total')
+                source_pivot.to_excel(writer, sheet_name='Source Analysis')
+            
+            # Sheet 5: Quality Insights
+            insights_df = pd.DataFrame({
+                'Quality Management Insights': [insights]
+            })
+            insights_df.to_excel(writer, sheet_name='Quality Insights', index=False)
+            
+            # Format workbook
+            workbook = writer.book
+            
+            # Add formats
+            header_format = workbook.add_format({
+                'bold': True,
+                'text_wrap': True,
+                'valign': 'top',
+                'fg_color': '#1A1A2E',
+                'font_color': '#00D9FF',
+                'border': 1
+            })
+            
+            # Apply formatting to each sheet
+            for sheet_name in writer.sheets:
+                worksheet = writer.sheets[sheet_name]
+                
+                # Set column widths based on sheet
+                if sheet_name == 'Categorized Returns':
+                    column_widths = {
+                        'A:A': 15,  # Date
+                        'B:B': 20,  # Order
+                        'C:C': 40,  # Product
+                        'D:D': 15,  # SKU
+                        'E:E': 25,  # Category
+                        'F:F': 50,  # Complaint
+                        'G:G': 12,  # Source
+                        'H:H': 15   # Cross-ref
+                    }
+                    
+                    for col_range, width in column_widths.items():
+                        worksheet.set_column(col_range, width)
+                
+                elif sheet_name == 'Quality Insights':
+                    worksheet.set_column('A:A', 100)
+                    
+        output.seek(0)
+        return output.getvalue()
+        
+    except Exception as e:
+        logger.error(f"Error generating Excel report: {e}")
+        st.error(f"Error generating report: {str(e)}")
         return None
 
 def main():
-    st.set_page_config(
-        page_title=APP_CONFIG['title'],
-        page_icon="🔍",
-        layout="wide",
-        initial_sidebar_state="collapsed"
-    )
+    """Main application function"""
     
+    # Show any critical errors
     if not AI_AVAILABLE:
-        st.error("❌ Critical Error: AI module not found!")
+        st.error(f"❌ Critical Error: {api_error_message}")
+        st.info("Please ensure the enhanced_ai_analysis.py file is in the same directory as this app.")
         st.stop()
+    
+    if not PDFPLUMBER_AVAILABLE:
+        st.warning("⚠️ PDF processing not available. Install pdfplumber: pip install pdfplumber")
     
     initialize_session_state()
     inject_cyberpunk_css()
@@ -901,316 +1015,307 @@ def main():
     st.markdown(f"""
     <h1>{APP_CONFIG['title']}</h1>
     <p style="text-align: center; color: var(--primary); font-size: 1.2em; margin-bottom: 2rem;">
-        {APP_CONFIG['description']} - Now with Claude & OpenAI Support!
+        {APP_CONFIG['description']} - Unified Analysis from PDF, FBA & Ledger Data
     </p>
     """, unsafe_allow_html=True)
     
-    # API Provider Selection
-    display_api_selector()
-    
     # API Status
-    display_api_status()
+    analyzer = get_ai_analyzer()
+    if analyzer:
+        status = analyzer.get_api_status()
+        if status['available']:
+            st.success(f"✅ AI Service Connected - {status.get('model', 'Ready')}")
+        else:
+            st.warning(f"⚠️ AI Service Issue: {status.get('message', 'Configuration needed')}")
+            st.info("The tool will use rule-based categorization as fallback.")
     
     # Instructions
-    with st.expander("📖 How to Use This Tool", expanded=False):
+    with st.expander("📖 How to Use This Tool - Quality Analyst 5-Minute Workflow", expanded=False):
         st.markdown("""
-        ### Quick Start Guide
-        1. **Select AI Provider**: Choose OpenAI, Claude, or Both (smart mode)
-        2. **Upload your file**: Complaints Ledger (.xlsx) or FBA Return Report (.txt)
-        3. **AI categorizes** each return into medical device categories
-        4. **Download results** with categorized return reasons in Column K
+        ### 🎯 Quick Workflow for Quality Analysts
         
-        ### Medical Device Return Categories:
-        1. **Size/Fit Issues** - Too large/small, wrong size, doesn't fit
-        2. **Comfort Issues** - Uncomfortable, hurts, too firm/soft
-        3. **Product Defects/Quality** - Defective, broken, poor quality
-        4. **Performance/Effectiveness** - Not as expected, ineffective
-        5. **Stability/Positioning Issues** - Doesn't stay in place, slides
-        6. **Equipment Compatibility** - Doesn't fit walker/wheelchair/toilet
-        7. **Design/Material Issues** - Too bulky/heavy/thin, flimsy
-        8. **Wrong Product/Misunderstanding** - Wrong item, not as advertised
-        9. **Missing Components** - Missing parts, no instructions
-        10. **Customer Error/Changed Mind** - Ordered wrong, no longer needed
-        11. **Shipping/Fulfillment Issues** - Arrived late, damaged in shipping
-        12. **Assembly/Usage Difficulty** - Difficult to use/adjust
-        13. **Medical/Health Concerns** - Doctor didn't approve, allergic
-        14. **Price/Value** - Better price found
-        15. **Other/Miscellaneous** - Unique situations
+        **From Data to Insights in Under 5 Minutes:**
         
-        ### Key Columns Used:
-        - **Column A**: Date
-        - **Column B**: Product Identifier Tag
-        - **Column C**: Imported SKU
-        - **Column F**: Order #
-        - **Column I**: Complaint/Return Reason
-        - **Column K**: AI-Categorized Return Category (OUTPUT)
+        1. **📄 Export from Amazon Seller Central:**
+           - **PDF**: Go to Manage Returns → Print/Save as PDF
+           - **FBA**: Reports → Fulfillment → Customer Returns → Export (.txt)
+           - **Ledger**: Use your existing Excel complaints tracking file
         
-        ### Provider Options:
-        - **🟦 OpenAI**: Fast, reliable categorization with GPT models
-        - **🟣 Claude**: Ultra-fast with Haiku, high quality with Opus
-        - **🔀 Both**: Automatically selects the best provider for each task
-        - **📊 Compare Mode**: Run both and see how they compare!
+        2. **📤 Upload Files (Any Combination):**
+           - Drag & drop or browse for files
+           - Tool automatically detects file types
+           - Processes all three sources simultaneously
         
-        ### Cost Optimization:
-        - Claude Haiku: ~$0.23 per 2000 returns (fastest)
-        - GPT-3.5: ~$0.35 per 2000 returns
-        - Claude Opus: ~$13.50 per 2000 returns (highest quality)
+        3. **🤖 Automatic Processing:**
+           - AI categorizes into 15 medical device categories
+           - Cross-references by Order ID
+           - Identifies quality vs non-quality issues
+           - Highlights FDA reportable events
         
-        ### Quality Management Focus:
-        The tool automatically identifies:
-        - High-priority quality issues requiring immediate action
-        - Products with the most returns
-        - Patterns indicating design or manufacturing problems
-        - Customer error vs actual product issues
+        4. **📊 Instant Insights:**
+           - **🚨 Red**: Product defects (FDA reportable)
+           - **⚠️ Yellow**: Design/usability issues
+           - **✅ Green**: Customer errors (not quality)
+           - **📈 Trends**: By product and category
+        
+        5. **📥 Export & Action:**
+           - Excel report with all categorized data
+           - Quality insights for management
+           - CAPA recommendations
+           - Track improvements over time
+        
+        ### 🔗 Cross-Reference Magic:
+        
+        The tool automatically links returns across sources:
+        - **Same Order ID** in PDF + FBA = Complete picture
+        - **Product patterns** across all sources
+        - **Validation** of return reasons
+        
+        ### 💡 Pro Tips for Quality Teams:
+        
+        1. **Upload all three types** for comprehensive analysis
+        2. **Focus on products** with >5% return rate
+        3. **Prioritize** Product Defects/Quality category
+        4. **Track monthly** to show improvement
+        5. **Share insights** in quality meetings
+        
+        ### 📊 Medical Device Categories:
+        
+        **Critical (FDA Reportable):**
+        - Product Defects/Quality
+        - Medical/Health Concerns
+        
+        **High Priority:**
+        - Performance/Effectiveness
+        - Missing Components
+        - Design/Material Issues
+        
+        **Medium Priority:**
+        - Size/Fit Issues
+        - Comfort Issues
+        - Equipment Compatibility
+        - Stability/Positioning
+        
+        **Lower Priority:**
+        - Customer Error/Changed Mind
+        - Shipping/Fulfillment Issues
+        - Price/Value
         """)
     
-    # File upload section
+    # File Upload Section
     st.markdown("""
     <div class="neon-box">
-        <h3 style="color: var(--accent);">📁 UPLOAD RETURN DATA FILE</h3>
-        <p style="color: var(--text);">Upload your complaints ledger or FBA return report for AI categorization</p>
+        <h3 style="color: var(--accent);">📁 UPLOAD RETURN DATA FILES</h3>
+        <p>Upload one or more file types for comprehensive analysis</p>
     </div>
     """, unsafe_allow_html=True)
     
-    uploaded_file = st.file_uploader(
-        "Choose your file",
-        type=['xlsx', 'xls', 'csv', 'txt'],
-        help="Upload complaints file (.xlsx) or FBA Return Report (.txt)"
-    )
+    col1, col2, col3 = st.columns(3)
     
-    if uploaded_file is not None:
-        st.session_state.uploaded_file = uploaded_file
+    with col1:
+        st.markdown("""
+        <div class="pdf-upload-box">
+            <h4 style="color: var(--accent); margin-top: 0;">📄 PDF Returns</h4>
+            <p style="font-size: 0.9em;">Seller Central Manage Returns</p>
+        </div>
+        """, unsafe_allow_html=True)
         
-        with st.spinner("📖 Reading file..."):
-            file_content = uploaded_file.read()
-            df = process_complaints_file(file_content, uploaded_file.name)
+        pdf_file = st.file_uploader(
+            "Upload PDF",
+            type=['pdf'],
+            key="pdf_upload",
+            label_visibility="collapsed",
+            help="PDF from Amazon Seller Central Manage Returns page"
+        )
         
-        if df is not None:
-            st.session_state.processed_data = df
-            
-            # Show file info
-            st.markdown("### 📋 File Information")
-            st.info(f"Found {len(df)} rows with {len(df.columns)} columns")
-            
-            # Show sample data
-            st.markdown("#### Sample Data")
-            if st.session_state.get('file_type') == 'fba_returns':
-                display_cols = ['Date', 'Order #', 'Product Identifier Tag', 'FBA_Reason_Code', 'Complaint']
-            else:
-                display_cols = ['Date', 'Product Identifier Tag', 'Order #', 'Complaint']
-            
-            available_cols = [col for col in display_cols if col in df.columns]
-            if available_cols:
-                st.dataframe(df[available_cols].head(5), use_container_width=True)
-            
-            # Categorize button
-            col1, col2, col3 = st.columns([1, 2, 1])
-            with col2:
-                if st.button("🚀 CATEGORIZE COMPLAINTS", type="primary", use_container_width=True):
-                    with st.spinner(f"🤖 AI is analyzing using {st.session_state.api_provider.upper()}..."):
-                        categorized_df = categorize_all_complaints(df)
-                        st.session_state.categorized_data = categorized_df
-                        st.session_state.processing_complete = True
+        if pdf_file:
+            with st.spinner("Parsing PDF..."):
+                pdf_data = parse_pdf_returns(pdf_file)
+                if pdf_data is not None:
+                    st.session_state.pdf_data = pdf_data
+                    st.session_state.data_sources.add('PDF')
+                    st.success(f"✅ Parsed {len(pdf_data)} returns from PDF")
+    
+    with col2:
+        st.markdown("""
+        <div class="neon-box">
+            <h4 style="color: var(--primary); margin-top: 0;">📊 FBA Returns</h4>
+            <p style="font-size: 0.9em;">Tab-separated .txt file</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        fba_file = st.file_uploader(
+            "Upload FBA Report",
+            type=['txt', 'tsv'],
+            key="fba_upload",
+            label_visibility="collapsed",
+            help="FBA Return Report from Seller Central"
+        )
+        
+        if fba_file:
+            with st.spinner("Processing FBA returns..."):
+                file_content = fba_file.read()
+                fba_data = process_fba_returns(file_content, fba_file.name)
+                if fba_data is not None:
+                    st.session_state.fba_data = fba_data
+                    st.session_state.data_sources.add('FBA')
+                    st.success(f"✅ Processed {len(fba_data)} FBA returns")
+    
+    with col3:
+        st.markdown("""
+        <div class="neon-box">
+            <h4 style="color: var(--secondary); margin-top: 0;">📋 Complaints Ledger</h4>
+            <p style="font-size: 0.9em;">Excel file with complaints</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        ledger_file = st.file_uploader(
+            "Upload Ledger",
+            type=['xlsx', 'xls'],
+            key="ledger_upload",
+            label_visibility="collapsed",
+            help="Product Complaints Ledger Excel file"
+        )
+        
+        if ledger_file:
+            with st.spinner("Reading complaints ledger..."):
+                file_content = ledger_file.read()
+                ledger_data = process_complaints_ledger(file_content, ledger_file.name)
+                if ledger_data is not None:
+                    st.session_state.ledger_data = ledger_data
+                    st.session_state.data_sources.add('Ledger')
+                    st.success(f"✅ Loaded {len(ledger_data)} complaints")
+    
+    # Show uploaded data summary
+    if st.session_state.data_sources:
+        st.markdown("---")
+        st.markdown("### 📊 Data Summary")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        total_records = 0
+        if st.session_state.pdf_data is not None:
+            total_records += len(st.session_state.pdf_data)
+        if st.session_state.fba_data is not None:
+            total_records += len(st.session_state.fba_data)
+        if st.session_state.ledger_data is not None:
+            total_records += len(st.session_state.ledger_data)
+        
+        with col1:
+            st.metric("Total Records", total_records)
+        with col2:
+            st.metric("Data Sources", len(st.session_state.data_sources))
+        with col3:
+            sources_text = ", ".join(sorted(st.session_state.data_sources))
+            st.info(f"Sources: {sources_text}")
+        
+        # Process button
+        if st.button("🚀 ANALYZE & CATEGORIZE ALL DATA", type="primary", use_container_width=True):
+            with st.spinner("🤖 Unifying data sources and categorizing returns..."):
+                # Unify all data sources
+                unified_df = unify_data_sources()
+                
+                if unified_df is not None:
+                    st.session_state.unified_data = unified_df
+                    
+                    # Categorize all returns
+                    categorized_df = categorize_all_data(unified_df)
+                    st.session_state.categorized_data = categorized_df
+                    st.session_state.processing_complete = True
                     
                     st.balloons()
-                    st.success("✅ Categorization complete!")
+                    st.success("✅ Analysis complete!")
+                else:
+                    st.error("Error unifying data sources")
+    
+    # Display results
+    if st.session_state.processing_complete and st.session_state.categorized_data is not None:
+        display_unified_results(st.session_state.categorized_data)
+        
+        # Generate insights
+        st.markdown("---")
+        st.markdown("### 🎯 Quality Management Insights")
+        
+        with st.spinner("🤖 Generating quality insights..."):
+            insights = generate_quality_insights(st.session_state.categorized_data)
+        
+        # Display insights in a nice box
+        st.markdown("""
+        <div class="neon-box">
+            <h3 style="color: var(--success); margin-top: 0;">📋 AI-Generated Quality Report</h3>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown(insights)
+        
+        # Export section
+        st.markdown("---")
+        st.markdown("""
+        <div class="success-box">
+            <h3 style="color: var(--success);">📥 EXPORT COMPREHENSIVE REPORT</h3>
+            <p>Download categorized data with quality insights</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Generate export
+        excel_data = export_comprehensive_report(st.session_state.categorized_data, insights)
+        
+        if excel_data:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             
-            # Show results if processing is complete
-            if st.session_state.processing_complete and st.session_state.categorized_data is not None:
-                display_results_with_comparison(st.session_state.categorized_data)
-                
-                # Export section
-                st.markdown("---")
-                st.markdown("""
-                <div class="success-box">
-                    <h3 style="color: var(--success);">📥 EXPORT RESULTS</h3>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                # Generate export file
-                excel_data = export_categorized_data(st.session_state.categorized_data)
-                
-                # Download button
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
                 st.download_button(
-                    label=f"📥 DOWNLOAD CATEGORIZED DATA",
+                    label="📥 DOWNLOAD QUALITY REPORT",
                     data=excel_data,
-                    file_name=f"categorized_complaints_{timestamp}.xlsx",
+                    file_name=f"quality_returns_analysis_{timestamp}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True
                 )
-
-# Helper functions
-def prepare_export_data(df: pd.DataFrame) -> pd.DataFrame:
-    """Prepare data for export with medical device categories"""
-    file_type = st.session_state.get('file_type', 'complaints_ledger')
-    
-    if file_type == 'fba_returns':
-        # FBA Return Report format
-        original_columns = ['return-date', 'order-id', 'sku', 'asin', 'fnsku', 
-                           'product-name', 'quantity', 'fulfillment-center-id', 
-                           'detailed-disposition', 'reason', 'status', 
-                           'license-plate-number', 'customer-comments']
         
-        column_mapping = {
-            'Date': 'return-date',
-            'Order #': 'order-id',
-            'Imported SKU': 'sku',
-            'Product Identifier Tag': 'product-name',
-            'Complaint': 'customer-comments',
-            'FBA_Reason_Code': 'reason'
-        }
+        # Quick actions for quality team
+        st.markdown("---")
+        st.markdown("""
+        <div class="neon-box">
+            <h3 style="color: var(--primary);">💡 QUICK ACTIONS FOR QUALITY TEAM</h3>
+        </div>
+        """, unsafe_allow_html=True)
         
-        export_df = pd.DataFrame()
+        # Identify critical issues
+        critical_categories = ['Product Defects/Quality', 'Medical/Health Concerns']
+        critical_count = sum(st.session_state.reason_summary.get(cat, 0) for cat in critical_categories)
         
-        for i, col in enumerate(original_columns[:10]):
-            if col in df.columns:
-                export_df[col] = df[col]
-            else:
-                reverse_mapping = {v: k for k, v in column_mapping.items()}
-                if col in reverse_mapping and reverse_mapping[col] in df.columns:
-                    export_df[col] = df[reverse_mapping[col]]
-                else:
-                    export_df[col] = ''
-    else:
-        # Complaints Ledger format
-        original_columns = ['Date', 'Product Identifier Tag', 'Imported SKU', 'UDI', 
-                           'CS Ticket #', 'Order #', 'Source', 'Categorizing / Investigating Agent',
-                           'Complaint', 'Review stars']
+        col1, col2 = st.columns(2)
         
-        export_columns = [col for col in original_columns if col in df.columns]
-        export_df = df[export_columns].copy()
-    
-    # Add Column K - Medical Device Return Category
-    export_df['Return Reason'] = df['Return_Reason']
-    
-    # Add blank columns L and M
-    export_df['Blank1'] = ''
-    export_df['Blank2'] = ''
-    
-    # Add AI provider info if available
-    if 'AI_Provider' in df.columns:
-        export_df['AI_Provider'] = df['AI_Provider']
-    
-    return export_df
-
-def export_categorized_data(df: pd.DataFrame) -> bytes:
-    """Export categorized data to Excel with medical device categories"""
-    output = io.BytesIO()
-    
-    export_df = prepare_export_data(df)
-    
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        # Main data sheet
-        export_df.to_excel(writer, sheet_name='Categorized Returns', index=False)
-        
-        # Add summary sheet
-        summary_data = []
-        for category, count in sorted(st.session_state.reason_summary.items(), key=lambda x: x[1], reverse=True):
-            percentage = (count / len(df)) * 100
+        with col1:
+            st.markdown("**Immediate Actions:**")
+            if critical_count > 0:
+                st.error(f"🚨 {critical_count} returns require quality investigation")
             
-            # Determine quality impact
-            quality_impact = "High" if category in [
-                'Product Defects/Quality', 'Medical/Health Concerns'
-            ] else "Medium" if category in [
-                'Performance/Effectiveness', 'Missing Components', 'Design/Material Issues'
-            ] else "Low"
-            
-            summary_data.append({
-                'Return Category': category,
-                'Count': count,
-                'Percentage': f"{percentage:.1f}%",
-                'Quality Impact': quality_impact
-            })
-        
-        summary_df = pd.DataFrame(summary_data)
-        summary_df.to_excel(writer, sheet_name='Category Summary', index=False)
-        
-        # Add quality analysis sheet
-        quality_categories = [
-            'Product Defects/Quality', 'Performance/Effectiveness',
-            'Missing Components', 'Design/Material Issues'
-        ]
-        quality_returns = df[df['Return_Reason'].isin(quality_categories)]
-        
-        if len(quality_returns) > 0:
-            # Quality summary by product
-            quality_by_product = quality_returns.groupby(['Product Identifier Tag', 'Return_Reason']).size().reset_index(name='Count')
-            quality_by_product.to_excel(writer, sheet_name='Quality Issues by Product', index=False)
-        
-        # Add cost tracking sheet if available
-        analyzer = get_ai_analyzer()
-        if analyzer:
-            usage = analyzer.api_client.get_usage_summary()
-            cost_data = []
-            
-            if usage['openai']['total_cost'] > 0:
-                cost_data.append({
-                    'Provider': 'OpenAI',
-                    'Input Tokens': f"{usage['openai']['input_tokens']:,}",
-                    'Output Tokens': f"{usage['openai']['output_tokens']:,}",
-                    'Total Calls': usage['openai']['total_calls'],
-                    'Total Cost': f"${usage['openai']['total_cost']:.3f}"
-                })
-            
-            if usage['claude']['total_cost'] > 0:
-                cost_data.append({
-                    'Provider': 'Claude',
-                    'Input Tokens': f"{usage['claude']['input_tokens']:,}",
-                    'Output Tokens': f"{usage['claude']['output_tokens']:,}",
-                    'Total Calls': usage['claude']['total_calls'],
-                    'Total Cost': f"${usage['claude']['total_cost']:.3f}"
-                })
-            
-            if cost_data:
-                cost_data.append({
-                    'Provider': 'TOTAL',
-                    'Input Tokens': '',
-                    'Output Tokens': '',
-                    'Total Calls': '',
-                    'Total Cost': f"${usage['combined_total']:.3f}"
-                })
-                cost_df = pd.DataFrame(cost_data)
-                cost_df.to_excel(writer, sheet_name='Processing Costs', index=False)
-        
-        # Format the Excel file
-        workbook = writer.book
-        
-        # Add header format
-        header_format = workbook.add_format({
-            'bold': True,
-            'bg_color': '#1A1A2E',
-            'font_color': '#00D9FF',
-            'border': 1
-        })
-        
-        # Format each sheet
-        for sheet_name in writer.sheets:
-            worksheet = writer.sheets[sheet_name]
-            
-            # Set column widths based on sheet
-            if sheet_name == 'Categorized Returns':
-                column_widths = {
-                    0: 15,   # Date
-                    1: 40,   # Product Identifier Tag
-                    2: 20,   # Imported SKU
-                    3: 15,   # UDI
-                    4: 15,   # CS Ticket #
-                    5: 20,   # Order #
-                    6: 20,   # Source
-                    7: 25,   # Categorizing Agent
-                    8: 50,   # Complaint
-                    9: 12,   # Review stars
-                    10: 30,  # Return Reason (Column K)
-                }
+            # Top defective products
+            if st.session_state.product_summary:
+                st.markdown("**Products Requiring Review:**")
+                defective_products = []
+                for product, issues in st.session_state.product_summary.items():
+                    defect_count = issues.get('Product Defects/Quality', 0)
+                    if defect_count > 0:
+                        defective_products.append((product, defect_count))
                 
-                for col, width in column_widths.items():
-                    if col < len(export_df.columns):
-                        worksheet.set_column(col, col, width)
-    
-    output.seek(0)
-    return output.getvalue()
+                defective_products.sort(key=lambda x: x[1], reverse=True)
+                for product, count in defective_products[:5]:
+                    if product and str(product).strip():
+                        product_short = str(product)[:40] + "..." if len(str(product)) > 40 else str(product)
+                        st.markdown(f"- {product_short}: {count} quality issues")
+        
+        with col2:
+            st.markdown("**Next Steps:**")
+            st.markdown("""
+            1. ✅ Review categorized returns in Excel
+            2. 📊 Create CAPA for top quality issues
+            3. 📧 Share report with engineering team
+            4. 📈 Track improvement trends
+            5. 🔍 Update quality inspection criteria
+            """)
 
 if __name__ == "__main__":
     main()
