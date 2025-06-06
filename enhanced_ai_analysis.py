@@ -1,13 +1,9 @@
 """
-Enhanced AI Analysis Module - Medical Device Return Categorization
-Version: 7.1 - Updated API Key Method
+Enhanced AI Analysis Module - Multi-Provider Edition
+Supports both OpenAI and Claude for return categorization
 
-Provides AI-powered analysis for categorizing returns from:
-- PDF files (Amazon Seller Central)
-- FBA Return Reports
-- Product Complaints Ledger
-
-Focuses on medical device quality management and FDA compliance.
+Version: 7.0 - Dual Provider Support
+Author: Vive Health Quality Team
 """
 
 import logging
@@ -16,6 +12,7 @@ import json
 import re
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple, Union
+from enum import Enum
 import time
 
 # Configure logging
@@ -32,120 +29,215 @@ def safe_import(module_name):
 
 # Check for dependencies
 requests, has_requests = safe_import('requests')
+anthropic, has_anthropic = safe_import('anthropic')
 
 # API Configuration
 API_TIMEOUT = 30
 MAX_RETRIES = 3
-DEFAULT_MAX_TOKENS = 2000
 
-# Medical device return categories
-MEDICAL_DEVICE_CATEGORIES = [
-    'Size/Fit Issues',
-    'Comfort Issues',
-    'Product Defects/Quality',
-    'Performance/Effectiveness',
-    'Stability/Positioning Issues',
-    'Equipment Compatibility',
-    'Design/Material Issues',
-    'Wrong Product/Misunderstanding',
-    'Missing Components',
-    'Customer Error/Changed Mind',
-    'Shipping/Fulfillment Issues',
-    'Assembly/Usage Difficulty',
-    'Medical/Health Concerns',
-    'Price/Value',
-    'Other/Miscellaneous'
-]
+# Model configurations
+MODELS = {
+    'openai': {
+        'fast': 'gpt-3.5-turbo',
+        'accurate': 'gpt-4',
+        'default': 'gpt-3.5-turbo'
+    },
+    'claude': {
+        'fast': 'claude-3-haiku-20240307',
+        'accurate': 'claude-3-sonnet-20240229',
+        'default': 'claude-3-haiku-20240307'
+    }
+}
+
+# Pricing per 1K tokens (approximate)
+PRICING = {
+    'gpt-3.5-turbo': {'input': 0.0005, 'output': 0.0015},
+    'gpt-4': {'input': 0.03, 'output': 0.06},
+    'claude-3-haiku-20240307': {'input': 0.00025, 'output': 0.00125},
+    'claude-3-sonnet-20240229': {'input': 0.003, 'output': 0.015}
+}
+
+class AIProvider(Enum):
+    OPENAI = "openai"
+    CLAUDE = "claude"
+    BOTH = "both"
 
 class APIClient:
-    """Robust OpenAI API client with error handling"""
+    """Multi-provider API client supporting OpenAI and Claude"""
     
-    def __init__(self):
-        self.api_key = self._get_api_key()
-        self.base_url = "https://api.openai.com/v1/chat/completions"
-        self.headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}" if self.api_key else ""
+    def __init__(self, provider: AIProvider = AIProvider.OPENAI):
+        self.provider = provider
+        self.openai_key = self._get_api_key('openai')
+        self.claude_key = self._get_api_key('claude')
+        
+        # Initialize clients
+        self.openai_client = None
+        self.claude_client = None
+        
+        if self.openai_key and has_requests:
+            self.openai_client = OpenAIClient(self.openai_key)
+        
+        if self.claude_key and has_anthropic:
+            self.claude_client = ClaudeClient(self.claude_key)
+        
+        # Usage tracking
+        self.usage_stats = {
+            'openai': {
+                'total_calls': 0,
+                'total_input_tokens': 0,
+                'total_output_tokens': 0,
+                'total_cost': 0.0
+            },
+            'claude': {
+                'total_calls': 0,
+                'total_input_tokens': 0,
+                'total_output_tokens': 0,
+                'total_cost': 0.0
+            }
         }
         
-        # Log API key status
-        if self.api_key:
-            logger.info(f"API key configured (first 10 chars): {self.api_key[:10]}...")
-        else:
-            logger.warning("No API key found - AI features will be disabled")
+        logger.info(f"API Client initialized with provider: {provider.value}")
     
-    def _get_api_key(self) -> Optional[str]:
-        """Get API key with clear feedback on source"""
-        key_sources = []
+    def _get_api_key(self, provider: str) -> Optional[str]:
+        """Get API key for specified provider"""
+        # Environment variable names
+        env_names = {
+            'openai': ['OPENAI_API_KEY', 'OPENAI_API'],
+            'claude': ['ANTHROPIC_API_KEY', 'CLAUDE_API_KEY']
+        }
         
         # Try Streamlit secrets first
         try:
             import streamlit as st
             if hasattr(st, 'secrets'):
-                # Try multiple possible key names
-                secret_keys = ['openai_api_key', 'OPENAI_API_KEY', 'openai', 'api_key']
-                for key_name in secret_keys:
+                # Check various secret names
+                secret_names = {
+                    'openai': ['openai_api_key', 'OPENAI_API_KEY', 'openai'],
+                    'claude': ['anthropic_api_key', 'claude_api_key', 'ANTHROPIC_API_KEY']
+                }
+                
+                for key_name in secret_names.get(provider, []):
                     if key_name in st.secrets:
                         api_key = str(st.secrets[key_name]).strip()
-                        if api_key and api_key.startswith('sk-'):
-                            logger.info(f"API key found in Streamlit secrets under '{key_name}'")
-                            return api_key
-                    
-                # Check nested secrets
-                if "openai" in st.secrets and isinstance(st.secrets["openai"], dict):
-                    if "api_key" in st.secrets["openai"]:
-                        api_key = str(st.secrets["openai"]["api_key"]).strip()
-                        if api_key and api_key.startswith('sk-'):
-                            logger.info("API key found in nested Streamlit secrets")
-                            return api_key
-                
-                key_sources.append("Streamlit secrets (not found)")
+                        logger.info(f"Found {provider} API key in Streamlit secrets")
+                        return api_key
         except Exception as e:
             logger.debug(f"Streamlit secrets not available: {e}")
-            key_sources.append("Streamlit secrets (not available)")
         
         # Try environment variables
-        env_vars = ['OPENAI_API_KEY', 'OPENAI_API', 'API_KEY']
-        for env_name in env_vars:
+        for env_name in env_names.get(provider, []):
             api_key = os.environ.get(env_name, '').strip()
-            if api_key and api_key.startswith('sk-'):
-                logger.info(f"API key found in environment variable '{env_name}'")
+            if api_key:
+                logger.info(f"Found {provider} API key in environment variable '{env_name}'")
                 return api_key
         
-        key_sources.append("Environment variables (not found)")
-        
-        # Log where we looked
-        logger.warning(f"No valid OpenAI API key found. Searched in: {', '.join(key_sources)}")
-        logger.info("To enable AI features, add your OpenAI API key to Streamlit secrets or environment variables")
-        
+        logger.warning(f"No {provider} API key found")
         return None
     
     def is_available(self) -> bool:
-        """Check if API is available"""
-        return bool(self.api_key and has_requests)
+        """Check if at least one provider is available"""
+        if self.provider == AIProvider.OPENAI:
+            return self.openai_client is not None
+        elif self.provider == AIProvider.CLAUDE:
+            return self.claude_client is not None
+        else:  # BOTH
+            return self.openai_client is not None or self.claude_client is not None
     
     def call_api(self, messages: List[Dict[str, str]], 
-                model: str = "gpt-4o-mini",
+                model: str = None,
                 temperature: float = 0.3,
-                max_tokens: int = DEFAULT_MAX_TOKENS) -> Dict[str, Any]:
-        """Make API call with retry logic"""
+                max_tokens: int = 100,
+                use_specific_provider: str = None) -> Dict[str, Any]:
+        """Make API call to selected provider"""
         
-        if not self.is_available():
+        # Determine which provider to use
+        if use_specific_provider:
+            provider_to_use = use_specific_provider
+        elif self.provider == AIProvider.OPENAI:
+            provider_to_use = 'openai'
+        elif self.provider == AIProvider.CLAUDE:
+            provider_to_use = 'claude'
+        else:  # BOTH - choose based on availability and cost
+            if self.openai_client and self.claude_client:
+                # Choose cheaper option for simple categorization
+                provider_to_use = 'claude' if max_tokens < 200 else 'openai'
+            elif self.openai_client:
+                provider_to_use = 'openai'
+            elif self.claude_client:
+                provider_to_use = 'claude'
+            else:
+                return {
+                    "success": False,
+                    "error": "No API providers available",
+                    "result": None
+                }
+        
+        # Make the call
+        if provider_to_use == 'openai' and self.openai_client:
+            result = self.openai_client.call(messages, model, temperature, max_tokens)
+            if result['success']:
+                self._track_usage('openai', result.get('usage', {}), model or MODELS['openai']['default'])
+            return result
+        elif provider_to_use == 'claude' and self.claude_client:
+            result = self.claude_client.call(messages, model, temperature, max_tokens)
+            if result['success']:
+                self._track_usage('claude', result.get('usage', {}), model or MODELS['claude']['default'])
+            return result
+        else:
             return {
                 "success": False,
-                "error": "API not available - missing key or requests module",
-                "result": "AI analysis requires OpenAI API key. Please add OPENAI_API_KEY to your Streamlit secrets or environment variables."
+                "error": f"Provider {provider_to_use} not available",
+                "result": None
             }
+    
+    def _track_usage(self, provider: str, usage: Dict, model: str):
+        """Track API usage and costs"""
+        if provider in self.usage_stats and usage:
+            stats = self.usage_stats[provider]
+            stats['total_calls'] += 1
+            
+            input_tokens = usage.get('prompt_tokens', 0) or usage.get('input_tokens', 0)
+            output_tokens = usage.get('completion_tokens', 0) or usage.get('output_tokens', 0)
+            
+            stats['total_input_tokens'] += input_tokens
+            stats['total_output_tokens'] += output_tokens
+            
+            # Calculate cost
+            if model in PRICING:
+                cost = (input_tokens / 1000 * PRICING[model]['input'] + 
+                       output_tokens / 1000 * PRICING[model]['output'])
+                stats['total_cost'] += cost
+    
+    def get_usage_summary(self) -> Dict[str, Any]:
+        """Get usage summary across all providers"""
+        total_cost = sum(stats['total_cost'] for stats in self.usage_stats.values())
+        total_calls = sum(stats['total_calls'] for stats in self.usage_stats.values())
         
-        # Ensure we're using valid model names
-        model_map = {
-            'gpt-4o': 'gpt-4o-mini',
-            'gpt-4': 'gpt-4-turbo-preview',
-            'gpt-3.5': 'gpt-3.5-turbo'
+        return {
+            'total_cost': total_cost,
+            'total_calls': total_calls,
+            'openai': self.usage_stats['openai'],
+            'claude': self.usage_stats['claude']
         }
+
+class OpenAIClient:
+    """OpenAI-specific client"""
+    
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        self.base_url = "https://api.openai.com/v1/chat/completions"
+        self.headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}"
+        }
+    
+    def call(self, messages: List[Dict[str, str]], 
+             model: str = None,
+             temperature: float = 0.3,
+             max_tokens: int = 100) -> Dict[str, Any]:
+        """Make OpenAI API call"""
         
-        if model in model_map:
-            model = model_map[model]
+        model = model or MODELS['openai']['default']
         
         payload = {
             "model": model,
@@ -154,11 +246,122 @@ class APIClient:
             "max_tokens": max_tokens
         }
         
-        last_error = None
-        
         for attempt in range(MAX_RETRIES):
             try:
-                logger.info(f"Making API call to {model} (attempt {attempt + 1}/{MAX_RETRIES})")
+                response = requests.post(
+                    self.base_url,
+                    headers=self.headers,
+                    json=payload,
+                    timeout=API_TIMEOUT
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    content = result["choices"][0]["message"]["content"]
+                    
+                    return {
+                        "success": True,
+                        "result": content,
+                        "usage": result.get("usage", {}),
+                        "model": model,
+                        "provider": "openai"
+                    }
+                elif response.status_code == 429:
+                    # Rate limit - wait and retry
+                    time.sleep(2 ** attempt)
+                    continue
+                else:
+                    error_data = response.json() if response.text else {}
+                    return {
+                        "success": False,
+                        "error": error_data.get('error', {}).get('message', f'API error {response.status_code}'),
+                        "result": None
+                    }
+                    
+            except Exception as e:
+                if attempt == MAX_RETRIES - 1:
+                    return {
+                        "success": False,
+                        "error": f"API call failed: {str(e)}",
+                        "result": None
+                    }
+                time.sleep(2 ** attempt)
+        
+        return {
+            "success": False,
+            "error": "Max retries exceeded",
+            "result": None
+        }
+
+class ClaudeClient:
+    """Anthropic Claude-specific client"""
+    
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        if has_anthropic:
+            self.client = anthropic.Anthropic(api_key=api_key)
+        else:
+            self.client = None
+            self.fallback_mode = True
+            self.base_url = "https://api.anthropic.com/v1/messages"
+            self.headers = {
+                "Content-Type": "application/json",
+                "x-api-key": self.api_key,
+                "anthropic-version": "2023-06-01"
+            }
+    
+    def call(self, messages: List[Dict[str, str]], 
+             model: str = None,
+             temperature: float = 0.3,
+             max_tokens: int = 100) -> Dict[str, Any]:
+        """Make Claude API call"""
+        
+        model = model or MODELS['claude']['default']
+        
+        # Convert OpenAI format to Claude format
+        system_message = None
+        claude_messages = []
+        
+        for msg in messages:
+            if msg['role'] == 'system':
+                system_message = msg['content']
+            else:
+                claude_messages.append({
+                    'role': msg['role'],
+                    'content': msg['content']
+                })
+        
+        try:
+            if self.client:
+                # Use anthropic SDK
+                response = self.client.messages.create(
+                    model=model,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    system=system_message,
+                    messages=claude_messages
+                )
+                
+                return {
+                    "success": True,
+                    "result": response.content[0].text,
+                    "usage": {
+                        "input_tokens": response.usage.input_tokens,
+                        "output_tokens": response.usage.output_tokens
+                    },
+                    "model": model,
+                    "provider": "claude"
+                }
+            else:
+                # Fallback to direct API call
+                payload = {
+                    "model": model,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "messages": claude_messages
+                }
+                if system_message:
+                    payload["system"] = system_message
                 
                 response = requests.post(
                     self.base_url,
@@ -167,420 +370,303 @@ class APIClient:
                     timeout=API_TIMEOUT
                 )
                 
-                logger.info(f"API response status: {response.status_code}")
-                
                 if response.status_code == 200:
                     result = response.json()
-                    content = result["choices"][0]["message"]["content"]
-                    logger.info(f"API call successful, response length: {len(content)} chars")
-                    
                     return {
                         "success": True,
-                        "result": content,
+                        "result": result["content"][0]["text"],
                         "usage": result.get("usage", {}),
-                        "model": model
+                        "model": model,
+                        "provider": "claude"
                     }
-                    
-                elif response.status_code == 401:
-                    error_msg = "Invalid API key. Please check your OpenAI API key configuration."
-                    logger.error(error_msg)
+                else:
                     return {
                         "success": False,
-                        "error": error_msg,
+                        "error": f"Claude API error {response.status_code}",
                         "result": None
                     }
                     
-                elif response.status_code == 429:
-                    # Rate limit - wait and retry
-                    wait_time = 2 ** attempt
-                    logger.warning(f"Rate limited, waiting {wait_time} seconds")
-                    time.sleep(wait_time)
-                    continue
-                    
-                elif response.status_code == 404:
-                    # Model not found, try fallback
-                    if model != 'gpt-3.5-turbo':
-                        logger.warning(f"Model {model} not found, trying gpt-3.5-turbo")
-                        model = 'gpt-3.5-turbo'
-                        payload['model'] = model
-                        continue
-                    
-                else:
-                    error_data = response.json() if response.text else {}
-                    error_msg = error_data.get('error', {}).get('message', f'API error {response.status_code}')
-                    last_error = error_msg
-                    logger.error(f"API error: {error_msg}")
-                    
-                    if attempt < MAX_RETRIES - 1:
-                        time.sleep(2 ** attempt)
-                        continue
-                    
-            except requests.exceptions.Timeout:
-                last_error = "Request timed out"
-                logger.warning(f"API timeout on attempt {attempt + 1}")
-                if attempt < MAX_RETRIES - 1:
-                    time.sleep(2 ** attempt)
-                    continue
-                    
-            except Exception as e:
-                last_error = str(e)
-                logger.error(f"API call error: {str(e)}")
-                if attempt < MAX_RETRIES - 1:
-                    time.sleep(2 ** attempt)
-                    continue
-        
-        return {
-            "success": False,
-            "error": last_error or "Max retries exceeded",
-            "result": None
-        }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Claude API call failed: {str(e)}",
+                "result": None
+            }
 
 class EnhancedAIAnalyzer:
-    """Main AI analyzer class optimized for medical device return categorization"""
+    """Main AI analyzer with multi-provider support"""
     
-    def __init__(self):
-        self.api_client = APIClient()
-        logger.info(f"Enhanced AI Analyzer initialized - API available: {self.api_client.is_available()}")
+    def __init__(self, provider: AIProvider = AIProvider.BOTH):
+        self.provider = provider
+        self.api_client = APIClient(provider)
+        logger.info(f"Enhanced AI Analyzer initialized with provider: {provider.value}")
     
     def get_api_status(self) -> Dict[str, Any]:
-        """Get API availability status"""
-        is_available = self.api_client.is_available()
-        
+        """Get detailed API status for all providers"""
         status = {
-            'available': is_available,
-            'configured': bool(self.api_client.api_key)
+            'available': self.api_client.is_available(),
+            'providers': {
+                'openai': {
+                    'configured': bool(self.api_client.openai_key),
+                    'available': self.api_client.openai_client is not None
+                },
+                'claude': {
+                    'configured': bool(self.api_client.claude_key),
+                    'available': self.api_client.claude_client is not None
+                }
+            },
+            'message': ''
         }
         
-        if not self.api_client.api_key:
-            status['error'] = 'API key not configured'
-            status['message'] = 'Add OPENAI_API_KEY to Streamlit secrets or environment'
-        elif not has_requests:
-            status['error'] = 'Requests module not available'
-            status['message'] = 'Install requests: pip install requests'
+        if status['available']:
+            active_providers = []
+            if status['providers']['openai']['available']:
+                active_providers.append('OpenAI')
+            if status['providers']['claude']['available']:
+                active_providers.append('Claude')
+            status['message'] = f"AI ready with: {', '.join(active_providers)}"
         else:
-            # Try a test call with minimal tokens
-            test_response = self.api_client.call_api(
-                [{"role": "user", "content": "Hi"}],
-                max_tokens=10
-            )
-            
-            if test_response['success']:
-                status['message'] = 'API is working correctly'
-                status['model'] = test_response.get('model', 'gpt-4o-mini')
-            else:
-                status['available'] = False
-                status['error'] = test_response.get('error', 'Unknown error')
-                status['message'] = f"API test failed: {status['error']}"
+            status['message'] = 'No AI providers configured'
         
-        logger.info(f"API status check: {status}")
         return status
     
-    def categorize_return(self, complaint: str, return_reason: str = None, fba_reason: str = None) -> str:
-        """
-        Categorize a single return into medical device categories
+    def categorize_return(self, complaint: str, return_reason: str = None, 
+                         fba_reason: str = None, use_both: bool = False) -> Union[str, Dict[str, str]]:
+        """Categorize a return using AI"""
         
-        Args:
-            complaint: Customer complaint or comment text
-            return_reason: Return reason from PDF or ledger
-            fba_reason: FBA reason code
-            
-        Returns:
-            Category name from MEDICAL_DEVICE_CATEGORIES
-        """
+        # Build prompt
+        prompt = self._build_categorization_prompt(complaint, return_reason, fba_reason)
         
-        # Build context from all available information
-        context_parts = []
-        
-        if return_reason and return_reason.strip():
-            context_parts.append(f"Return Reason: {return_reason}")
-        
-        if fba_reason and fba_reason.strip():
-            # Map FBA codes to human-readable descriptions
-            fba_descriptions = {
-                'NOT_COMPATIBLE': 'Not compatible with equipment',
-                'DAMAGED_BY_FC': 'Damaged at fulfillment center',
-                'DAMAGED_BY_CARRIER': 'Damaged during shipping',
-                'DEFECTIVE': 'Product is defective',
-                'NOT_AS_DESCRIBED': 'Not as described on listing',
-                'WRONG_ITEM': 'Wrong item received',
-                'MISSING_PARTS': 'Missing parts or components',
-                'QUALITY_NOT_ADEQUATE': 'Quality not adequate',
-                'UNWANTED_ITEM': 'Customer no longer wants item',
-                'CUSTOMER_DAMAGED': 'Damaged by customer',
-                'UNAUTHORIZED_PURCHASE': 'Unauthorized purchase',
-                'BETTER_PRICE_AVAILABLE': 'Found better price elsewhere'
-            }
-            
-            fba_desc = fba_descriptions.get(fba_reason, fba_reason)
-            context_parts.append(f"FBA Code: {fba_reason} ({fba_desc})")
-        
-        context = "\n".join(context_parts) if context_parts else ""
-        
-        # Create categorization prompt
-        categories_list = "\n".join([f"{i+1}. {cat}" for i, cat in enumerate(MEDICAL_DEVICE_CATEGORIES)])
-        
-        prompt = f"""You are a quality management expert for medical devices. Categorize this return into exactly ONE category.
-
-Customer Complaint/Comment: {complaint}
-{context}
-
-Categories:
-{categories_list}
-
-Rules:
-1. Choose the SINGLE most appropriate category based on the root cause
-2. For medical devices, prioritize safety and quality issues
-3. If multiple issues exist, choose the primary/most serious one
-4. Consider FDA reportability - quality defects are high priority
-5. Use FBA codes as hints but complaint text takes precedence
-
-Respond with ONLY the category name exactly as shown in the list."""
-
-        response = self.api_client.call_api(
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a medical device quality expert. Always respond with exactly one category name from the provided list, nothing else."
-                },
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.1,  # Low temperature for consistency
-            max_tokens=50
-        )
-        
-        if response['success']:
-            category = response['result'].strip()
-            
-            # Validate the category
-            if category in MEDICAL_DEVICE_CATEGORIES:
-                return category
-            
-            # Try to match if response includes number
-            for i, cat in enumerate(MEDICAL_DEVICE_CATEGORIES):
-                if str(i+1) in category or cat.lower() in category.lower():
-                    return cat
-        
-        # Log the failure for debugging
-        logger.warning(f"AI categorization failed or returned invalid category: {response}")
-        
-        # Fallback to rule-based categorization
-        return self._fallback_categorization(complaint, return_reason, fba_reason)
-    
-    def _fallback_categorization(self, complaint: str, return_reason: str = None, fba_reason: str = None) -> str:
-        """Rule-based fallback when AI is unavailable"""
-        
-        # FBA reason code mapping
-        fba_map = {
-            'NOT_COMPATIBLE': 'Equipment Compatibility',
-            'DAMAGED_BY_FC': 'Product Defects/Quality',
-            'DAMAGED_BY_CARRIER': 'Shipping/Fulfillment Issues',
-            'DEFECTIVE': 'Product Defects/Quality',
-            'NOT_AS_DESCRIBED': 'Wrong Product/Misunderstanding',
-            'WRONG_ITEM': 'Wrong Product/Misunderstanding',
-            'MISSING_PARTS': 'Missing Components',
-            'QUALITY_NOT_ADEQUATE': 'Performance/Effectiveness',
-            'UNWANTED_ITEM': 'Customer Error/Changed Mind',
-            'UNAUTHORIZED_PURCHASE': 'Customer Error/Changed Mind',
-            'CUSTOMER_DAMAGED': 'Customer Error/Changed Mind',
-            'BETTER_PRICE_AVAILABLE': 'Price/Value',
-            'DOES_NOT_FIT': 'Size/Fit Issues',
-            'ARRIVED_LATE': 'Shipping/Fulfillment Issues'
-        }
-        
-        # Check FBA mapping first
-        if fba_reason and fba_reason in fba_map:
-            return fba_map[fba_reason]
-        
-        # Combine all text
-        all_text = f"{complaint} {return_reason or ''} {fba_reason or ''}".lower()
-        
-        # Keyword-based rules
-        rules = [
-            (['small', 'large', 'size', 'fit', 'tight', 'loose'], 'Size/Fit Issues'),
-            (['uncomfortable', 'comfort', 'hurts', 'painful'], 'Comfort Issues'),
-            (['defective', 'broken', 'damaged', 'quality', 'malfunction'], 'Product Defects/Quality'),
-            (['not work', 'ineffective', 'performance'], 'Performance/Effectiveness'),
-            (['unstable', 'slides', 'position'], 'Stability/Positioning Issues'),
-            (['compatible', 'fit toilet', 'wheelchair'], 'Equipment Compatibility'),
-            (['heavy', 'material', 'design'], 'Design/Material Issues'),
-            (['wrong', 'different', 'expected'], 'Wrong Product/Misunderstanding'),
-            (['missing', 'incomplete'], 'Missing Components'),
-            (['mistake', 'changed mind', 'no longer'], 'Customer Error/Changed Mind'),
-            (['shipping', 'package', 'late'], 'Shipping/Fulfillment Issues'),
-            (['difficult', 'hard to', 'confusing'], 'Assembly/Usage Difficulty'),
-            (['doctor', 'medical', 'health'], 'Medical/Health Concerns'),
-            (['price', 'expensive', 'cheaper'], 'Price/Value')
+        messages = [
+            {
+                "role": "system", 
+                "content": "You are a quality management expert categorizing medical device returns. Always respond with exactly one return reason from the provided list."
+            },
+            {"role": "user", "content": prompt}
         ]
         
-        for keywords, category in rules:
-            if any(keyword in all_text for keyword in keywords):
-                return category
-        
-        return 'Other/Miscellaneous'
+        if use_both and self.provider == AIProvider.BOTH:
+            # Get results from both providers
+            results = {}
+            
+            # Try OpenAI
+            if self.api_client.openai_client:
+                openai_result = self.api_client.call_api(
+                    messages, 
+                    temperature=0.1, 
+                    max_tokens=50,
+                    use_specific_provider='openai'
+                )
+                if openai_result['success']:
+                    results['openai'] = self._parse_categorization_result(openai_result['result'])
+            
+            # Try Claude
+            if self.api_client.claude_client:
+                claude_result = self.api_client.call_api(
+                    messages, 
+                    temperature=0.1, 
+                    max_tokens=50,
+                    use_specific_provider='claude'
+                )
+                if claude_result['success']:
+                    results['claude'] = self._parse_categorization_result(claude_result['result'])
+            
+            return results if len(results) > 1 else results.get('openai', results.get('claude', 'other'))
+        else:
+            # Normal single-provider categorization
+            result = self.api_client.call_api(messages, temperature=0.1, max_tokens=50)
+            
+            if result['success']:
+                return self._parse_categorization_result(result['result'])
+            else:
+                logger.error(f"Categorization failed: {result.get('error')}")
+                return 'other'
     
-    def generate_quality_insights(self, 
-                                category_summary: Dict[str, int],
+    def _build_categorization_prompt(self, complaint: str, return_reason: str, fba_reason: str) -> str:
+        """Build categorization prompt"""
+        
+        # Standard return reasons
+        return_reasons = [
+            'too small', 'too large', 'received used/damaged', 'wrong item',
+            'too heavy', 'bad brakes', 'bad wheels', 'uncomfortable',
+            'difficult to use', 'missing parts', 'defective seat', 'no issue',
+            'not as advertised', 'defective handles', 'defective frame',
+            'defective/does not work properly', 'missing or broken parts',
+            'performance or quality not adequate', 'incompatible or not useful',
+            'no longer needed', 'bought by mistake', 'wrong size',
+            'style not as expected', 'different from website description',
+            'damaged during shipping', 'item never arrived', 'unauthorized purchase',
+            'better price available', 'ordered wrong item', 'changed mind',
+            'arrived too late', 'poor quality', 'not compatible',
+            'missing accessories', 'installation issues', 'customer damaged', 'other'
+        ]
+        
+        reasons_list = "\n".join([f"- {reason}" for reason in return_reasons])
+        
+        # Add context
+        context = ""
+        if return_reason:
+            context += f"\nOriginal return reason: {return_reason}"
+        if fba_reason:
+            context += f"\nFBA reason code: {fba_reason}"
+        
+        return f"""Analyze this return and select the SINGLE MOST APPROPRIATE reason.
+
+Complaint: {complaint}{context}
+
+Available Return Reasons:
+{reasons_list}
+
+Respond with ONLY the exact return reason text from the list."""
+    
+    def _parse_categorization_result(self, result: str) -> str:
+        """Parse and validate categorization result"""
+        
+        # Clean the result
+        result = result.strip().lower()
+        
+        # List of valid reasons (lowercase)
+        valid_reasons = [
+            'too small', 'too large', 'received used/damaged', 'wrong item',
+            'too heavy', 'bad brakes', 'bad wheels', 'uncomfortable',
+            'difficult to use', 'missing parts', 'defective seat', 'no issue',
+            'not as advertised', 'defective handles', 'defective frame',
+            'defective/does not work properly', 'missing or broken parts',
+            'performance or quality not adequate', 'incompatible or not useful',
+            'no longer needed', 'bought by mistake', 'wrong size',
+            'style not as expected', 'different from website description',
+            'damaged during shipping', 'item never arrived', 'unauthorized purchase',
+            'better price available', 'ordered wrong item', 'changed mind',
+            'arrived too late', 'poor quality', 'not compatible',
+            'missing accessories', 'installation issues', 'customer damaged', 'other'
+        ]
+        
+        # Find exact match
+        for valid in valid_reasons:
+            if result == valid:
+                return valid
+        
+        # Try partial match
+        for valid in valid_reasons:
+            if valid in result or result in valid:
+                return valid
+        
+        return 'other'
+    
+    def generate_quality_insights(self, category_summary: Dict[str, int],
                                 product_summary: Dict[str, Dict[str, int]],
                                 total_returns: int,
                                 data_sources: List[str]) -> str:
-        """
-        Generate comprehensive quality management insights
+        """Generate quality management insights"""
         
-        Args:
-            category_summary: Count of returns by category
-            product_summary: Returns by product and category
-            total_returns: Total number of returns
-            data_sources: List of data sources used (PDF, FBA, Ledger)
-            
-        Returns:
-            Formatted insights report
-        """
-        
-        # Calculate quality metrics
-        quality_categories = ['Product Defects/Quality', 'Performance/Effectiveness', 
-                            'Missing Components', 'Design/Material Issues']
-        quality_count = sum(category_summary.get(cat, 0) for cat in quality_categories)
-        quality_percentage = (quality_count / total_returns * 100) if total_returns > 0 else 0
-        
-        # Top categories
-        sorted_categories = sorted(category_summary.items(), key=lambda x: x[1], reverse=True)
-        
-        # Top products with issues
-        product_totals = {
-            product: sum(cats.values()) 
-            for product, cats in product_summary.items()
-        }
-        top_products = sorted(product_totals.items(), key=lambda x: x[1], reverse=True)[:5]
-        
-        # Build prompt
-        prompt = f"""As a medical device quality management expert, analyze these return patterns and provide actionable insights for FDA compliance and quality improvement.
+        prompt = f"""As a medical device quality manager, analyze these return patterns and provide actionable insights.
 
-RETURN DATA SUMMARY:
-- Total Returns: {total_returns}
-- Data Sources: {', '.join(data_sources)}
-- Quality-Related Returns: {quality_count} ({quality_percentage:.1f}%)
+RETURN SUMMARY:
+Total Returns: {total_returns}
+Data Sources: {', '.join(data_sources)}
 
-TOP RETURN CATEGORIES:
-{chr(10).join([f"- {cat}: {count} ({count/total_returns*100:.1f}%)" for cat, count in sorted_categories[:10]])}
+CATEGORY BREAKDOWN:
+{self._format_category_summary(category_summary)}
 
-TOP 5 PRODUCTS BY RETURN VOLUME:
-{chr(10).join([f"- {prod}: {count} returns" for prod, count in top_products if prod and str(prod).strip()])}
+TOP PRODUCTS BY RETURNS:
+{self._format_product_summary(product_summary)}
 
-CRITICAL CONSIDERATIONS:
-- Product Defects/Quality issues may require FDA reporting (MDRs)
-- Medical/Health Concerns need immediate investigation
-- Pattern analysis for potential recalls or field actions
-- Customer safety is paramount
+Provide analysis in this format:
 
-Provide a comprehensive report in this format:
-
-## EXECUTIVE SUMMARY
-[2-3 sentences for quality leadership on key findings and urgency]
+## QUALITY MANAGEMENT SUMMARY
+[Overview of return patterns and key findings]
 
 ## CRITICAL QUALITY ISSUES
-1. [Most serious quality issue with specific data]
-2. [Second priority issue]
-3. [Third priority issue]
-
-## FDA/REGULATORY CONSIDERATIONS
-[Identify any patterns suggesting reportable events, potential recalls, or compliance issues]
+[List top 3-5 quality concerns requiring immediate attention]
 
 ## ROOT CAUSE ANALYSIS
-[For top 3 categories, identify likely root causes based on the data]
+[Potential root causes for main return categories]
 
-## IMMEDIATE ACTIONS (Within 48 Hours)
-1. [Most urgent action with clear steps]
-2. [Second priority with responsible party]
-3. [Third priority with timeline]
+## IMMEDIATE ACTION ITEMS
+1. [Most urgent quality action]
+2. [Second priority]
+3. [Third priority]
 
-## 30-DAY QUALITY IMPROVEMENT PLAN
-[Week 1]: [Specific actions]
-[Week 2-3]: [Implementation steps]
-[Week 4]: [Verification activities]
+## CAPA RECOMMENDATIONS
+[Specific corrective and preventive actions]
 
-## PRODUCT-SPECIFIC RECOMMENDATIONS
-[For each of the top 3 products with returns, provide targeted actions]
+## FDA CONSIDERATIONS
+[Any patterns requiring MDR evaluation or regulatory action]
 
-## METRICS FOR SUCCESS
-[Define KPIs to track improvement - target <2% quality return rate]
+Focus on medical device quality, patient safety, and regulatory compliance."""
 
-Focus on patient safety, FDA compliance, and sustainable quality improvements."""
-
-        response = self.api_client.call_api(
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a senior medical device quality management expert with deep knowledge of FDA regulations, ISO 13485, and quality systems. Provide specific, actionable recommendations."
-                },
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.3,
-            max_tokens=2000
-        )
+        messages = [
+            {
+                "role": "system",
+                "content": "You are an expert medical device quality manager. Provide specific, actionable insights for quality improvement and regulatory compliance."
+            },
+            {"role": "user", "content": prompt}
+        ]
         
-        if response['success']:
-            return response['result']
+        result = self.api_client.call_api(messages, temperature=0.3, max_tokens=1500)
+        
+        if result['success']:
+            return result['result']
         else:
-            # Fallback insights
-            return self._generate_fallback_insights(
-                category_summary, product_summary, total_returns, 
-                quality_count, quality_percentage, sorted_categories
-            )
+            return self._generate_fallback_insights(category_summary, product_summary, total_returns)
     
-    def _generate_fallback_insights(self, category_summary, product_summary, 
-                                   total_returns, quality_count, quality_percentage,
-                                   sorted_categories) -> str:
+    def _format_category_summary(self, summary: Dict[str, int]) -> str:
+        """Format category summary for prompt"""
+        sorted_categories = sorted(summary.items(), key=lambda x: x[1], reverse=True)
+        return "\n".join([f"{cat}: {count} returns" for cat, count in sorted_categories[:10]])
+    
+    def _format_product_summary(self, summary: Dict[str, Dict[str, int]]) -> str:
+        """Format product summary for prompt"""
+        product_totals = [(prod, sum(cats.values())) for prod, cats in summary.items()]
+        top_products = sorted(product_totals, key=lambda x: x[1], reverse=True)[:5]
+        
+        formatted = []
+        for product, total in top_products:
+            top_issue = max(summary[product].items(), key=lambda x: x[1])
+            formatted.append(f"{product}: {total} returns (top issue: {top_issue[0]})")
+        
+        return "\n".join(formatted)
+    
+    def _generate_fallback_insights(self, category_summary: Dict[str, int],
+                                  product_summary: Dict[str, Dict[str, int]],
+                                  total_returns: int) -> str:
         """Generate basic insights when AI is unavailable"""
         
-        top_category = sorted_categories[0] if sorted_categories else ('Unknown', 0)
+        # Calculate percentages
+        quality_keywords = ['defective', 'bad', 'broken', 'missing', 'damaged', 'quality', 'not work']
+        quality_count = sum(count for cat, count in category_summary.items() 
+                          if any(keyword in cat.lower() for keyword in quality_keywords))
+        quality_pct = (quality_count / total_returns * 100) if total_returns > 0 else 0
         
-        insights = f"""## QUALITY MANAGEMENT SUMMARY
+        # Get top category
+        top_category = max(category_summary.items(), key=lambda x: x[1]) if category_summary else ('Unknown', 0)
+        
+        return f"""## QUALITY MANAGEMENT SUMMARY
 
-**Analysis Date:** {datetime.now().strftime('%B %d, %Y')}
-**Total Returns Analyzed:** {total_returns}
-**Quality-Related Returns:** {quality_count} ({quality_percentage:.1f}%)
+Total Returns Analyzed: {total_returns}
+Quality-Related Returns: {quality_count} ({quality_pct:.1f}%)
+Top Return Category: {top_category[0]} ({top_category[1]} returns)
 
-## KEY FINDINGS
+## CRITICAL QUALITY ISSUES
 
-1. **Primary Return Category:** {top_category[0]} ({top_category[1]} returns, {top_category[1]/total_returns*100:.1f}%)
-2. **Quality Impact:** {quality_percentage:.1f}% of returns are quality-related
-3. **Multi-Source Analysis:** Data unified from PDF, FBA, and Ledger sources
+Based on the data, the following quality issues require immediate attention:
+1. {quality_pct:.1f}% of returns are quality-related
+2. Top return reason: {top_category[0]}
+3. Multiple products showing consistent quality patterns
 
-## IMMEDIATE ACTIONS REQUIRED
+## IMMEDIATE ACTION ITEMS
 
-1. **Quality Investigation**
-   - Review all {quality_count} quality-related returns
-   - Identify potential patterns for MDR reporting
-   - Document findings in quality system
-
-2. **Product Focus**
-   - Prioritize top products with highest return rates
-   - Conduct root cause analysis
-   - Update inspection criteria
-
-3. **Customer Safety**
-   - Review Medical/Health Concerns category immediately
-   - Assess need for customer notifications
-   - Document in complaint files
+1. Investigate all {quality_count} quality-related returns
+2. Review top products for common failure modes
+3. Update inspection criteria based on return reasons
+4. Document findings for potential CAPA
 
 ## RECOMMENDATIONS
 
-- Implement enhanced incoming inspection for top return categories
-- Update IFUs to address usage difficulty issues  
+- Implement enhanced quality controls for identified issues
 - Consider design modifications for comfort/fit problems
-- Track improvement metrics after interventions
+- Update IFUs to address usage difficulties
+- Monitor improvement metrics after interventions"""
 
-## NEXT STEPS
-
-1. Schedule quality review meeting within 48 hours
-2. Assign CAPA owners for top 3 issues
-3. Report findings to management
-4. Monitor trends weekly for 30 days
-
-*Note: This is an automated analysis. Please review with quality team for final decisions.*
-"""
-        
-        return insights
-
-# Export main classes
-__all__ = ['EnhancedAIAnalyzer', 'APIClient']
+# Export classes
+__all__ = ['EnhancedAIAnalyzer', 'APIClient', 'AIProvider']
