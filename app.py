@@ -1,13 +1,14 @@
 """
 Vive Health Quality Complaint Categorizer
 AI-Powered Return Reason Classification Tool
-Version: 7.0 - Multi-Provider Support with Correct Export Format
+Version: 8.0 - Enhanced with Product Tracking & Power Modes
 
 Key Features:
-- Choose between OpenAI, Claude, or both AI providers
-- Preserves exact input format, only fills Column K
-- Supports PDF, Excel, CSV, and FBA return files
-- Automatic API key loading from Streamlit secrets
+- Dual AI analysis for maximum accuracy
+- Adjustable token limits for complex tasks
+- Product Identifier Tag tracking
+- Empty row handling
+- Support for multiple file formats
 """
 
 import streamlit as st
@@ -27,6 +28,14 @@ import sys
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Set page config first
+st.set_page_config(
+    page_title="Vive Health Return Categorizer",
+    page_icon="🏥",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
 
 # Check for required modules
 try:
@@ -62,12 +71,12 @@ except ImportError:
 # App Configuration
 APP_CONFIG = {
     'title': 'Vive Health Medical Device Return Categorizer',
-    'version': '7.0',
+    'version': '8.0',
     'company': 'Vive Health',
-    'description': 'Multi-Provider AI Classification - Column K Categorization'
+    'description': 'AI-Powered Quality Management Tool'
 }
 
-# Cyberpunk color scheme
+# Enhanced color scheme
 COLORS = {
     'primary': '#00D9FF',
     'secondary': '#FF006E',
@@ -80,7 +89,8 @@ COLORS = {
     'text': '#E0E0E0',
     'muted': '#666680',
     'openai': '#74AA9C',
-    'claude': '#D4A574'
+    'claude': '#D4A574',
+    'quality': '#FF4444'
 }
 
 # Medical Device Return Categories
@@ -100,6 +110,16 @@ RETURN_REASONS = [
     'Medical/Health Concerns',
     'Price/Value',
     'Other/Miscellaneous'
+]
+
+# Quality-related categories for highlighting
+QUALITY_CATEGORIES = [
+    'Product Defects/Quality',
+    'Performance/Effectiveness',
+    'Missing Components',
+    'Design/Material Issues',
+    'Stability/Positioning Issues',
+    'Medical/Health Concerns'
 ]
 
 # FBA reason code mapping
@@ -132,11 +152,11 @@ FBA_REASON_MAP = {
     'ARRIVED_LATE': 'Shipping/Fulfillment Issues'
 }
 
-def inject_cyberpunk_css():
-    """Inject cyberpunk-themed CSS"""
+def inject_simple_css():
+    """Inject simple, clean CSS styling"""
     st.markdown(f"""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
     
     :root {{
         --primary: {COLORS['primary']};
@@ -151,113 +171,73 @@ def inject_cyberpunk_css():
         --muted: {COLORS['muted']};
         --openai: {COLORS['openai']};
         --claude: {COLORS['claude']};
+        --quality: {COLORS['quality']};
     }}
     
-    html, body, .stApp {{
-        background: linear-gradient(135deg, var(--dark) 0%, var(--light) 100%);
-        color: var(--text);
-        font-family: 'Rajdhani', sans-serif;
+    .main-header {{
+        background: linear-gradient(135deg, rgba(0, 217, 255, 0.1) 0%, rgba(255, 0, 110, 0.1) 100%);
+        border: 2px solid var(--primary);
+        border-radius: 15px;
+        padding: 2rem;
+        text-align: center;
+        margin-bottom: 2rem;
     }}
     
-    h1, h2, h3 {{
-        font-family: 'Orbitron', sans-serif;
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
-    }}
-    
-    h1 {{
+    .main-title {{
+        font-size: 2.5em;
+        font-weight: 700;
         background: linear-gradient(90deg, var(--primary) 0%, var(--secondary) 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        text-shadow: 0 0 30px rgba(0, 217, 255, 0.4);
-        font-size: 2.5em;
-        text-align: center;
-        margin-bottom: 0.5em;
+        margin: 0;
     }}
     
-    .provider-selector {{
-        background: rgba(0, 217, 255, 0.1);
+    .format-box {{
+        background: rgba(26, 26, 46, 0.8);
+        border: 1px solid var(--accent);
+        border-radius: 10px;
+        padding: 1.5rem;
+        margin: 1rem 0;
+    }}
+    
+    .ai-config-box {{
+        background: rgba(0, 217, 255, 0.05);
         border: 2px solid var(--primary);
         border-radius: 15px;
         padding: 1.5rem;
-        margin: 1rem 0;
-        box-shadow: 0 0 30px rgba(0, 217, 255, 0.3);
-    }}
-    
-    .neon-box {{
-        background: rgba(10, 10, 15, 0.9);
-        border: 1px solid var(--primary);
-        border-radius: 10px;
-        padding: 1.5rem;
-        box-shadow: 0 0 20px rgba(0, 217, 255, 0.4);
-        margin: 1rem 0;
-    }}
-    
-    .success-box {{
-        background: rgba(0, 245, 160, 0.1);
-        border: 1px solid var(--success);
-        border-radius: 10px;
-        padding: 1rem;
-        box-shadow: 0 0 15px rgba(0, 245, 160, 0.2);
-    }}
-    
-    .error-box {{
-        background: rgba(255, 0, 84, 0.1);
-        border: 1px solid var(--danger);
-        border-radius: 10px;
-        padding: 1rem;
-        box-shadow: 0 0 15px rgba(255, 0, 84, 0.2);
-    }}
-    
-    .metric-card {{
-        background: rgba(26, 26, 46, 0.8);
-        border: 1px solid rgba(0, 217, 255, 0.4);
-        border-radius: 10px;
-        padding: 1.5rem;
+        margin: 1.5rem 0;
         text-align: center;
-        transition: all 0.3s ease;
     }}
     
-    .metric-card:hover {{
-        transform: translateY(-5px) scale(1.02);
-        box-shadow: 0 10px 30px rgba(0, 217, 255, 0.4);
+    .results-header {{
+        background: rgba(0, 245, 160, 0.1);
+        border: 2px solid var(--success);
+        border-radius: 15px;
+        padding: 1.5rem;
+        margin: 2rem 0;
     }}
     
-    .category-badge {{
-        display: inline-block;
-        padding: 0.4rem 0.8rem;
-        border-radius: 5px;
-        font-weight: 600;
-        margin: 0.25rem;
+    .stMetric {{
+        background: rgba(26, 26, 46, 0.6);
+        padding: 1rem;
+        border-radius: 10px;
+        border: 1px solid rgba(0, 217, 255, 0.3);
     }}
     
     .stButton > button {{
-        font-family: 'Rajdhani', sans-serif;
         font-weight: 600;
-        background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
-        color: var(--dark);
-        border: none;
-        padding: 0.75rem 2rem;
-        border-radius: 5px;
         transition: all 0.3s ease;
-        box-shadow: 0 4px 15px rgba(0, 217, 255, 0.4);
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
     }}
     
     .stButton > button:hover {{
         transform: translateY(-2px);
-        box-shadow: 0 6px 25px rgba(0, 217, 255, 0.6);
+        box-shadow: 0 5px 15px rgba(0, 217, 255, 0.3);
     }}
     
-    .provider-button {{
-        background: rgba(116, 170, 156, 0.2) !important;
-        border: 2px solid var(--openai) !important;
-    }}
-    
-    .provider-button-claude {{
-        background: rgba(212, 165, 116, 0.2) !important;
-        border: 2px solid var(--claude) !important;
+    /* Simple styling for file uploader */
+    .uploadedFile {{
+        border: 1px solid var(--primary);
+        border-radius: 5px;
     }}
     
     #MainMenu, footer, header {{
@@ -281,7 +261,10 @@ def initialize_session_state():
         'selected_provider': 'openai',
         'api_key_openai': '',
         'api_key_claude': '',
-        'api_keys_configured': False
+        'api_keys_configured': False,
+        'power_mode': 'standard',  # standard or high
+        'use_dual_ai': False,
+        'max_tokens': 100  # Default for standard mode
     }
     
     for key, value in defaults.items():
@@ -311,85 +294,6 @@ def check_streamlit_secrets():
         logger.warning(f"Error checking secrets: {e}")
     
     return keys_found
-
-def setup_ai_provider():
-    """Setup AI provider with selection options"""
-    st.markdown("""
-    <div class="provider-selector">
-        <h3 style="color: var(--primary); margin-top: 0;">🤖 AI PROVIDER CONFIGURATION</h3>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Check for keys in secrets
-    secret_keys = check_streamlit_secrets()
-    
-    # Provider selection
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        provider_options = ["openai", "claude", "both"]
-        provider = st.selectbox(
-            "Select AI Provider",
-            provider_options,
-            key="provider_select",
-            help="Choose which AI provider to use for categorization"
-        )
-        st.session_state.selected_provider = provider
-    
-    # API key configuration
-    with col2:
-        if provider in ["openai", "both"]:
-            if 'openai' in secret_keys:
-                st.success("✅ OpenAI key found in secrets")
-                st.session_state.api_key_openai = secret_keys['openai']
-                os.environ['OPENAI_API_KEY'] = secret_keys['openai']
-            else:
-                openai_key = st.text_input(
-                    "OpenAI API Key",
-                    type="password",
-                    placeholder="sk-...",
-                    key="openai_key_input",
-                    value=st.session_state.api_key_openai
-                )
-                if openai_key:
-                    st.session_state.api_key_openai = openai_key
-                    os.environ['OPENAI_API_KEY'] = openai_key
-    
-    with col3:
-        if provider in ["claude", "both"]:
-            if 'claude' in secret_keys:
-                st.success("✅ Claude key found in secrets")
-                st.session_state.api_key_claude = secret_keys['claude']
-                os.environ['ANTHROPIC_API_KEY'] = secret_keys['claude']
-            else:
-                claude_key = st.text_input(
-                    "Claude API Key",
-                    type="password",
-                    placeholder="sk-ant-...",
-                    key="claude_key_input",
-                    value=st.session_state.api_key_claude
-                )
-                if claude_key:
-                    st.session_state.api_key_claude = claude_key
-                    os.environ['ANTHROPIC_API_KEY'] = claude_key
-    
-    # Check if keys are configured
-    keys_configured = False
-    if provider == "openai" and (st.session_state.api_key_openai or 'openai' in secret_keys):
-        keys_configured = True
-    elif provider == "claude" and (st.session_state.api_key_claude or 'claude' in secret_keys):
-        keys_configured = True
-    elif provider == "both" and ((st.session_state.api_key_openai or 'openai' in secret_keys) and 
-                                  (st.session_state.api_key_claude or 'claude' in secret_keys)):
-        keys_configured = True
-    
-    st.session_state.api_keys_configured = keys_configured
-    
-    # Show status
-    if keys_configured:
-        st.success(f"✅ {provider.upper()} provider configured and ready")
-    else:
-        st.warning(f"⚠️ Please configure API key(s) for {provider}")
 
 def get_ai_client():
     """Get or create AI client based on selected provider"""
@@ -424,8 +328,292 @@ def clean_dataframe(df):
     
     return df
 
+def display_required_format():
+    """Display the required file format"""
+    st.markdown("""
+    <div class="format-box">
+        <h4 style="color: var(--primary);">📋 Required File Format</h4>
+        <p>Your file must contain these columns (names are flexible):</p>
+        <ul>
+            <li><strong>Complaint</strong> - The return reason/comment text (Required)</li>
+            <li><strong>Category</strong> - Where AI will place the categorization (Will be added if missing)</li>
+            <li><strong>Product Identifier</strong> - Product name/SKU (Optional but recommended)</li>
+            <li><strong>Order #</strong> - Order number (Optional)</li>
+            <li><strong>Source</strong> - Where the complaint came from (Optional)</li>
+        </ul>
+        <p style="color: var(--accent); margin-top: 1rem;">
+            💡 The tool will automatically detect your columns and only fill the Category column
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+def setup_simplified_ai():
+    """Simplified AI setup with power levels"""
+    st.markdown("""
+    <div class="ai-config-box">
+        <h3 style="color: var(--primary);">⚡ AI Configuration</h3>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Check for keys in secrets
+    secret_keys = check_streamlit_secrets()
+    
+    col1, col2, col3 = st.columns([1, 1, 1])
+    
+    with col1:
+        st.markdown("### 🤖 AI Provider")
+        provider_options = {
+            "openai": "🟢 OpenAI (GPT)",
+            "claude": "🟠 Claude (Anthropic)",
+            "both": "🔷 Both (Maximum Accuracy)"
+        }
+        
+        provider = st.radio(
+            "Select Provider",
+            options=list(provider_options.keys()),
+            format_func=lambda x: provider_options[x],
+            key="provider_radio",
+            help="Using both providers compares results for maximum accuracy"
+        )
+        st.session_state.selected_provider = provider
+        
+        # Show dual AI option only when "both" is selected
+        if provider == "both":
+            st.session_state.use_dual_ai = st.checkbox(
+                "🔄 Compare both AI results",
+                value=True,
+                help="Get categorization from both AIs for comparison"
+            )
+    
+    with col2:
+        st.markdown("### ⚡ Power Level")
+        
+        # Detect file size to recommend settings
+        file_size_info = ""
+        if st.session_state.processed_data is not None:
+            num_rows = len(st.session_state.processed_data)
+            if num_rows < 500:
+                file_size_info = "✅ Small file detected (< 500 rows)"
+                recommended = "standard"
+            elif num_rows < 2000:
+                file_size_info = "📊 Medium file detected (500-2000 rows)"
+                recommended = "standard"
+            else:
+                file_size_info = "📈 Large file detected (> 2000 rows)"
+                recommended = "high"
+            
+            st.info(file_size_info)
+        
+        power_mode = st.radio(
+            "Processing Power",
+            options=["standard", "high"],
+            format_func=lambda x: {
+                "standard": "⚡ Standard (Fast, ~50 tokens)",
+                "high": "⚡⚡ High Power (Accurate, ~200 tokens)"
+            }[x],
+            key="power_radio",
+            help="High power uses more tokens for complex categorization"
+        )
+        
+        st.session_state.power_mode = power_mode
+        st.session_state.max_tokens = 50 if power_mode == "standard" else 200
+        
+        # Show token info
+        if power_mode == "standard":
+            st.caption("Best for: Files < 2000 rows, clear complaints")
+        else:
+            st.caption("Best for: Large files, ambiguous complaints")
+    
+    with col3:
+        st.markdown("### 🔑 API Keys")
+        
+        # Show key status
+        if provider in ["openai", "both"]:
+            if 'openai' in secret_keys:
+                st.success("✅ OpenAI key configured")
+                st.session_state.api_key_openai = secret_keys['openai']
+                os.environ['OPENAI_API_KEY'] = secret_keys['openai']
+            else:
+                openai_key = st.text_input(
+                    "OpenAI API Key",
+                    type="password",
+                    placeholder="sk-...",
+                    key="openai_key_input"
+                )
+                if openai_key:
+                    st.session_state.api_key_openai = openai_key
+                    os.environ['OPENAI_API_KEY'] = openai_key
+        
+        if provider in ["claude", "both"]:
+            if 'claude' in secret_keys:
+                st.success("✅ Claude key configured")
+                st.session_state.api_key_claude = secret_keys['claude']
+                os.environ['ANTHROPIC_API_KEY'] = secret_keys['claude']
+            else:
+                claude_key = st.text_input(
+                    "Claude API Key",
+                    type="password",
+                    placeholder="sk-ant-...",
+                    key="claude_key_input"
+                )
+                if claude_key:
+                    st.session_state.api_key_claude = claude_key
+                    os.environ['ANTHROPIC_API_KEY'] = claude_key
+    
+    # Check configuration
+    keys_configured = False
+    if provider == "openai" and (st.session_state.api_key_openai or 'openai' in secret_keys):
+        keys_configured = True
+    elif provider == "claude" and (st.session_state.api_key_claude or 'claude' in secret_keys):
+        keys_configured = True
+    elif provider == "both" and ((st.session_state.api_key_openai or 'openai' in secret_keys) and 
+                                  (st.session_state.api_key_claude or 'claude' in secret_keys)):
+        keys_configured = True
+    
+    st.session_state.api_keys_configured = keys_configured
+    
+    # Show configuration summary
+    if keys_configured:
+        config_summary = f"""
+        ✅ **Configuration Ready**
+        - Provider: {provider_options[provider]}
+        - Power: {"⚡⚡ High" if power_mode == "high" else "⚡ Standard"}
+        - Tokens: ~{st.session_state.max_tokens} per categorization
+        """
+        st.success(config_summary)
+    else:
+        st.warning(f"⚠️ Please configure API key(s) for {provider}")
+    
+    return keys_configured
+
+def process_complaints_file(file_content, filename: str) -> pd.DataFrame:
+    """Process complaints file - properly capture all columns including Product Identifier Tag"""
+    try:
+        # Read file
+        if filename.endswith('.csv'):
+            df = pd.read_csv(io.BytesIO(file_content))
+        else:
+            df = pd.read_excel(io.BytesIO(file_content))
+        
+        # Clean columns
+        df = clean_dataframe(df)
+        
+        # Log columns found
+        logger.info(f"Columns in uploaded file: {df.columns.tolist()}")
+        logger.info(f"Number of columns: {len(df.columns)}")
+        
+        # Look for Complaint column (required)
+        complaint_column = None
+        for col in df.columns:
+            if 'complaint' in col.lower():
+                complaint_column = col
+                logger.info(f"Found complaint column: '{col}'")
+                break
+        
+        if not complaint_column:
+            st.error("❌ No 'Complaint' column found. Please ensure your file has a 'Complaint' column.")
+            return None
+        
+        # Look for Category column
+        category_column = None
+        for col in df.columns:
+            if 'category' in col.lower():
+                category_column = col
+                logger.info(f"Found category column: '{col}'")
+                break
+        
+        if not category_column:
+            # Add Category column if it doesn't exist
+            df['Category'] = ''
+            category_column = 'Category'
+            logger.info("Added Category column to dataframe")
+        else:
+            # Clear existing categories for AI to refill
+            df[category_column] = ''
+        
+        # Look for Product Identifier Tag column (Column B in your file)
+        product_column = None
+        product_search_terms = ['product identifier tag', 'product identifier', 'product', 'item']
+        
+        # First try exact matches
+        for term in product_search_terms:
+            for col in df.columns:
+                if col.lower() == term:
+                    product_column = col
+                    logger.info(f"Found product column: '{col}'")
+                    break
+            if product_column:
+                break
+        
+        # If not found, try partial matches
+        if not product_column:
+            for term in product_search_terms:
+                for col in df.columns:
+                    if term in col.lower():
+                        product_column = col
+                        logger.info(f"Found product column by partial match: '{col}'")
+                        break
+                if product_column:
+                    break
+        
+        # If still not found, check if Column B exists (by position)
+        if not product_column and len(df.columns) > 1:
+            # Column B is index 1 (0-based)
+            product_column = df.columns[1]
+            logger.info(f"Using column at position B as product column: '{product_column}'")
+        
+        # Remove rows that have no complaint data (empty or just whitespace)
+        initial_row_count = len(df)
+        
+        # Filter out rows where complaint is NaN, None, empty string, or just whitespace
+        df_filtered = df[df[complaint_column].notna()]  # Remove NaN
+        df_filtered = df_filtered[df_filtered[complaint_column] != '']  # Remove empty strings
+        df_filtered = df_filtered[df_filtered[complaint_column].str.strip() != '']  # Remove whitespace-only
+        
+        # Also filter out rows that might have "FALSE" or other non-complaint data
+        if product_column:
+            # Remove rows where product column is "FALSE" and complaint is empty
+            mask = ~((df_filtered[product_column] == 'FALSE') & 
+                    (df_filtered[complaint_column].str.strip() == ''))
+            df_filtered = df_filtered[mask]
+        
+        rows_removed = initial_row_count - len(df_filtered)
+        if rows_removed > 0:
+            logger.info(f"Removed {rows_removed} empty rows")
+            st.info(f"📋 Filtered out {rows_removed} empty rows")
+        
+        # Create a standardized dataframe for processing
+        df_standardized = df_filtered.copy()
+        
+        # Ensure we have the key columns in the standardized version
+        if 'Complaint' not in df_standardized.columns:
+            df_standardized['Complaint'] = df_filtered[complaint_column]
+        
+        if 'Category' not in df_standardized.columns:
+            df_standardized['Category'] = df_filtered[category_column]
+        
+        if product_column and 'Product Identifier Tag' not in df_standardized.columns:
+            df_standardized['Product Identifier Tag'] = df_filtered[product_column]
+        
+        # Add FBA_Reason_Code if not present (for compatibility)
+        if 'FBA_Reason_Code' not in df_standardized.columns:
+            df_standardized['FBA_Reason_Code'] = ''
+        
+        # Log final structure
+        logger.info(f"Final columns: {df_standardized.columns.tolist()}")
+        logger.info(f"Rows after filtering: {len(df_standardized)}")
+        
+        return df_standardized
+            
+    except Exception as e:
+        logger.error(f"Error processing file: {e}")
+        st.error(f"Error processing file: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return None
+
 def parse_pdf_returns(pdf_file) -> pd.DataFrame:
-    """Parse Amazon Seller Central returns PDF - flexible format"""
+    """Parse Amazon Seller Central returns PDF"""
     if not PDFPLUMBER_AVAILABLE:
         st.error("PDF parsing requires pdfplumber. Install with: pip install pdfplumber")
         return None
@@ -460,10 +648,9 @@ def parse_pdf_returns(pdf_file) -> pd.DataFrame:
                     comment_match = re.search(r'Buyer Comment:\s*(.+?)(?:Request Date|Order Date|$)', return_block, re.DOTALL)
                     date_match = re.search(r'Request Date:\s*(\d{2}/\d{2}/\d{4})', return_block)
                     
-                    # Build row data flexibly
+                    # Build row data
                     row = {}
                     
-                    # Add whatever columns we can extract
                     if date_match:
                         row['Date'] = date_match.group(1)
                     
@@ -484,22 +671,14 @@ def parse_pdf_returns(pdf_file) -> pd.DataFrame:
                     if order_id:
                         row['Order #'] = order_id
                     
-                    # Add source
                     row['Source'] = 'PDF'
-                    
-                    # Add empty Category for AI to fill
                     row['Category'] = ''
                     
-                    if row:  # Only add if we extracted something
+                    if row and 'Complaint' in row:  # Only add if we have a complaint
                         returns_data.append(row)
         
         if returns_data:
-            df = pd.DataFrame(returns_data)
-            # Ensure we have at least a complaint column
-            if 'Complaint' not in df.columns:
-                st.warning("No buyer comments found in PDF")
-                return None
-            return df
+            return pd.DataFrame(returns_data)
         else:
             st.warning("No return data found in PDF")
             return None
@@ -510,32 +689,31 @@ def parse_pdf_returns(pdf_file) -> pd.DataFrame:
         return None
 
 def process_fba_returns(file_content, filename: str) -> pd.DataFrame:
-    """Process FBA return report - flexible format"""
+    """Process FBA return report"""
     try:
         # Read tab-separated file
         df = pd.read_csv(io.BytesIO(file_content), sep='\t')
         
-        # Build result dataframe with available columns
+        # Build result dataframe
         result_data = {}
         
-        # Map columns flexibly
+        # Map columns
         if 'return-date' in df.columns:
             try:
                 result_data['Date'] = pd.to_datetime(df['return-date']).dt.strftime('%m/%d/%Y')
             except:
                 result_data['Date'] = df['return-date']
         
-        # Look for customer comments as complaint
+        # Customer comments as complaint
         if 'customer-comments' in df.columns:
             result_data['Complaint'] = df['customer-comments']
         elif 'comments' in df.columns:
             result_data['Complaint'] = df['comments']
         else:
-            # No complaint column - can't process
             st.error("No customer comments column found in FBA file")
             return None
         
-        # Add other columns if available
+        # Product info
         if 'product-name' in df.columns:
             result_data['Product Identifier Tag'] = df['product-name']
         
@@ -548,17 +726,19 @@ def process_fba_returns(file_content, filename: str) -> pd.DataFrame:
         if 'order-id' in df.columns:
             result_data['Order #'] = df['order-id']
         
-        # Add source
         result_data['Source'] = 'FBA'
         
-        # Add FBA reason code if available
         if 'reason' in df.columns:
             result_data['FBA_Reason_Code'] = df['reason']
         
         # Create dataframe
         processed_df = pd.DataFrame(result_data)
         
-        # Add Category column for AI to fill
+        # Filter out empty complaints
+        processed_df = processed_df[processed_df['Complaint'].notna()]
+        processed_df = processed_df[processed_df['Complaint'].str.strip() != '']
+        
+        # Add Category column
         processed_df['Category'] = ''
         
         return processed_df
@@ -568,81 +748,16 @@ def process_fba_returns(file_content, filename: str) -> pd.DataFrame:
         st.error(f"Error processing FBA returns: {str(e)}")
         return None
 
-def process_complaints_file(file_content, filename: str) -> pd.DataFrame:
-    """Process complaints file - preserve exact column structure"""
-    try:
-        # Read file
-        if filename.endswith('.csv'):
-            df = pd.read_csv(io.BytesIO(file_content))
-        else:
-            df = pd.read_excel(io.BytesIO(file_content))
-        
-        # Clean columns
-        df = clean_dataframe(df)
-        
-        # Log columns found
-        logger.info(f"Columns in uploaded file: {df.columns.tolist()}")
-        
-        # Look for Complaint column (case-sensitive check first, then case-insensitive)
-        complaint_found = False
-        
-        # First check for exact "Complaint" (capital C)
-        if 'Complaint' in df.columns:
-            complaint_found = True
-            logger.info("Found 'Complaint' column (exact match)")
-        else:
-            # If not found, check case-insensitive
-            for col in df.columns:
-                if col.lower() == 'complaint':
-                    df = df.rename(columns={col: 'Complaint'})
-                    complaint_found = True
-                    logger.info(f"Found complaint column '{col}', renamed to 'Complaint'")
-                    break
-        
-        if not complaint_found:
-            st.error("No 'Complaint' column found in the file. Please ensure your file has a 'Complaint' column.")
-            return None
-        
-        # Ensure Category column exists (this is what we'll fill)
-        if 'Category' not in df.columns:
-            # Find where to insert it - typically Column K (11th column)
-            if len(df.columns) >= 10:
-                # Insert at position 10 (11th column, 0-indexed)
-                cols = df.columns.tolist()
-                cols.insert(10, 'Category')
-                df['Category'] = ''
-                df = df[cols]
-            else:
-                # Just add at the end if file has fewer columns
-                df['Category'] = ''
-        else:
-            # Clear existing categories for AI to refill
-            df['Category'] = ''
-        
-        # Add FBA_Reason_Code if not present (for FBA compatibility)
-        if 'FBA_Reason_Code' not in df.columns:
-            df['FBA_Reason_Code'] = ''
-        
-        # Log final structure
-        logger.info(f"Final columns: {df.columns.tolist()}")
-        logger.info(f"Category column index: {df.columns.tolist().index('Category')}")
-        
-        return df
-            
-    except Exception as e:
-        logger.error(f"Error processing file: {e}")
-        st.error(f"Error processing file: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
-        return None
-
 def categorize_with_ai(complaint: str, fba_reason: str = None, ai_client=None) -> str:
-    """Use AI to categorize a complaint"""
+    """Use AI to categorize a complaint with configurable power level"""
     
     if not ai_client or not ai_client.is_available():
         return fallback_categorization(complaint, fba_reason)
     
-    # Create prompt
+    # Get token limit from session state
+    max_tokens = st.session_state.get('max_tokens', 50)
+    
+    # Create prompt (same as before but with power-aware context)
     reasons_list = "\n".join([f"- {reason}" for reason in RETURN_REASONS])
     
     fba_context = ""
@@ -650,7 +765,10 @@ def categorize_with_ai(complaint: str, fba_reason: str = None, ai_client=None) -
         suggested_reason = FBA_REASON_MAP[fba_reason]
         fba_context = f"\n\nFBA reason code: '{fba_reason}' typically indicates '{suggested_reason}'."
     
-    prompt = f"""You are a quality management expert for medical devices. Analyze this customer complaint and select the SINGLE MOST APPROPRIATE return category.
+    # Adjust prompt based on power mode
+    if st.session_state.get('power_mode') == 'high':
+        # More detailed prompt for high power mode
+        prompt = f"""You are a quality management expert for medical devices. Carefully analyze this customer complaint and select the SINGLE MOST APPROPRIATE return category.
 
 Customer Complaint: {complaint}{fba_context}
 
@@ -658,40 +776,120 @@ Available Medical Device Return Categories:
 {reasons_list}
 
 Instructions:
-1. Read the complaint carefully
-2. Choose the ONE category that best matches the primary issue
-3. Consider medical device quality and safety implications
-4. If multiple categories could apply, choose the most specific one
-5. Only use "Other/Miscellaneous" if no other category fits
+1. Read the complaint carefully and consider all nuances
+2. Look for keywords but also understand context
+3. Choose the ONE category that best matches the primary issue
+4. Consider medical device quality and safety implications
+5. If multiple categories could apply, choose the most specific one
+6. Only use "Other/Miscellaneous" if no other category fits
 
-Respond with ONLY the exact category text from the list, nothing else."""
+Think step by step about which category best fits, then respond with ONLY the exact category name."""
+    else:
+        # Simpler prompt for standard mode
+        prompt = f"""Categorize this medical device return complaint.
+
+Complaint: {complaint}{fba_context}
+
+Categories:
+{reasons_list}
+
+Reply with ONLY the exact category name that best fits."""
 
     try:
-        response = ai_client.call_api(
-            messages=[
-                {"role": "system", "content": "You are a quality management expert categorizing medical device returns. Always respond with the exact text of one return category from the provided list."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.1,
-            max_tokens=50
-        )
+        # Check if we should use dual AI
+        if st.session_state.get('use_dual_ai') and st.session_state.get('selected_provider') == 'both':
+            # Get results from both providers
+            results = {}
+            
+            # Try OpenAI
+            openai_result = ai_client.call_api(
+                messages=[
+                    {"role": "system", "content": "You are a quality expert. Always respond with exactly one category from the list."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1,
+                max_tokens=max_tokens,
+                use_specific_provider='openai'
+            )
+            
+            if openai_result['success']:
+                openai_category = openai_result['result'].strip()
+                # Validate category
+                for valid_cat in RETURN_REASONS:
+                    if valid_cat.lower() in openai_category.lower() or openai_category.lower() in valid_cat.lower():
+                        results['openai'] = valid_cat
+                        break
+                if 'openai' not in results:
+                    results['openai'] = 'Other/Miscellaneous'
+            
+            # Try Claude
+            claude_result = ai_client.call_api(
+                messages=[
+                    {"role": "system", "content": "You are a quality expert. Always respond with exactly one category from the list."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1,
+                max_tokens=max_tokens,
+                use_specific_provider='claude'
+            )
+            
+            if claude_result['success']:
+                claude_category = claude_result['result'].strip()
+                # Validate category
+                for valid_cat in RETURN_REASONS:
+                    if valid_cat.lower() in claude_category.lower() or claude_category.lower() in valid_cat.lower():
+                        results['claude'] = valid_cat
+                        break
+                if 'claude' not in results:
+                    results['claude'] = 'Other/Miscellaneous'
+            
+            # If both agree, use that category
+            if len(results) == 2 and results['openai'] == results['claude']:
+                return results['openai']
+            # If they disagree, prefer the one that's not "Other/Miscellaneous"
+            elif len(results) == 2:
+                if results['openai'] != 'Other/Miscellaneous':
+                    return results['openai']
+                else:
+                    return results['claude']
+            # If only one worked, use that
+            elif len(results) == 1:
+                return list(results.values())[0]
+            else:
+                return fallback_categorization(complaint, fba_reason)
         
-        if response['success']:
-            reason = response['result'].strip()
-            
-            # Validate the reason
-            if reason in RETURN_REASONS:
-                return reason
-            
-            # Try case-insensitive match
-            for r in RETURN_REASONS:
-                if r.lower() == reason.lower():
-                    return r
-            
-            # Fallback
-            return fallback_categorization(complaint, fba_reason)
         else:
-            return fallback_categorization(complaint, fba_reason)
+            # Single provider mode
+            response = ai_client.call_api(
+                messages=[
+                    {"role": "system", "content": "You are a quality management expert categorizing medical device returns. Always respond with the exact text of one return category from the provided list."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1,
+                max_tokens=max_tokens
+            )
+            
+            if response['success']:
+                reason = response['result'].strip()
+                
+                # Validate the reason
+                if reason in RETURN_REASONS:
+                    return reason
+                
+                # Try case-insensitive match
+                for r in RETURN_REASONS:
+                    if r.lower() == reason.lower():
+                        return r
+                
+                # Try partial match
+                for r in RETURN_REASONS:
+                    if r.lower() in reason.lower() or reason.lower() in r.lower():
+                        return r
+                
+                # Fallback
+                return fallback_categorization(complaint, fba_reason)
+            else:
+                return fallback_categorization(complaint, fba_reason)
             
     except Exception as e:
         logger.error(f"Error in AI categorization: {e}")
@@ -738,7 +936,7 @@ def fallback_categorization(complaint: str, fba_reason: str = None) -> str:
     return 'Other/Miscellaneous'
 
 def categorize_all_data(df: pd.DataFrame) -> pd.DataFrame:
-    """Categorize all complaints - only modify Category column"""
+    """Categorize all complaints - only process rows with actual complaint data"""
     
     ai_client = get_ai_client()
     
@@ -749,180 +947,115 @@ def categorize_all_data(df: pd.DataFrame) -> pd.DataFrame:
     progress_bar = st.progress(0)
     status_text = st.empty()
     
-    # Work on a copy
+    # Work on a copy to preserve original structure
     df_copy = df.copy()
     
-    # Ensure Category column exists
-    if 'Category' not in df_copy.columns:
-        st.error("Category column not found in dataframe")
+    # Find the actual complaint and category columns
+    complaint_column = None
+    category_column = None
+    product_column = None
+    
+    # Find Complaint column
+    for col in df_copy.columns:
+        if 'complaint' in col.lower():
+            complaint_column = col
+            break
+    
+    # Find Category column
+    for col in df_copy.columns:
+        if 'category' in col.lower():
+            category_column = col
+            break
+    
+    # Find Product column
+    product_search = ['product identifier tag', 'product identifier', 'product']
+    for term in product_search:
+        for col in df_copy.columns:
+            if term in col.lower():
+                product_column = col
+                break
+        if product_column:
+            break
+    
+    if not complaint_column:
+        st.error("No 'Complaint' column found in dataframe")
         return df
+    
+    if not category_column:
+        st.error("No 'Category' column found in dataframe")
+        return df
+    
+    logger.info(f"Using complaint column: '{complaint_column}'")
+    logger.info(f"Using category column: '{category_column}'")
+    logger.info(f"Using product column: '{product_column}' (if found)")
     
     total_rows = len(df_copy)
     category_counts = Counter()
     product_issues = defaultdict(lambda: defaultdict(int))
     
-    # Look specifically for "Complaint" column (capital C)
-    complaint_column = None
-    if 'Complaint' in df_copy.columns:
-        complaint_column = 'Complaint'
-        logger.info(f"Found 'Complaint' column for categorization")
-    else:
-        # If not found, look case-insensitive as fallback
-        for col in df_copy.columns:
-            if col.lower() == 'complaint':
-                complaint_column = col
-                logger.info(f"Found complaint column '{col}' for categorization")
-                break
-    
-    if not complaint_column:
-        st.error("No 'Complaint' column found! Please ensure your file has a 'Complaint' column.")
-        return df
-    
     # Process each row
     categorized_count = 0
+    skipped_count = 0
+    
     for idx, row in df_copy.iterrows():
-        # Get complaint text from the Complaint column
+        # Get complaint text
         complaint = ""
-        if pd.notna(row.get(complaint_column)) and str(row.get(complaint_column)).strip():
-            complaint = str(row.get(complaint_column))
+        if pd.notna(row[complaint_column]):
+            complaint = str(row[complaint_column]).strip()
         
-        # Get FBA reason if available
-        fba_reason = str(row.get('FBA_Reason_Code', '')) if pd.notna(row.get('FBA_Reason_Code')) else ""
-        
-        # Categorize
-        if complaint or fba_reason:
+        # Skip rows with no complaint data
+        if not complaint or complaint.lower() in ['false', 'true', 'none', 'null', '']:
+            skipped_count += 1
+            # Leave category empty for empty complaints
+            df_copy.at[idx, category_column] = ''
+            logger.debug(f"Skipped row {idx}: no valid complaint data")
+        else:
+            # Get FBA reason if available (for compatibility with FBA files)
+            fba_reason = ""
+            if 'FBA_Reason_Code' in df_copy.columns:
+                fba_reason = str(row.get('FBA_Reason_Code', '')) if pd.notna(row.get('FBA_Reason_Code')) else ""
+            
+            # Categorize using AI
             reason = categorize_with_ai(complaint, fba_reason, ai_client)
-            df_copy.at[idx, 'Category'] = reason
+            df_copy.at[idx, category_column] = reason
             category_counts[reason] += 1
             categorized_count += 1
             
-            # Track by product if column exists
-            product_col = None
-            for col in ['Product Identifier Tag', 'Product Identifier', 'Product']:
-                if col in df_copy.columns:
-                    product_col = col
-                    break
-            
-            if product_col:
-                product = row.get(product_col, 'Unknown')
-                if product and str(product).strip() and product != 'Unknown' and pd.notna(product):
-                    product_issues[str(product)][reason] += 1
-        else:
-            df_copy.at[idx, 'Category'] = 'Other/Miscellaneous'
-            category_counts['Other/Miscellaneous'] += 1
+            # Track by product if we have product column
+            if product_column and pd.notna(row.get(product_column)):
+                product = str(row[product_column]).strip()
+                # Only track if product is meaningful (not FALSE, empty, etc.)
+                if product and product.lower() not in ['false', 'true', 'none', 'null', '']:
+                    product_issues[product][reason] += 1
+                    logger.debug(f"Tracked issue for product: {product}")
         
         # Update progress
         progress = (idx + 1) / total_rows
         progress_bar.progress(progress)
-        status_text.text(f"Processing: {idx + 1}/{total_rows} rows | {categorized_count} categorized...")
+        status_text.text(f"Processing: {idx + 1}/{total_rows} rows | {categorized_count} categorized | {skipped_count} skipped...")
         
         # Small delay to avoid rate limiting
         if (idx + 1) % 10 == 0:
             time.sleep(0.1)
     
-    status_text.text(f"✅ Categorization complete! {categorized_count} complaints categorized.")
+    status_text.text(f"✅ Complete! {categorized_count} complaints categorized, {skipped_count} empty rows skipped.")
     
     # Store summaries
     st.session_state.reason_summary = dict(category_counts)
     st.session_state.product_summary = dict(product_issues)
     
+    # Log summary
+    logger.info(f"Categorization complete: {categorized_count} categorized, {skipped_count} skipped")
+    logger.info(f"Products tracked: {len(product_issues)}")
+    
+    # Return the dataframe with filled categories
     return df_copy
 
-def export_categorized_data(df: pd.DataFrame) -> bytes:
-    """Export data preserving exact input format with Category column filled"""
-    output = io.BytesIO()
-    
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        # Write main data - preserve exact column order
-        df.to_excel(writer, sheet_name='Categorized Complaints', index=False)
-        
-        # Add summary sheet
-        summary_data = []
-        for reason, count in sorted(st.session_state.reason_summary.items(), key=lambda x: x[1], reverse=True):
-            percentage = (count / len(df)) * 100
-            summary_data.append({
-                'Return Reason': reason,
-                'Count': count,
-                'Percentage': f"{percentage:.1f}%"
-            })
-        
-        summary_df = pd.DataFrame(summary_data)
-        summary_df.to_excel(writer, sheet_name='Summary', index=False)
-        
-        # Format the Excel file
-        workbook = writer.book
-        
-        # Format main sheet
-        worksheet1 = writer.sheets['Categorized Complaints']
-        
-        # Auto-adjust column widths based on content
-        for i, col in enumerate(df.columns):
-            # Calculate max length for this column
-            max_len = len(str(col)) + 2  # Column header
-            
-            # Check data in column
-            for val in df[col].astype(str):
-                max_len = max(max_len, len(val))
-            
-            # Set reasonable limits
-            max_len = min(max_len, 50)  # Cap at 50 characters
-            max_len = max(max_len, 10)  # Minimum 10 characters
-            
-            worksheet1.set_column(i, i, max_len)
-        
-        # Highlight Category column - find its position
-        category_col_idx = None
-        for idx, col in enumerate(df.columns):
-            if col == 'Category':
-                category_col_idx = idx
-                break
-        
-        if category_col_idx is not None:
-            # Create highlight format
-            highlight_format = workbook.add_format({
-                'bg_color': '#FFF2CC',
-                'border': 1,
-                'bold': True
-            })
-            
-            # Apply format to Category column
-            worksheet1.set_column(category_col_idx, category_col_idx, 30, highlight_format)
-            
-            # Also highlight the header
-            header_format = workbook.add_format({
-                'bg_color': '#FFD966',
-                'border': 1,
-                'bold': True,
-                'align': 'center'
-            })
-            worksheet1.write(0, category_col_idx, 'Category', header_format)
-        
-        # Format summary sheet
-        worksheet2 = writer.sheets['Summary']
-        worksheet2.set_column('A:A', 30)
-        worksheet2.set_column('B:B', 10)
-        worksheet2.set_column('C:C', 12)
-        
-        # Add chart to summary
-        chart = workbook.add_chart({'type': 'column'})
-        chart.add_series({
-            'categories': ['Summary', 1, 0, len(summary_data), 0],
-            'values': ['Summary', 1, 1, len(summary_data), 1],
-            'name': 'Return Count by Category'
-        })
-        chart.set_title({'name': 'Return Categories Distribution'})
-        chart.set_x_axis({'name': 'Category'})
-        chart.set_y_axis({'name': 'Count'})
-        worksheet2.insert_chart('E2', chart)
-    
-    output.seek(0)
-    return output.getvalue()
-
-def display_results_summary(df: pd.DataFrame):
-    """Display summary of categorization results"""
+def display_results_with_products(df: pd.DataFrame):
+    """Display results with product breakdown"""
     
     st.markdown("""
-    <div class="neon-box">
+    <div class="results-header">
         <h2 style="color: var(--primary); text-align: center;">📊 CATEGORIZATION RESULTS</h2>
     </div>
     """, unsafe_allow_html=True)
@@ -931,346 +1064,282 @@ def display_results_summary(df: pd.DataFrame):
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.markdown(f"""
-        <div class="metric-card">
-            <h3 style="color: var(--primary);">{len(df)}</h3>
-            <p>Total Returns</p>
-        </div>
-        """, unsafe_allow_html=True)
+        st.metric("Total Returns", len(df))
     
     with col2:
-        categorized = len(df[df['Category'] != ''])
-        st.markdown(f"""
-        <div class="metric-card">
-            <h3 style="color: var(--success);">{categorized}</h3>
-            <p>Categorized</p>
-        </div>
-        """, unsafe_allow_html=True)
+        categorized = len(df[df['Category'].notna() & (df['Category'] != '')])
+        st.metric("Categorized", categorized)
     
     with col3:
-        unique_reasons = df['Category'].nunique()
-        st.markdown(f"""
-        <div class="metric-card">
-            <h3 style="color: var(--accent);">{unique_reasons}</h3>
-            <p>Unique Reasons</p>
-        </div>
-        """, unsafe_allow_html=True)
+        if st.session_state.product_summary:
+            st.metric("Products Tracked", len(st.session_state.product_summary))
+        else:
+            st.metric("Products Tracked", 0)
     
     with col4:
-        if st.session_state.reason_summary:
-            top_reason = max(st.session_state.reason_summary.items(), key=lambda x: x[1])[0]
-            st.markdown(f"""
-            <div class="metric-card">
-                <h3 style="color: var(--secondary); font-size: 1em;">{top_reason}</h3>
-                <p>Top Reason</p>
-            </div>
-            """, unsafe_allow_html=True)
+        # Calculate quality percentage
+        quality_count = sum(
+            count for cat, count in st.session_state.reason_summary.items()
+            if cat in QUALITY_CATEGORIES
+        )
+        quality_pct = (quality_count / categorized * 100) if categorized > 0 else 0
+        st.metric("Quality Issues", f"{quality_pct:.1f}%")
     
-    # Show distribution
-    st.markdown("---")
-    st.markdown("### 📈 Return Reason Distribution")
+    # Category distribution
+    st.markdown("### 📈 Return Categories")
     
     col1, col2 = st.columns(2)
     
     with col1:
         st.markdown("#### Top Return Reasons")
-        sorted_reasons = sorted(st.session_state.reason_summary.items(), key=lambda x: x[1], reverse=True)
+        sorted_reasons = sorted(st.session_state.reason_summary.items(), 
+                              key=lambda x: x[1], reverse=True)
+        
         for reason, count in sorted_reasons[:10]:
-            percentage = (count / len(df)) * 100
+            percentage = (count / categorized) * 100 if categorized > 0 else 0
             
-            # Color coding
-            if reason in ['Product Defects/Quality', 'Performance/Effectiveness', 'Missing Components']:
+            # Color coding for quality issues
+            if reason in QUALITY_CATEGORIES:
                 color = COLORS['danger']
+                icon = "🔴"
             elif reason in ['Size/Fit Issues', 'Wrong Product/Misunderstanding']:
                 color = COLORS['warning']
+                icon = "🟡"
             else:
                 color = COLORS['primary']
+                icon = "🔵"
             
             st.markdown(f"""
             <div style="margin: 0.5rem 0;">
-                <div style="display: flex; justify-content: space-between;">
-                    <span style="color: {color};">{reason}</span>
-                    <span>{count} ({percentage:.1f}%)</span>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span>{icon} <span style="color: {color};">{reason}</span></span>
+                    <span style="font-weight: bold;">{count} ({percentage:.1f}%)</span>
                 </div>
-                <div style="background: rgba(255,255,255,0.1); height: 10px; border-radius: 5px;">
-                    <div style="background: {color}; width: {percentage}%; height: 100%; border-radius: 5px;"></div>
+                <div style="background: rgba(255,255,255,0.1); height: 8px; border-radius: 4px; overflow: hidden;">
+                    <div style="background: {color}; width: {percentage}%; height: 100%;"></div>
                 </div>
             </div>
             """, unsafe_allow_html=True)
     
     with col2:
-        # Quality insights
-        st.markdown("#### 🎯 Quality Insights")
+        if st.session_state.product_summary:
+            st.markdown("#### Top Products by Returns")
+            
+            # Calculate total returns per product
+            product_totals = [
+                (prod, sum(cats.values())) 
+                for prod, cats in st.session_state.product_summary.items()
+            ]
+            top_products = sorted(product_totals, key=lambda x: x[1], reverse=True)[:10]
+            
+            for product, total in top_products:
+                # Get top issue for this product
+                top_issue = max(st.session_state.product_summary[product].items(), 
+                              key=lambda x: x[1])
+                
+                # Truncate long product names
+                display_name = product[:50] + "..." if len(product) > 50 else product
+                
+                st.markdown(f"""
+                <div style="margin: 0.5rem 0; padding: 0.5rem; background: rgba(26,26,46,0.5); 
+                          border-radius: 5px; border-left: 3px solid var(--accent);">
+                    <div style="font-weight: bold;">{display_name}</div>
+                    <div style="display: flex; justify-content: space-between; font-size: 0.9em;">
+                        <span style="color: var(--muted);">Total: {total} returns</span>
+                        <span style="color: var(--warning);">Top: {top_issue[0]} ({top_issue[1]})</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+def export_categorized_data(df: pd.DataFrame) -> bytes:
+    """Export data preserving exact input format with Category column filled"""
+    output = io.BytesIO()
+    
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        # Write main data - preserve exact column order and names
+        df.to_excel(writer, sheet_name='Categorized Complaints', index=False)
         
-        quality_categories = ['Product Defects/Quality', 'Performance/Effectiveness', 'Missing Components', 
-                            'Design/Material Issues', 'Stability/Positioning Issues']
-        quality_count = sum(st.session_state.reason_summary.get(cat, 0) for cat in quality_categories)
-        quality_percentage = (quality_count / len(df)) * 100 if len(df) > 0 else 0
+        # Add summary sheet
+        if st.session_state.reason_summary:
+            summary_data = []
+            total = sum(st.session_state.reason_summary.values())
+            
+            for reason, count in sorted(st.session_state.reason_summary.items(), 
+                                       key=lambda x: x[1], reverse=True):
+                percentage = (count / total) * 100 if total > 0 else 0
+                summary_data.append({
+                    'Return Category': reason,
+                    'Count': count,
+                    'Percentage': f"{percentage:.1f}%"
+                })
+            
+            summary_df = pd.DataFrame(summary_data)
+            summary_df.to_excel(writer, sheet_name='Category Summary', index=False)
         
-        st.markdown(f"""
-        <div class="neon-box" style="background: rgba(255, 0, 84, 0.1);">
-            <h4 style="color: var(--danger); margin: 0;">Quality-Related Returns</h4>
-            <h2 style="color: var(--danger); margin: 0.5rem 0;">{quality_percentage:.1f}%</h2>
-            <p style="margin: 0;">({quality_count} complaints)</p>
-        </div>
-        """, unsafe_allow_html=True)
+        # Add quality sheet
+        quality_categories = [
+            'Product Defects/Quality',
+            'Performance/Effectiveness', 
+            'Missing Components',
+            'Design/Material Issues',
+            'Stability/Positioning Issues',
+            'Medical/Health Concerns'
+        ]
+        
+        quality_data = []
+        total_quality_issues = 0
+        
+        for cat in quality_categories:
+            count = st.session_state.reason_summary.get(cat, 0)
+            total_quality_issues += count
+            if count > 0:
+                percentage = (count / sum(st.session_state.reason_summary.values())) * 100
+                quality_data.append({
+                    'Quality Category': cat,
+                    'Count': count,
+                    'Percentage': f"{percentage:.1f}%"
+                })
+        
+        if quality_data:
+            quality_df = pd.DataFrame(quality_data)
+            quality_df.to_excel(writer, sheet_name='Quality Issues', index=False)
+        
+        # Add product analysis if available
+        if st.session_state.product_summary:
+            product_data = []
+            for product, issues in st.session_state.product_summary.items():
+                total_returns = sum(issues.values())
+                top_issue = max(issues.items(), key=lambda x: x[1]) if issues else ('Unknown', 0)
+                
+                product_data.append({
+                    'Product': product[:100],  # Truncate long names
+                    'Total Returns': total_returns,
+                    'Top Issue': top_issue[0],
+                    'Top Issue Count': top_issue[1]
+                })
+            
+            product_df = pd.DataFrame(sorted(product_data, 
+                                           key=lambda x: x['Total Returns'], 
+                                           reverse=True)[:50])  # Top 50 products
+            product_df.to_excel(writer, sheet_name='Product Analysis', index=False)
+        
+        # Format workbook
+        workbook = writer.book
+        
+        # Format main sheet
+        worksheet1 = writer.sheets['Categorized Complaints']
+        
+        # Find Category column
+        category_col_idx = None
+        for idx, col in enumerate(df.columns):
+            if 'category' in col.lower():
+                category_col_idx = idx
+                break
+        
+        # Auto-adjust columns
+        for i, col in enumerate(df.columns):
+            max_len = len(str(col)) + 2
+            
+            # Sample data for width
+            sample_data = df[col].astype(str).head(100)
+            if len(sample_data) > 0:
+                max_len = max(max_len, sample_data.str.len().max())
+            
+            # Set limits
+            if 'complaint' in col.lower():
+                max_len = min(max_len, 50)
+            else:
+                max_len = min(max_len, 40)
+            max_len = max(max_len, 10)
+            
+            worksheet1.set_column(i, i, max_len)
+        
+        # Highlight Category column
+        if category_col_idx is not None:
+            category_format = workbook.add_format({
+                'bg_color': '#FFF2CC',
+                'border': 1
+            })
+            worksheet1.set_column(category_col_idx, category_col_idx, 30, category_format)
+    
+    output.seek(0)
+    return output.getvalue()
+
+def generate_quality_report():
+    """Generate a quality-focused text report"""
+    
+    total_returns = sum(st.session_state.reason_summary.values())
+    quality_issues = {cat: count for cat, count in st.session_state.reason_summary.items() 
+                     if cat in QUALITY_CATEGORIES}
+    total_quality = sum(quality_issues.values())
+    quality_pct = (total_quality / total_returns * 100) if total_returns > 0 else 0
+    
+    report = f"""VIVE HEALTH QUALITY ANALYSIS REPORT
+Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+EXECUTIVE SUMMARY
+================
+Total Returns Analyzed: {total_returns}
+Quality-Related Returns: {total_quality} ({quality_pct:.1f}%)
+Categories Identified: {len(st.session_state.reason_summary)}
+
+QUALITY ISSUES BREAKDOWN
+=======================
+"""
+    
+    for cat, count in sorted(quality_issues.items(), key=lambda x: x[1], reverse=True):
+        pct = (count / total_returns * 100) if total_returns > 0 else 0
+        report += f"{cat}: {count} ({pct:.1f}%)\n"
+    
+    report += f"""
+TOP RETURN CATEGORIES (ALL)
+==========================
+"""
+    
+    for cat, count in sorted(st.session_state.reason_summary.items(), 
+                            key=lambda x: x[1], reverse=True)[:10]:
+        pct = (count / total_returns * 100) if total_returns > 0 else 0
+        report += f"{cat}: {count} ({pct:.1f}%)\n"
+    
+    if st.session_state.product_summary:
+        report += f"""
+PRODUCT-SPECIFIC ISSUES
+======================
+"""
+        product_totals = [(prod, sum(cats.values())) 
+                         for prod, cats in st.session_state.product_summary.items()]
+        
+        for product, total in sorted(product_totals, key=lambda x: x[1], reverse=True)[:10]:
+            top_issue = max(st.session_state.product_summary[product].items(), 
+                          key=lambda x: x[1])
+            report += f"\n{product}\n"
+            report += f"  Total Returns: {total}\n"
+            report += f"  Top Issue: {top_issue[0]} ({top_issue[1]} returns)\n"
+    
+    report += f"""
+RECOMMENDATIONS
+==============
+1. Focus on products with highest quality-related returns
+2. Investigate root causes for top categories
+3. Implement corrective actions for recurring issues
+4. Monitor improvement after interventions
+5. Consider design modifications for persistent problems
+"""
+    
+    return report
 
 def main():
-    """Main application function"""
-    
-    st.set_page_config(
-        page_title=APP_CONFIG['title'],
-        page_icon="🔍",
-        layout="wide",
-        initial_sidebar_state="collapsed"
-    )
+    """Main application function with simplified UI"""
     
     if not AI_AVAILABLE:
         st.error("❌ AI module (enhanced_ai_analysis.py) not found!")
         st.stop()
     
     initialize_session_state()
-    inject_cyberpunk_css()
+    inject_simple_css()
     
     # Header
-    st.markdown(f"""
-    <h1>{APP_CONFIG['title']}</h1>
-    <p style="text-align: center; color: var(--primary); font-size: 1.2em;">
-        {APP_CONFIG['description']}
-    </p>
-    <p style="text-align: center; color: var(--accent); font-size: 1.1em;">
-        📋 Upload your file → 🤖 AI fills the Category column → 📥 Download with categories
-    </p>
-    """, unsafe_allow_html=True)
-    
-    # Show version info
-    with st.expander("ℹ️ Version Info", expanded=False):
-        st.text(f"App Version: {APP_CONFIG['version']}")
-        st.text(f"Python: {sys.version.split()[0]}")
-        st.text(f"Pandas: {pd.__version__}")
-        st.text(f"Streamlit: {st.__version__}")
-    
-    # AI Provider Setup
-    setup_ai_provider()
-    
-    if not st.session_state.api_keys_configured:
-        st.warning("⚠️ Please configure API keys to continue")
-        st.stop()
-    
-    # Instructions
-    with st.expander("📖 How to Use", expanded=False):
-        st.markdown("""
-        ### Quick Guide:
-        1. **Select AI Provider**: Choose between OpenAI, Claude, or both
-        2. **Upload Files**: Excel, CSV, PDF, or FBA return reports
-        3. **Click Categorize**: AI will fill Column K (Category) with return categories
-        4. **Download Results**: Get your file back with Column K completed
-        
-        ### File Requirements:
-        - Must have a column with "Complaint" in the name (case-insensitive)
-        - The tool will add/update the "Category" column (typically Column K)
-        - All other columns are preserved exactly as uploaded
-        
-        ### Return Categories:
-        The AI will categorize returns into one of these categories:
-        - Size/Fit Issues
-        - Comfort Issues
-        - Product Defects/Quality
-        - Performance/Effectiveness
-        - Equipment Compatibility
-        - Wrong Product/Misunderstanding
-        - Customer Error/Changed Mind
-        - And others...
-        """)
-    
-    # File upload
     st.markdown("""
-    <div class="neon-box">
-        <h3 style="color: var(--accent);">📁 UPLOAD FILES</h3>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    uploaded_files = st.file_uploader(
-        "Choose files to categorize",
-        type=['xlsx', 'xls', 'csv', 'txt', 'pdf'],
-        accept_multiple_files=True,
-        help="Upload your complaints file with any column structure - must have a 'Complaint' column"
-    )
-    
-    if uploaded_files:
-        all_data = []
-        
-        with st.spinner("Processing files..."):
-            for file in uploaded_files:
-                file_content = file.read()
-                filename = file.name
-                
-                df = None
-                
-                if filename.endswith('.pdf'):
-                    if PDFPLUMBER_AVAILABLE:
-                        file.seek(0)
-                        df = parse_pdf_returns(file)
-                    else:
-                        st.warning("PDF support requires pdfplumber")
-                
-                elif filename.endswith('.txt'):
-                    df = process_fba_returns(file_content, filename)
-                
-                elif filename.endswith(('.xlsx', '.xls', '.csv')):
-                    df = process_complaints_file(file_content, filename)
-                
-                if df is not None:
-                    all_data.append(df)
-                    st.success(f"✅ Loaded: {filename}")
-                    
-                    # Show what was detected
-                    complaint_cols = [col for col in df.columns if 'complaint' in col.lower()]
-                    category_col_exists = 'Category' in df.columns
-                    
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.info(f"📄 Rows: {len(df)}")
-                    with col2:
-                        st.info(f"💬 Complaint columns: {len(complaint_cols)}")
-                    with col3:
-                        st.info(f"📝 Category column: {'Found' if category_col_exists else 'Will be added'}")
-                else:
-                    st.error(f"❌ Could not process: {filename}")
-        
-        if all_data:
-            # Combine all data
-            if len(all_data) == 1:
-                combined_df = all_data[0]
-            else:
-                combined_df = pd.concat(all_data, ignore_index=True)
-            
-            combined_df = clean_dataframe(combined_df)
-            st.session_state.processed_data = combined_df
-            
-            # Show summary
-            st.info(f"📊 Total records: {len(combined_df)}")
-            
-            # Show column info
-            st.markdown("#### 📋 File Structure Detected:")
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                st.metric("Total Columns", len(combined_df.columns))
-            
-            with col2:
-                complaint_cols = [col for col in combined_df.columns if 'complaint' in col.lower()]
-                st.metric("Complaint Columns", len(complaint_cols))
-            
-            with col3:
-                category_exists = 'Category' in combined_df.columns
-                st.metric("Category Column", "✅ Ready" if category_exists else "📝 Will Add")
-            
-            # Show column names
-            with st.expander("View all column names"):
-                st.write("Columns in your file:")
-                for i, col in enumerate(combined_df.columns):
-                    st.text(f"{i+1}. {col}")
-            
-            # Show sample (safely)
-            if st.checkbox("Show data preview"):
-                try:
-                    st.dataframe(combined_df.head(10))
-                except Exception as e:
-                    st.warning("Preview display issue - your data is loaded correctly")
-                    # Show first few columns as text
-                    st.text("First 5 rows:")
-                    st.text(combined_df.head(5).to_string())
-            
-            # Categorize button
-            if st.button("🚀 CATEGORIZE ALL RETURNS", type="primary", use_container_width=True):
-                with st.spinner(f"🤖 Categorizing with {st.session_state.selected_provider.upper()}..."):
-                    categorized_df = categorize_all_data(combined_df)
-                    st.session_state.categorized_data = categorized_df
-                    st.session_state.processing_complete = True
-                
-                st.balloons()
-                st.success("✅ Categorization complete!")
-            
-            # Show results
-            if st.session_state.processing_complete and st.session_state.categorized_data is not None:
-                
-                display_results_summary(st.session_state.categorized_data)
-                
-                # Export section
-                st.markdown("---")
-                st.markdown("""
-                <div class="success-box">
-                    <h3 style="color: var(--success);">📥 EXPORT RESULTS</h3>
-                    <p><strong>✅ Category column has been filled with AI-categorized return reasons!</strong></p>
-                    <p>Your original file structure is preserved - only the Category column was modified.</p>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                # Show what was done
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    st.metric("Files Processed", len(uploaded_files))
-                
-                with col2:
-                    st.metric("Rows Categorized", len(st.session_state.categorized_data))
-                
-                with col3:
-                    category_col_idx = list(st.session_state.categorized_data.columns).index('Category')
-                    st.metric("Category Column", f"Column {chr(65 + category_col_idx)}")
-                
-                # Generate export
-                excel_data = export_categorized_data(st.session_state.categorized_data)
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.download_button(
-                        label="📥 DOWNLOAD EXCEL",
-                        data=excel_data,
-                        file_name=f"categorized_returns_{timestamp}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True
-                    )
-                
-                with col2:
-                    csv_data = st.session_state.categorized_data.to_csv(index=False)
-                    st.download_button(
-                        label="📥 DOWNLOAD CSV",
-                        data=csv_data,
-                        file_name=f"categorized_returns_{timestamp}.csv",
-                        mime="text/csv",
-                        use_container_width=True
-                    )
-                
-                # Preview
-                if st.checkbox("Show categorized data preview"):
-                    # Show which column is the Category column
-                    category_idx = list(st.session_state.categorized_data.columns).index('Category')
-                    st.info(f"✨ Category column is at position {category_idx + 1} (Column {chr(65 + category_idx)})")
-                    
-                    # Display the dataframe
-                    st.dataframe(st.session_state.categorized_data.head(20))
-                    
-                    # Also show a sample of categorizations
-                    st.markdown("#### Sample Categorizations:")
-                    
-                    # Find the complaint column
-                    complaint_col = None
-                    for col in st.session_state.categorized_data.columns:
-                        if 'complaint' in col.lower():
-                            complaint_col = col
-                            break
-                    
-                    if complaint_col and 'Category' in st.session_state.categorized_data.columns:
-                        sample_df = st.session_state.categorized_data[[complaint_col, 'Category']].head(5)
-                        for _, row in sample_df.iterrows():
-                            if pd.notna(row[complaint_col]) and row[complaint_col]:
-                                st.markdown(f"**Complaint:** {str(row[complaint_col])[:100]}...")
-                                st.markdown(f"**→ Category:** `{row['Category']}`")
-                                st.markdown("---")
-
-if __name__ == "__main__":
-    main()
+    <div class="main-header">
+        <h1 class="main-title">VIVE HEALTH RETURN CATEGORIZER</h1>
+        <p style="font-size: 1.2em; color: var(
