@@ -773,7 +773,7 @@ def display_results_summary(df: pd.DataFrame):
             <h3 style="color: var(--accent);">{unique_reasons}</h3>
             <p>Unique Reasons</p>
         </div>
-        """, unsafe_for_html=True)
+        """, unsafe_allow_html=True)
     
     with col4:
         # Find most common reason
@@ -784,7 +784,7 @@ def display_results_summary(df: pd.DataFrame):
                 <h3 style="color: var(--secondary); font-size: 1em;">{top_reason}</h3>
                 <p>Top Reason</p>
             </div>
-            """, unsafe_for_html=True)
+            """, unsafe_allow_html=True)
     
     # Reason breakdown
     st.markdown("---")
@@ -824,7 +824,7 @@ def display_results_summary(df: pd.DataFrame):
                     <div style="background: {color}; width: {percentage}%; height: 100%; border-radius: 10px;"></div>
                 </div>
             </div>
-            """, unsafe_for_html=True)
+            """, unsafe_allow_html=True)
     
     with col2:
         # Quality insights
@@ -848,7 +848,7 @@ def display_results_summary(df: pd.DataFrame):
             <h2 style="color: var(--danger); margin: 0.5rem 0;">{quality_percentage:.1f}%</h2>
             <p style="margin: 0;">({quality_count} complaints)</p>
         </div>
-        """, unsafe_for_html=True)
+        """, unsafe_allow_html=True)
         
         # Top quality issues
         if quality_reasons:
@@ -951,7 +951,7 @@ def main():
     <p style="text-align: center; color: var(--primary); font-size: 1.2em; margin-bottom: 2rem;">
         {APP_CONFIG['description']}
     </p>
-    """, unsafe_for_html=True)
+    """, unsafe_allow_html=True)
     
     # AI Provider Setup
     setup_ai_provider()
@@ -989,7 +989,7 @@ def main():
     <div class="neon-box">
         <h3 style="color: var(--accent);">📁 UPLOAD FILES</h3>
     </div>
-    """, unsafe_for_html=True)
+    """, unsafe_allow_html=True)
     
     uploaded_files = st.file_uploader(
         "Choose your files",
@@ -1128,7 +1128,7 @@ def main():
                     <p>Your categorized data is ready for download!</p>
                     <p><strong>Column K contains the AI-categorized return reasons.</strong></p>
                 </div>
-                """, unsafe_for_html=True)
+                """, unsafe_allow_html=True)
                 
                 # Generate export file
                 excel_data = export_categorized_data(st.session_state.categorized_data)
@@ -1171,7 +1171,7 @@ def main():
                 <div class="neon-box">
                     <h3 style="color: var(--primary);">💡 QUALITY TEAM ACTION ITEMS</h3>
                 </div>
-                """, unsafe_for_html=True)
+                """, unsafe_allow_html=True)
                 
                 # Add product-specific insights if sorted by product
                 if sort_by in ["Product Identifier Tag", "Imported SKU"]:
