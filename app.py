@@ -928,7 +928,7 @@ def export_categorized_data(df: pd.DataFrame) -> bytes:
 def main():
     """Main application function"""
     
-    # MUST be the first Streamlit command
+    # MUST be the first Streamlit command - NO OTHER STREAMLIT CALLS BEFORE THIS
     st.set_page_config(
         page_title=APP_CONFIG['title'],
         page_icon="🔍",
@@ -936,7 +936,7 @@ def main():
         initial_sidebar_state="collapsed"
     )
     
-    # Check AI availability after page config
+    # NOW we can check AI availability and show errors
     if not AI_AVAILABLE:
         st.error("❌ Critical Error: AI module (enhanced_ai_analysis.py) not found!")
         st.info("Please ensure the enhanced_ai_analysis.py file is in the same directory as this app.")
