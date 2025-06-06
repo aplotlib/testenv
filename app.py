@@ -22,6 +22,7 @@ import time
 from collections import Counter, defaultdict
 import re
 import os
+import sys
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -424,7 +425,7 @@ def clean_dataframe(df):
     return df
 
 def parse_pdf_returns(pdf_file) -> pd.DataFrame:
-    """Parse Amazon Seller Central returns PDF"""
+    """Parse Amazon Seller Central returns PDF - flexible format"""
     if not PDFPLUMBER_AVAILABLE:
         st.error("PDF parsing requires pdfplumber. Install with: pip install pdfplumber")
         return None
@@ -459,28 +460,46 @@ def parse_pdf_returns(pdf_file) -> pd.DataFrame:
                     comment_match = re.search(r'Buyer Comment:\s*(.+?)(?:Request Date|Order Date|$)', return_block, re.DOTALL)
                     date_match = re.search(r'Request Date:\s*(\d{2}/\d{2}/\d{4})', return_block)
                     
-                    # Create row matching standard format
-                    row = {
-                        'Date': date_match.group(1) if date_match else '',
-                        'Complaint': (comment_match.group(1).strip() if comment_match else '') + ' - ' + 
-                                    (product_match.group(1).strip() if product_match else ''),
-                        'Product Identifier Tag': product_match.group(1).strip() if product_match else '',
-                        'Imported SKU': sku_match.group(1) if sku_match else '',
-                        'ASIN': asin_match.group(1) if asin_match else '',
-                        'UDI': '',
-                        'CS Ticket # - mapped to Order # if available': order_id,
-                        'Source - dropdown': 'PDF',
-                        'Categorizing / Investigating Agent': '',
-                        'Complaint': comment_match.group(1).strip() if comment_match else '',
-                        'Category': '',  # This will be filled by AI
-                        'Investigation': '',
-                        'FBA_Reason_Code': ''
-                    }
+                    # Build row data flexibly
+                    row = {}
                     
-                    returns_data.append(row)
+                    # Add whatever columns we can extract
+                    if date_match:
+                        row['Date'] = date_match.group(1)
+                    
+                    # Main complaint text
+                    complaint_text = comment_match.group(1).strip() if comment_match else ''
+                    if complaint_text:
+                        row['Complaint'] = complaint_text
+                    
+                    if product_match:
+                        row['Product Identifier Tag'] = product_match.group(1).strip()
+                    
+                    if sku_match:
+                        row['Imported SKU'] = sku_match.group(1)
+                    
+                    if asin_match:
+                        row['ASIN'] = asin_match.group(1)
+                    
+                    if order_id:
+                        row['Order #'] = order_id
+                    
+                    # Add source
+                    row['Source'] = 'PDF'
+                    
+                    # Add empty Category for AI to fill
+                    row['Category'] = ''
+                    
+                    if row:  # Only add if we extracted something
+                        returns_data.append(row)
         
         if returns_data:
-            return pd.DataFrame(returns_data)
+            df = pd.DataFrame(returns_data)
+            # Ensure we have at least a complaint column
+            if 'Complaint' not in df.columns:
+                st.warning("No buyer comments found in PDF")
+                return None
+            return df
         else:
             st.warning("No return data found in PDF")
             return None
@@ -491,27 +510,56 @@ def parse_pdf_returns(pdf_file) -> pd.DataFrame:
         return None
 
 def process_fba_returns(file_content, filename: str) -> pd.DataFrame:
-    """Process FBA return report - preserve exact format"""
+    """Process FBA return report - flexible format"""
     try:
         # Read tab-separated file
         df = pd.read_csv(io.BytesIO(file_content), sep='\t')
         
-        # Map to standard format
-        processed_df = pd.DataFrame({
-            'Date': pd.to_datetime(df.get('return-date', '')).dt.strftime('%m/%d/%Y') if 'return-date' in df.columns else '',
-            'Complaint': df.get('customer-comments', '') + ' - ' + df.get('product-name', ''),
-            'Product Identifier Tag': df.get('product-name', ''),
-            'Imported SKU': df.get('sku', ''),
-            'ASIN': df.get('asin', ''),
-            'UDI': '',
-            'CS Ticket # - mapped to Order # if available': df.get('order-id', ''),
-            'Source - dropdown': 'FBA',
-            'Categorizing / Investigating Agent': '',
-            'Complaint': df.get('customer-comments', ''),
-            'Category': '',  # This will be filled by AI
-            'Investigation': '',
-            'FBA_Reason_Code': df.get('reason', '')
-        })
+        # Build result dataframe with available columns
+        result_data = {}
+        
+        # Map columns flexibly
+        if 'return-date' in df.columns:
+            try:
+                result_data['Date'] = pd.to_datetime(df['return-date']).dt.strftime('%m/%d/%Y')
+            except:
+                result_data['Date'] = df['return-date']
+        
+        # Look for customer comments as complaint
+        if 'customer-comments' in df.columns:
+            result_data['Complaint'] = df['customer-comments']
+        elif 'comments' in df.columns:
+            result_data['Complaint'] = df['comments']
+        else:
+            # No complaint column - can't process
+            st.error("No customer comments column found in FBA file")
+            return None
+        
+        # Add other columns if available
+        if 'product-name' in df.columns:
+            result_data['Product Identifier Tag'] = df['product-name']
+        
+        if 'sku' in df.columns:
+            result_data['Imported SKU'] = df['sku']
+        
+        if 'asin' in df.columns:
+            result_data['ASIN'] = df['asin']
+        
+        if 'order-id' in df.columns:
+            result_data['Order #'] = df['order-id']
+        
+        # Add source
+        result_data['Source'] = 'FBA'
+        
+        # Add FBA reason code if available
+        if 'reason' in df.columns:
+            result_data['FBA_Reason_Code'] = df['reason']
+        
+        # Create dataframe
+        processed_df = pd.DataFrame(result_data)
+        
+        # Add Category column for AI to fill
+        processed_df['Category'] = ''
         
         return processed_df
         
@@ -532,36 +580,60 @@ def process_complaints_file(file_content, filename: str) -> pd.DataFrame:
         # Clean columns
         df = clean_dataframe(df)
         
-        # Check if it already has the expected format
-        expected_columns = [
-            'Date', 'Complaint', 'Product Identifier Tag', 'Imported SKU', 
-            'ASIN', 'UDI', 'CS Ticket # - mapped to Order # if available',
-            'Source - dropdown', 'Categorizing / Investigating Agent',
-            'Complaint', 'Category', 'Investigation'
-        ]
+        # Log columns found
+        logger.info(f"Columns in uploaded file: {df.columns.tolist()}")
         
-        # If it has most expected columns, assume it's already in the right format
-        matching_cols = [col for col in expected_columns if col in df.columns]
-        if len(matching_cols) >= 8:
-            # Ensure Category column exists but is empty for AI to fill
-            if 'Category' not in df.columns:
-                df['Category'] = ''
-            else:
-                df['Category'] = ''  # Clear existing categories for AI to refill
-            
-            # Add FBA_Reason_Code if not present
-            if 'FBA_Reason_Code' not in df.columns:
-                df['FBA_Reason_Code'] = ''
-                
-            return df
+        # Look for Complaint column (case-sensitive check first, then case-insensitive)
+        complaint_found = False
+        
+        # First check for exact "Complaint" (capital C)
+        if 'Complaint' in df.columns:
+            complaint_found = True
+            logger.info("Found 'Complaint' column (exact match)")
         else:
-            # Try to map columns if they're named differently
-            st.warning("File format doesn't match expected structure. Please ensure your file matches the example format.")
+            # If not found, check case-insensitive
+            for col in df.columns:
+                if col.lower() == 'complaint':
+                    df = df.rename(columns={col: 'Complaint'})
+                    complaint_found = True
+                    logger.info(f"Found complaint column '{col}', renamed to 'Complaint'")
+                    break
+        
+        if not complaint_found:
+            st.error("No 'Complaint' column found in the file. Please ensure your file has a 'Complaint' column.")
             return None
+        
+        # Ensure Category column exists (this is what we'll fill)
+        if 'Category' not in df.columns:
+            # Find where to insert it - typically Column K (11th column)
+            if len(df.columns) >= 10:
+                # Insert at position 10 (11th column, 0-indexed)
+                cols = df.columns.tolist()
+                cols.insert(10, 'Category')
+                df['Category'] = ''
+                df = df[cols]
+            else:
+                # Just add at the end if file has fewer columns
+                df['Category'] = ''
+        else:
+            # Clear existing categories for AI to refill
+            df['Category'] = ''
+        
+        # Add FBA_Reason_Code if not present (for FBA compatibility)
+        if 'FBA_Reason_Code' not in df.columns:
+            df['FBA_Reason_Code'] = ''
+        
+        # Log final structure
+        logger.info(f"Final columns: {df.columns.tolist()}")
+        logger.info(f"Category column index: {df.columns.tolist().index('Category')}")
+        
+        return df
             
     except Exception as e:
         logger.error(f"Error processing file: {e}")
         st.error(f"Error processing file: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
         return None
 
 def categorize_with_ai(complaint: str, fba_reason: str = None, ai_client=None) -> str:
@@ -682,21 +754,37 @@ def categorize_all_data(df: pd.DataFrame) -> pd.DataFrame:
     
     # Ensure Category column exists
     if 'Category' not in df_copy.columns:
-        df_copy['Category'] = ''
+        st.error("Category column not found in dataframe")
+        return df
     
     total_rows = len(df_copy)
     category_counts = Counter()
     product_issues = defaultdict(lambda: defaultdict(int))
     
-    # Process each row
-    for idx, row in df_copy.iterrows():
-        # Get complaint text - handle both single and double complaint columns
-        complaint_cols = [col for col in df_copy.columns if 'Complaint' in col]
-        complaint = ""
-        for col in complaint_cols:
-            if pd.notna(row.get(col)) and str(row.get(col)).strip():
-                complaint = str(row.get(col))
+    # Look specifically for "Complaint" column (capital C)
+    complaint_column = None
+    if 'Complaint' in df_copy.columns:
+        complaint_column = 'Complaint'
+        logger.info(f"Found 'Complaint' column for categorization")
+    else:
+        # If not found, look case-insensitive as fallback
+        for col in df_copy.columns:
+            if col.lower() == 'complaint':
+                complaint_column = col
+                logger.info(f"Found complaint column '{col}' for categorization")
                 break
+    
+    if not complaint_column:
+        st.error("No 'Complaint' column found! Please ensure your file has a 'Complaint' column.")
+        return df
+    
+    # Process each row
+    categorized_count = 0
+    for idx, row in df_copy.iterrows():
+        # Get complaint text from the Complaint column
+        complaint = ""
+        if pd.notna(row.get(complaint_column)) and str(row.get(complaint_column)).strip():
+            complaint = str(row.get(complaint_column))
         
         # Get FBA reason if available
         fba_reason = str(row.get('FBA_Reason_Code', '')) if pd.notna(row.get('FBA_Reason_Code')) else ""
@@ -706,11 +794,19 @@ def categorize_all_data(df: pd.DataFrame) -> pd.DataFrame:
             reason = categorize_with_ai(complaint, fba_reason, ai_client)
             df_copy.at[idx, 'Category'] = reason
             category_counts[reason] += 1
+            categorized_count += 1
             
-            # Track by product
-            product = row.get('Product Identifier Tag', 'Unknown')
-            if product and str(product).strip() and product != 'Unknown':
-                product_issues[product][reason] += 1
+            # Track by product if column exists
+            product_col = None
+            for col in ['Product Identifier Tag', 'Product Identifier', 'Product']:
+                if col in df_copy.columns:
+                    product_col = col
+                    break
+            
+            if product_col:
+                product = row.get(product_col, 'Unknown')
+                if product and str(product).strip() and product != 'Unknown' and pd.notna(product):
+                    product_issues[str(product)][reason] += 1
         else:
             df_copy.at[idx, 'Category'] = 'Other/Miscellaneous'
             category_counts['Other/Miscellaneous'] += 1
@@ -718,13 +814,13 @@ def categorize_all_data(df: pd.DataFrame) -> pd.DataFrame:
         # Update progress
         progress = (idx + 1) / total_rows
         progress_bar.progress(progress)
-        status_text.text(f"Processing: {idx + 1}/{total_rows} complaints categorized...")
+        status_text.text(f"Processing: {idx + 1}/{total_rows} rows | {categorized_count} categorized...")
         
         # Small delay to avoid rate limiting
         if (idx + 1) % 10 == 0:
             time.sleep(0.1)
     
-    status_text.text("✅ Categorization complete!")
+    status_text.text(f"✅ Categorization complete! {categorized_count} complaints categorized.")
     
     # Store summaries
     st.session_state.reason_summary = dict(category_counts)
@@ -759,34 +855,22 @@ def export_categorized_data(df: pd.DataFrame) -> bytes:
         # Format main sheet
         worksheet1 = writer.sheets['Categorized Complaints']
         
-        # Set column widths based on standard format
-        column_widths = {
-            0: 12,   # A - Date
-            1: 50,   # B - Complaint (full)
-            2: 30,   # C - Product Identifier Tag
-            3: 20,   # D - Imported SKU
-            4: 15,   # E - ASIN
-            5: 15,   # F - UDI
-            6: 25,   # G - CS Ticket #
-            7: 20,   # H - Source
-            8: 25,   # I - Categorizing Agent
-            9: 50,   # J - Complaint
-            10: 30,  # K - Category (HIGHLIGHTED)
-            11: 30   # L - Investigation
-        }
+        # Auto-adjust column widths based on content
+        for i, col in enumerate(df.columns):
+            # Calculate max length for this column
+            max_len = len(str(col)) + 2  # Column header
+            
+            # Check data in column
+            for val in df[col].astype(str):
+                max_len = max(max_len, len(val))
+            
+            # Set reasonable limits
+            max_len = min(max_len, 50)  # Cap at 50 characters
+            max_len = max(max_len, 10)  # Minimum 10 characters
+            
+            worksheet1.set_column(i, i, max_len)
         
-        for col_num, width in column_widths.items():
-            if col_num < len(df.columns):
-                worksheet1.set_column(col_num, col_num, width)
-        
-        # Highlight Column K (Category) - this is the 11th column (index 10)
-        highlight_format = workbook.add_format({
-            'bg_color': '#FFF2CC',
-            'border': 1,
-            'bold': True
-        })
-        
-        # Find the Category column index
+        # Highlight Category column - find its position
         category_col_idx = None
         for idx, col in enumerate(df.columns):
             if col == 'Category':
@@ -794,13 +878,42 @@ def export_categorized_data(df: pd.DataFrame) -> bytes:
                 break
         
         if category_col_idx is not None:
+            # Create highlight format
+            highlight_format = workbook.add_format({
+                'bg_color': '#FFF2CC',
+                'border': 1,
+                'bold': True
+            })
+            
+            # Apply format to Category column
             worksheet1.set_column(category_col_idx, category_col_idx, 30, highlight_format)
+            
+            # Also highlight the header
+            header_format = workbook.add_format({
+                'bg_color': '#FFD966',
+                'border': 1,
+                'bold': True,
+                'align': 'center'
+            })
+            worksheet1.write(0, category_col_idx, 'Category', header_format)
         
         # Format summary sheet
         worksheet2 = writer.sheets['Summary']
         worksheet2.set_column('A:A', 30)
         worksheet2.set_column('B:B', 10)
         worksheet2.set_column('C:C', 12)
+        
+        # Add chart to summary
+        chart = workbook.add_chart({'type': 'column'})
+        chart.add_series({
+            'categories': ['Summary', 1, 0, len(summary_data), 0],
+            'values': ['Summary', 1, 1, len(summary_data), 1],
+            'name': 'Return Count by Category'
+        })
+        chart.set_title({'name': 'Return Categories Distribution'})
+        chart.set_x_axis({'name': 'Category'})
+        chart.set_y_axis({'name': 'Count'})
+        worksheet2.insert_chart('E2', chart)
     
     output.seek(0)
     return output.getvalue()
@@ -925,7 +1038,17 @@ def main():
     <p style="text-align: center; color: var(--primary); font-size: 1.2em;">
         {APP_CONFIG['description']}
     </p>
+    <p style="text-align: center; color: var(--accent); font-size: 1.1em;">
+        📋 Upload your file → 🤖 AI fills the Category column → 📥 Download with categories
+    </p>
     """, unsafe_allow_html=True)
+    
+    # Show version info
+    with st.expander("ℹ️ Version Info", expanded=False):
+        st.text(f"App Version: {APP_CONFIG['version']}")
+        st.text(f"Python: {sys.version.split()[0]}")
+        st.text(f"Pandas: {pd.__version__}")
+        st.text(f"Streamlit: {st.__version__}")
     
     # AI Provider Setup
     setup_ai_provider()
@@ -940,13 +1063,24 @@ def main():
         ### Quick Guide:
         1. **Select AI Provider**: Choose between OpenAI, Claude, or both
         2. **Upload Files**: Excel, CSV, PDF, or FBA return reports
-        3. **Click Categorize**: AI will fill Column K with return categories
+        3. **Click Categorize**: AI will fill Column K (Category) with return categories
         4. **Download Results**: Get your file back with Column K completed
         
-        ### Important:
-        - Your file format is preserved exactly as uploaded
-        - Only Column K (Category) is modified by the AI
-        - All other data remains unchanged
+        ### File Requirements:
+        - Must have a column with "Complaint" in the name (case-insensitive)
+        - The tool will add/update the "Category" column (typically Column K)
+        - All other columns are preserved exactly as uploaded
+        
+        ### Return Categories:
+        The AI will categorize returns into one of these categories:
+        - Size/Fit Issues
+        - Comfort Issues
+        - Product Defects/Quality
+        - Performance/Effectiveness
+        - Equipment Compatibility
+        - Wrong Product/Misunderstanding
+        - Customer Error/Changed Mind
+        - And others...
         """)
     
     # File upload
@@ -959,7 +1093,8 @@ def main():
     uploaded_files = st.file_uploader(
         "Choose files to categorize",
         type=['xlsx', 'xls', 'csv', 'txt', 'pdf'],
-        accept_multiple_files=True
+        accept_multiple_files=True,
+        help="Upload your complaints file with any column structure - must have a 'Complaint' column"
     )
     
     if uploaded_files:
@@ -988,6 +1123,20 @@ def main():
                 if df is not None:
                     all_data.append(df)
                     st.success(f"✅ Loaded: {filename}")
+                    
+                    # Show what was detected
+                    complaint_cols = [col for col in df.columns if 'complaint' in col.lower()]
+                    category_col_exists = 'Category' in df.columns
+                    
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.info(f"📄 Rows: {len(df)}")
+                    with col2:
+                        st.info(f"💬 Complaint columns: {len(complaint_cols)}")
+                    with col3:
+                        st.info(f"📝 Category column: {'Found' if category_col_exists else 'Will be added'}")
+                else:
+                    st.error(f"❌ Could not process: {filename}")
         
         if all_data:
             # Combine all data
@@ -1002,9 +1151,36 @@ def main():
             # Show summary
             st.info(f"📊 Total records: {len(combined_df)}")
             
+            # Show column info
+            st.markdown("#### 📋 File Structure Detected:")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("Total Columns", len(combined_df.columns))
+            
+            with col2:
+                complaint_cols = [col for col in combined_df.columns if 'complaint' in col.lower()]
+                st.metric("Complaint Columns", len(complaint_cols))
+            
+            with col3:
+                category_exists = 'Category' in combined_df.columns
+                st.metric("Category Column", "✅ Ready" if category_exists else "📝 Will Add")
+            
+            # Show column names
+            with st.expander("View all column names"):
+                st.write("Columns in your file:")
+                for i, col in enumerate(combined_df.columns):
+                    st.text(f"{i+1}. {col}")
+            
             # Show sample (safely)
             if st.checkbox("Show data preview"):
-                st.dataframe(combined_df.head(10))
+                try:
+                    st.dataframe(combined_df.head(10))
+                except Exception as e:
+                    st.warning("Preview display issue - your data is loaded correctly")
+                    # Show first few columns as text
+                    st.text("First 5 rows:")
+                    st.text(combined_df.head(5).to_string())
             
             # Categorize button
             if st.button("🚀 CATEGORIZE ALL RETURNS", type="primary", use_container_width=True):
@@ -1026,9 +1202,23 @@ def main():
                 st.markdown("""
                 <div class="success-box">
                     <h3 style="color: var(--success);">📥 EXPORT RESULTS</h3>
-                    <p><strong>Column K has been filled with AI-categorized return reasons!</strong></p>
+                    <p><strong>✅ Category column has been filled with AI-categorized return reasons!</strong></p>
+                    <p>Your original file structure is preserved - only the Category column was modified.</p>
                 </div>
                 """, unsafe_allow_html=True)
+                
+                # Show what was done
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric("Files Processed", len(uploaded_files))
+                
+                with col2:
+                    st.metric("Rows Categorized", len(st.session_state.categorized_data))
+                
+                with col3:
+                    category_col_idx = list(st.session_state.categorized_data.columns).index('Category')
+                    st.metric("Category Column", f"Column {chr(65 + category_col_idx)}")
                 
                 # Generate export
                 excel_data = export_categorized_data(st.session_state.categorized_data)
@@ -1057,7 +1247,30 @@ def main():
                 
                 # Preview
                 if st.checkbox("Show categorized data preview"):
+                    # Show which column is the Category column
+                    category_idx = list(st.session_state.categorized_data.columns).index('Category')
+                    st.info(f"✨ Category column is at position {category_idx + 1} (Column {chr(65 + category_idx)})")
+                    
+                    # Display the dataframe
                     st.dataframe(st.session_state.categorized_data.head(20))
+                    
+                    # Also show a sample of categorizations
+                    st.markdown("#### Sample Categorizations:")
+                    
+                    # Find the complaint column
+                    complaint_col = None
+                    for col in st.session_state.categorized_data.columns:
+                        if 'complaint' in col.lower():
+                            complaint_col = col
+                            break
+                    
+                    if complaint_col and 'Category' in st.session_state.categorized_data.columns:
+                        sample_df = st.session_state.categorized_data[[complaint_col, 'Category']].head(5)
+                        for _, row in sample_df.iterrows():
+                            if pd.notna(row[complaint_col]) and row[complaint_col]:
+                                st.markdown(f"**Complaint:** {str(row[complaint_col])[:100]}...")
+                                st.markdown(f"**→ Category:** `{row['Category']}`")
+                                st.markdown("---")
 
 if __name__ == "__main__":
     main()
