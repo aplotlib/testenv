@@ -114,7 +114,11 @@ class AIProvider(Enum):
 class APIClient:
     """Multi-provider API client supporting OpenAI and Claude"""
     
-    def __init__(self, provider: AIProvider = AIProvider.OPENAI):
+    def __init__(self, provider: AIProvider = None):
+        # Default to OPENAI if no provider specified
+        if provider is None:
+            provider = AIProvider.OPENAI
+            
         self.provider = provider
         self.openai_key = self._get_api_key('openai')
         self.claude_key = self._get_api_key('claude')
