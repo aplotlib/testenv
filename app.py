@@ -15,14 +15,6 @@ This enhanced version supports:
 
 import streamlit as st
 
-# MUST be the first Streamlit command
-st.set_page_config(
-    page_title='Vive Health Medical Device Return Categorizer',
-    page_icon="🔍",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
-
 # Now safe to import everything else
 import pandas as pd
 import numpy as np
@@ -94,75 +86,53 @@ COLORS = {
     'claude': '#D4A574'
 }
 
-# Standard return reasons from dropdown
+# Medical Device Return Categories (15 total)
 RETURN_REASONS = [
-    'too small',
-    'too large',
-    'received used/damaged',
-    'wrong item',
-    'too heavy',
-    'bad brakes',
-    'bad wheels',
-    'uncomfortable',
-    'difficult to use',
-    'missing parts',
-    'defective seat',
-    'no issue',
-    'not as advertised',
-    'defective handles',
-    'defective frame',
-    'defective/does not work properly',
-    'missing or broken parts',
-    'performance or quality not adequate',
-    'incompatible or not useful',
-    'no longer needed',
-    'bought by mistake',
-    'wrong size',
-    'style not as expected',
-    'different from website description',
-    'damaged during shipping',
-    'item never arrived',
-    'unauthorized purchase',
-    'better price available',
-    'ordered wrong item',
-    'changed mind',
-    'arrived too late',
-    'poor quality',
-    'not compatible',
-    'missing accessories',
-    'installation issues',
-    'customer damaged',
-    'other'
+    'Size/Fit Issues',
+    'Comfort Issues',
+    'Product Defects/Quality',
+    'Performance/Effectiveness',
+    'Stability/Positioning Issues',
+    'Equipment Compatibility',
+    'Design/Material Issues',
+    'Wrong Product/Misunderstanding',
+    'Missing Components',
+    'Customer Error/Changed Mind',
+    'Shipping/Fulfillment Issues',
+    'Assembly/Usage Difficulty',
+    'Medical/Health Concerns',
+    'Price/Value',
+    'Other/Miscellaneous'
 ]
 
-# FBA reason code mapping
+# FBA reason code mapping to medical device categories
 FBA_REASON_MAP = {
-    'NOT_COMPATIBLE': 'incompatible or not useful',
-    'DAMAGED_BY_FC': 'received used/damaged',
-    'DAMAGED_BY_CARRIER': 'damaged during shipping',
-    'DEFECTIVE': 'defective/does not work properly',
-    'NOT_AS_DESCRIBED': 'not as advertised',
-    'WRONG_ITEM': 'wrong item',
-    'MISSING_PARTS': 'missing parts',
-    'QUALITY_NOT_ADEQUATE': 'performance or quality not adequate',
-    'UNWANTED_ITEM': 'no longer needed',
-    'UNAUTHORIZED_PURCHASE': 'unauthorized purchase',
-    'CUSTOMER_DAMAGED': 'customer damaged',
-    'SWITCHEROO': 'wrong item',
-    'EXPIRED_ITEM': 'poor quality',
-    'DAMAGED_GLASS_VIAL': 'received used/damaged',
-    'DIFFERENT_PRODUCT': 'wrong item',
-    'MISSING_ITEM': 'missing parts',
-    'NOT_DELIVERED': 'item never arrived',
-    'ORDERED_WRONG_ITEM': 'bought by mistake',
-    'UNNEEDED_ITEM': 'no longer needed',
-    'BAD_GIFT': 'no longer needed',
-    'INACCURATE_WEBSITE_DESCRIPTION': 'not as advertised',
-    'BETTER_PRICE_AVAILABLE': 'better price available',
-    'DOES_NOT_FIT': 'wrong size',
-    'NOT_COMPATIBLE_WITH_DEVICE': 'incompatible or not useful',
-    'UNSATISFACTORY_PRODUCT': 'performance or quality not adequate',
-    'ARRIVED_LATE': 'arrived too late'
+    'NOT_COMPATIBLE': 'Equipment Compatibility',
+    'DAMAGED_BY_FC': 'Product Defects/Quality',
+    'DAMAGED_BY_CARRIER': 'Shipping/Fulfillment Issues',
+    'DEFECTIVE': 'Product Defects/Quality',
+    'NOT_AS_DESCRIBED': 'Wrong Product/Misunderstanding',
+    'WRONG_ITEM': 'Wrong Product/Misunderstanding',
+    'MISSING_PARTS': 'Missing Components',
+    'QUALITY_NOT_ADEQUATE': 'Performance/Effectiveness',
+    'UNWANTED_ITEM': 'Customer Error/Changed Mind',
+    'UNAUTHORIZED_PURCHASE': 'Customer Error/Changed Mind',
+    'CUSTOMER_DAMAGED': 'Customer Error/Changed Mind',
+    'SWITCHEROO': 'Wrong Product/Misunderstanding',
+    'EXPIRED_ITEM': 'Product Defects/Quality',
+    'DAMAGED_GLASS_VIAL': 'Product Defects/Quality',
+    'DIFFERENT_PRODUCT': 'Wrong Product/Misunderstanding',
+    'MISSING_ITEM': 'Missing Components',
+    'NOT_DELIVERED': 'Shipping/Fulfillment Issues',
+    'ORDERED_WRONG_ITEM': 'Customer Error/Changed Mind',
+    'UNNEEDED_ITEM': 'Customer Error/Changed Mind',
+    'BAD_GIFT': 'Customer Error/Changed Mind',
+    'INACCURATE_WEBSITE_DESCRIPTION': 'Wrong Product/Misunderstanding',
+    'BETTER_PRICE_AVAILABLE': 'Price/Value',
+    'DOES_NOT_FIT': 'Size/Fit Issues',
+    'NOT_COMPATIBLE_WITH_DEVICE': 'Equipment Compatibility',
+    'UNSATISFACTORY_PRODUCT': 'Performance/Effectiveness',
+    'ARRIVED_LATE': 'Shipping/Fulfillment Issues'
 }
 
 def inject_cyberpunk_css():
@@ -524,9 +494,24 @@ def process_complaints_file(file_content, filename: str) -> pd.DataFrame:
     try:
         # Determine file type and read accordingly
         if filename.endswith('.csv'):
-            df = pd.read_csv(io.BytesIO(file_content))
+            # Try different encodings for CSV
+            try:
+                df = pd.read_csv(io.BytesIO(file_content), encoding='utf-8')
+            except UnicodeDecodeError:
+                try:
+                    df = pd.read_csv(io.BytesIO(file_content), encoding='latin-1')
+                except:
+                    df = pd.read_csv(io.BytesIO(file_content), encoding='iso-8859-1')
         else:  # Excel
             df = pd.read_excel(io.BytesIO(file_content))
+        
+        # Check for complaint column (case-insensitive)
+        complaint_found = False
+        for col in df.columns:
+            if 'complaint' in col.lower():
+                df.rename(columns={col: 'Complaint'}, inplace=True)
+                complaint_found = True
+                break
         
         # Ensure standard columns exist
         standard_columns = [
@@ -554,7 +539,7 @@ def categorize_with_ai(complaint: str, fba_reason: str = None, ai_client=None) -
     if not ai_client or not ai_client.is_available():
         return fallback_categorization(complaint, fba_reason)
     
-    # Create prompt with all available return reasons
+    # Create prompt with medical device categories
     reasons_list = "\n".join([f"- {reason}" for reason in RETURN_REASONS])
     
     # Add FBA reason context if available
@@ -563,27 +548,26 @@ def categorize_with_ai(complaint: str, fba_reason: str = None, ai_client=None) -
         suggested_reason = FBA_REASON_MAP[fba_reason]
         fba_context = f"\n\nNote: Amazon's FBA system categorized this as '{fba_reason}' which typically maps to '{suggested_reason}'."
     
-    prompt = f"""Analyze this customer complaint and select the SINGLE MOST APPROPRIATE return reason.
+    prompt = f"""You are a quality management expert for medical devices. Analyze this customer complaint and select the SINGLE MOST APPROPRIATE return category.
 
 Customer Complaint: {complaint}{fba_context}
 
-Available Return Reasons:
+Available Medical Device Return Categories:
 {reasons_list}
 
 Instructions:
 1. Read the complaint carefully
-2. Choose the ONE reason that best matches the primary issue
-3. If multiple reasons could apply, choose the most specific one
-4. Consider the root cause of the complaint
-5. If provided, consider Amazon's categorization as additional context
-6. Only use "other" if no other reason fits at all
+2. Choose the ONE category that best matches the primary issue
+3. Consider medical device quality and safety implications
+4. If multiple categories could apply, choose the most specific one
+5. Only use "Other/Miscellaneous" if no other category fits
 
-Respond with ONLY the exact return reason text from the list, nothing else."""
+Respond with ONLY the exact category text from the list, nothing else."""
 
     try:
         response = ai_client.call_api(
             messages=[
-                {"role": "system", "content": "You are a quality management expert categorizing product returns. Always respond with the exact text of one return reason from the provided list."},
+                {"role": "system", "content": "You are a quality management expert categorizing medical device returns. Always respond with the exact text of one return category from the provided list."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.1,
@@ -591,18 +575,15 @@ Respond with ONLY the exact return reason text from the list, nothing else."""
         )
         
         if response['success']:
-            reason = response['result'].strip().lower()
+            reason = response['result'].strip()
             
-            # Validate the reason
-            if reason in [r.lower() for r in RETURN_REASONS]:
-                # Return the properly cased version
-                for r in RETURN_REASONS:
-                    if r.lower() == reason:
-                        return r
+            # Validate the reason - check for exact match
+            if reason in RETURN_REASONS:
+                return reason
             
-            # Try fuzzy matching if exact match fails
+            # Try case-insensitive match
             for r in RETURN_REASONS:
-                if reason in r.lower() or r.lower() in reason:
+                if r.lower() == reason.lower():
                     return r
             
             # Fallback
@@ -623,47 +604,36 @@ def fallback_categorization(complaint: str, fba_reason: str = None) -> str:
     
     complaint_lower = complaint.lower() if complaint else ""
     
-    # Define keyword mappings
+    # Define keyword mappings for medical device categories
     keyword_map = {
-        'too small': ['small', 'tight', 'narrow', 'short'],
-        'too large': ['large', 'big', 'loose', 'long', 'oversized'],
-        'received used/damaged': ['used', 'damaged', 'scratched', 'dented', 'torn'],
-        'wrong item': ['wrong', 'incorrect', 'different item', 'not what i ordered'],
-        'too heavy': ['heavy', 'weight'],
-        'bad brakes': ['brake', 'braking'],
-        'bad wheels': ['wheel', 'wheels', 'caster'],
-        'uncomfortable': ['uncomfortable', 'comfort', 'hurts', 'painful'],
-        'difficult to use': ['difficult', 'hard to use', 'complicated', 'confusing'],
-        'missing parts': ['missing', 'incomplete', 'not included'],
-        'defective seat': ['seat', 'cushion', 'padding'],
-        'not as advertised': ['not as described', 'misleading', 'false advertising'],
-        'defective handles': ['handle', 'grip', 'handlebar'],
-        'defective frame': ['frame', 'structure', 'bent'],
-        'defective/does not work properly': ['defective', 'broken', 'doesn\'t work', 'malfunction', 'faulty', 'not working'],
-        'no longer needed': ['don\'t need', 'no longer', 'changed mind', 'patient died'],
-        'bought by mistake': ['mistake', 'accident', 'wrong order'],
-        'damaged during shipping': ['shipping damage', 'arrived damaged', 'package damaged']
+        'Size/Fit Issues': ['small', 'large', 'size', 'fit', 'tight', 'loose', 'narrow', 'wide', 'big', 'tiny'],
+        'Comfort Issues': ['uncomfortable', 'comfort', 'hurts', 'painful', 'pressure', 'sore', 'pain', 'ache'],
+        'Product Defects/Quality': ['defective', 'broken', 'damaged', 'quality', 'malfunction', 'faulty', 'poor quality', 'defect', 'crack', 'tear', 'rip'],
+        'Performance/Effectiveness': ['not work', 'ineffective', 'useless', 'performance', 'doesn\'t work', 'does not work', 'not effective'],
+        'Stability/Positioning Issues': ['unstable', 'slides', 'moves', 'position', 'falls', 'tips', 'wobbly', 'shift'],
+        'Equipment Compatibility': ['compatible', 'fit toilet', 'fit wheelchair', 'walker', 'doesn\'t fit', 'not compatible', 'incompatible'],
+        'Design/Material Issues': ['heavy', 'bulky', 'material', 'design', 'flimsy', 'thin', 'cheap material'],
+        'Wrong Product/Misunderstanding': ['wrong', 'different', 'not as described', 'expected', 'not what', 'incorrect', 'mistake'],
+        'Missing Components': ['missing', 'incomplete', 'no instructions', 'parts missing', 'not included'],
+        'Customer Error/Changed Mind': ['mistake', 'changed mind', 'no longer', 'patient died', 'don\'t need', 'ordered wrong'],
+        'Shipping/Fulfillment Issues': ['shipping', 'damaged arrival', 'late', 'package', 'delivery', 'arrived damaged'],
+        'Assembly/Usage Difficulty': ['difficult', 'hard to', 'confusing', 'complicated', 'instructions', 'assembly', 'setup'],
+        'Medical/Health Concerns': ['doctor', 'medical', 'health', 'allergic', 'reaction', 'injury', 'condition'],
+        'Price/Value': ['price', 'expensive', 'value', 'cheaper', 'cost', 'overpriced']
     }
     
-    # Check each keyword mapping
-    for reason, keywords in keyword_map.items():
-        for keyword in keywords:
-            if keyword in complaint_lower:
-                return reason
+    # Score each category
+    scores = {}
+    for category, keywords in keyword_map.items():
+        score = sum(1 for keyword in keywords if keyword in complaint_lower)
+        if score > 0:
+            scores[category] = score
     
-    # General quality issues
-    if any(word in complaint_lower for word in ['quality', 'cheap', 'poor', 'flimsy']):
-        return 'performance or quality not adequate'
+    # Return highest scoring category
+    if scores:
+        return max(scores.items(), key=lambda x: x[1])[0]
     
-    # Size issues
-    if any(word in complaint_lower for word in ['size', 'fit']):
-        return 'wrong size'
-    
-    # Compatibility
-    if any(word in complaint_lower for word in ['compatible', 'doesn\'t fit', 'won\'t work with']):
-        return 'incompatible or not useful'
-    
-    return 'other'
+    return 'Other/Miscellaneous'
 
 def categorize_all_data(df: pd.DataFrame) -> pd.DataFrame:
     """Categorize all complaints and prepare export format"""
@@ -698,8 +668,8 @@ def categorize_all_data(df: pd.DataFrame) -> pd.DataFrame:
             if product and str(product).strip() and product != 'Unknown':
                 product_issues[product][reason] += 1
         else:
-            df_copy.at[idx, 'Return_Reason'] = 'no issue'
-            category_counts['no issue'] += 1
+            df_copy.at[idx, 'Return_Reason'] = 'Other/Miscellaneous'
+            category_counts['Other/Miscellaneous'] += 1
         
         # Update progress
         progress = (idx + 1) / total_rows
@@ -721,31 +691,49 @@ def categorize_all_data(df: pd.DataFrame) -> pd.DataFrame:
 def prepare_export_data(df: pd.DataFrame) -> pd.DataFrame:
     """Prepare data for export with Column K containing return reason"""
     
-    # Create export dataframe with exact column order
-    export_columns = [
-        'Date',                                  # A
-        'Product Identifier Tag',                # B
-        'Imported SKU',                          # C
-        'UDI',                                  # D
-        'CS Ticket #',                          # E
-        'Order #',                              # F
-        'Source',                               # G
-        'Categorizing / Investigating Agent',    # H
-        'Complaint',                            # I
-        'Category'                              # J (existing category if any)
-    ]
-    
+    # Create export dataframe matching the exact format shown in the example
     export_df = pd.DataFrame()
     
-    # Add columns in order, using empty string if not present
-    for col in export_columns:
-        if col in df.columns:
-            export_df[col] = df[col]
-        else:
-            export_df[col] = ''
+    # Column A - Date
+    export_df['Date'] = df['Date'] if 'Date' in df.columns else ''
     
-    # Add Column K - the categorized return reason
-    export_df['Return Reason'] = df['Return_Reason']
+    # Column B - Combined Complaint + Product info 
+    if 'Complaint' in df.columns and 'Product Identifier Tag' in df.columns:
+        export_df['Complaint'] = df['Complaint'].astype(str) + ' - ' + df['Product Identifier Tag'].astype(str)
+    elif 'Complaint' in df.columns:
+        export_df['Complaint'] = df['Complaint']
+    else:
+        export_df['Complaint'] = ''
+    
+    # Column C - Product Identifier
+    export_df['Product Identifier'] = df['Product Identifier Tag'] if 'Product Identifier Tag' in df.columns else ''
+    
+    # Column D - Imported SKU
+    export_df['Imported SKU'] = df['Imported SKU'] if 'Imported SKU' in df.columns else ''
+    
+    # Column E - ASIN
+    export_df['ASIN'] = df['ASIN'] if 'ASIN' in df.columns else ''
+    
+    # Column F - UDI
+    export_df['UDI'] = df['UDI'] if 'UDI' in df.columns else ''
+    
+    # Column G - CS Ticket # - mapped to Order # if available
+    export_df['CS Ticket # - mapped to Order # if available'] = df['Order #'] if 'Order #' in df.columns else df.get('CS Ticket #', '')
+    
+    # Column H - Source - dropdown
+    export_df['Source - dropdown'] = df['Source'] if 'Source' in df.columns else df.get('data_source', 'Amazon Return')
+    
+    # Column I - Categorizing / Investigating Agent
+    export_df['Categorizing / Investigating Agent'] = df.get('Categorizing / Investigating Agent', 'Carolina')
+    
+    # Column J - Complaint
+    export_df['Complaint'] = df['Complaint'] if 'Complaint' in df.columns else ''
+    
+    # Column K - The output: AI categorized return category
+    export_df['Category'] = df['Return_Reason']
+    
+    # Additional columns for investigation
+    export_df['Investigation'] = ''
     
     return export_df
 
@@ -814,11 +802,12 @@ def display_results_summary(df: pd.DataFrame):
             percentage = (count / len(df)) * 100
             
             # Determine color based on reason type
-            if 'defective' in reason or 'bad' in reason or 'broken' in reason:
+            if reason in ['Product Defects/Quality', 'Performance/Effectiveness', 'Missing Components', 
+                         'Design/Material Issues', 'Stability/Positioning Issues']:
                 color = COLORS['danger']
-            elif 'too' in reason or 'wrong' in reason:
+            elif reason in ['Size/Fit Issues', 'Wrong Product/Misunderstanding', 'Equipment Compatibility']:
                 color = COLORS['warning']
-            elif 'no issue' in reason or 'no longer needed' in reason:
+            elif reason in ['Customer Error/Changed Mind', 'Price/Value']:
                 color = COLORS['success']
             else:
                 color = COLORS['primary']
@@ -842,12 +831,12 @@ def display_results_summary(df: pd.DataFrame):
         st.markdown("#### 🎯 Quality Insights")
         
         # Count quality-related reasons
-        quality_keywords = ['defective', 'bad', 'broken', 'missing', 'damaged', 'quality', 'not work']
+        quality_keywords = ['Product Defects/Quality', 'Performance/Effectiveness', 'Missing Components', 'Design/Material Issues', 'Stability/Positioning Issues']
         quality_count = 0
         quality_reasons = []
         
         for reason, count in st.session_state.reason_summary.items():
-            if any(keyword in reason.lower() for keyword in quality_keywords):
+            if reason in quality_keywords:
                 quality_count += count
                 quality_reasons.append((reason, count))
         
@@ -901,17 +890,17 @@ def export_categorized_data(df: pd.DataFrame) -> bytes:
         
         # Set column widths
         column_widths = {
-            'A': 15,  # Date
-            'B': 30,  # Product Identifier Tag
-            'C': 20,  # Imported SKU
-            'D': 15,  # UDI
-            'E': 15,  # CS Ticket #
-            'F': 20,  # Order #
-            'G': 20,  # Source
-            'H': 25,  # Categorizing Agent
-            'I': 50,  # Complaint
-            'J': 12,  # Category
-            'K': 25,  # Return Reason (KEY COLUMN)
+            'A': 12,   # Date
+            'B': 50,   # Complaint text
+            'C': 25,   # Product Identifier
+            'D': 20,   # Imported SKU  
+            'E': 15,   # ASIN
+            'F': 15,   # UDI
+            'G': 25,   # CS Ticket #
+            'H': 20,   # Source
+            'I': 25,   # Categorizing Agent
+            'J': 50,   # Complaint
+            'K': 30,   # Category (KEY COLUMN)
         }
         
         for col, width in column_widths.items():
@@ -938,6 +927,8 @@ def export_categorized_data(df: pd.DataFrame) -> bytes:
 
 def main():
     """Main application function"""
+    
+    # MUST be the first Streamlit command
     st.set_page_config(
         page_title=APP_CONFIG['title'],
         page_icon="🔍",
@@ -972,19 +963,23 @@ def main():
         1. **Configure AI Provider**: Enter your OpenAI or Claude API key above
         2. **Upload your files**:
            - Product Complaints Ledger Excel file (.xlsx)
+           - Product Complaints Ledger CSV file (.csv)
            - FBA Return Report (.txt tab-separated file)
            - PDF from Amazon Seller Central (requires pdfplumber)
         3. **AI will categorize** each complaint/comment into standard return reasons
-        4. **Download the results** with Column K populated with the return reason
+        4. **Sort results** by Product Name, SKU, Return Reason, or Date
+        5. **Download the results** with Column K populated with the return reason
         
         ### Supported File Types:
-        - **Complaints Ledger**: Excel files (.xlsx) with standard columns
+        - **Excel**: .xlsx and .xls files with standard columns
+        - **CSV**: .csv files with comma-separated values (handles various encodings)
         - **FBA Return Reports**: Tab-separated .txt files from Amazon Seller Central
         - **PDF Returns**: PDF files from Manage Returns page (if pdfplumber installed)
         
         ### Output Format:
         - Columns A-J: Your original data preserved
         - **Column K: AI-categorized return reason** (e.g., "too small", "defective seat")
+        - Available in both Excel (.xlsx) and CSV (.csv) formats
         
         The tool maintains your exact data structure and adds the categorized return reason in Column K.
         """)
@@ -1069,7 +1064,61 @@ def main():
             
             # Show results if processing is complete
             if st.session_state.processing_complete and st.session_state.categorized_data is not None:
-                display_results_summary(st.session_state.categorized_data)
+                # Add sorting options
+                st.markdown("---")
+                st.markdown("### 🔄 Sort & Filter Options")
+                col1, col2, col3 = st.columns([2, 2, 2])
+                
+                with col1:
+                    sort_by = st.selectbox(
+                        "Sort by",
+                        ["None", "Product Identifier Tag", "Imported SKU", "Return Reason", "Date"],
+                        key="sort_field"
+                    )
+                
+                with col2:
+                    sort_order = st.radio(
+                        "Order",
+                        ["Ascending", "Descending"],
+                        horizontal=True,
+                        key="sort_order"
+                    )
+                
+                with col3:
+                    # Add filter for return reasons
+                    unique_reasons = sorted(st.session_state.categorized_data['Return_Reason'].unique())
+                    filter_reason = st.selectbox(
+                        "Filter by Return Reason",
+                        ["All"] + unique_reasons,
+                        key="filter_reason"
+                    )
+                
+                # Apply sorting if selected
+                display_data = st.session_state.categorized_data.copy()
+                
+                # Apply filter first
+                if filter_reason != "All":
+                    display_data = display_data[display_data['Return_Reason'] == filter_reason]
+                
+                # Then apply sorting
+                if sort_by != "None":
+                    ascending = (sort_order == "Ascending")
+                    try:
+                        # Handle date sorting specially
+                        if sort_by == "Date":
+                            display_data['Date_parsed'] = pd.to_datetime(display_data['Date'], errors='coerce')
+                            display_data = display_data.sort_values('Date_parsed', ascending=ascending)
+                            display_data = display_data.drop('Date_parsed', axis=1)
+                        else:
+                            display_data = display_data.sort_values(sort_by, ascending=ascending)
+                    except Exception as e:
+                        st.warning(f"Could not sort by {sort_by}: {str(e)}")
+                
+                # Show filter info
+                if filter_reason != "All":
+                    st.info(f"Showing {len(display_data)} of {len(st.session_state.categorized_data)} returns with reason: {filter_reason}")
+                
+                display_results_summary(display_data)
                 
                 # Export section
                 st.markdown("---")
@@ -1087,13 +1136,27 @@ def main():
                 # Download button
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 
-                st.download_button(
-                    label="📥 DOWNLOAD CATEGORIZED DATA (EXCEL)",
-                    data=excel_data,
-                    file_name=f"categorized_returns_{timestamp}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.download_button(
+                        label="📥 DOWNLOAD EXCEL (.xlsx)",
+                        data=excel_data,
+                        file_name=f"categorized_returns_{timestamp}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+                
+                with col2:
+                    # Also provide CSV option
+                    csv_data = prepare_export_data(display_data).to_csv(index=False)
+                    st.download_button(
+                        label="📥 DOWNLOAD CSV (.csv)",
+                        data=csv_data,
+                        file_name=f"categorized_returns_{timestamp}.csv",
+                        mime="text/csv",
+                        use_container_width=True
+                    )
                 
                 # Show preview
                 st.markdown("### 🔍 Categorized Data Preview")
@@ -1110,10 +1173,56 @@ def main():
                 </div>
                 """, unsafe_for_html=True)
                 
+                # Add product-specific insights if sorted by product
+                if sort_by in ["Product Identifier Tag", "Imported SKU"]:
+                    st.markdown("### 📦 Product-Specific Analysis")
+                    
+                    # Group by the sort field
+                    grouped = display_data.groupby(sort_by)
+                    
+                    # Show top 5 products by return count
+                    product_counts = grouped.size().sort_values(ascending=False).head(5)
+                    
+                    for product, count in product_counts.items():
+                        if product and str(product).strip():
+                            product_data = grouped.get_group(product)
+                            
+                            # Get top return reasons for this product
+                            reason_counts = product_data['Return_Reason'].value_counts().head(3)
+                            
+                            with st.expander(f"📦 {product} - {count} returns"):
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    st.markdown("**Top Return Reasons:**")
+                                    for reason, reason_count in reason_counts.items():
+                                        pct = (reason_count / count) * 100
+                                        st.markdown(f"- {reason}: {reason_count} ({pct:.1f}%)")
+                                
+                                with col2:
+                                    # Check if this is a quality concern
+                                    quality_categories = ['Product Defects/Quality', 'Performance/Effectiveness', 
+                                                        'Missing Components', 'Design/Material Issues', 
+                                                        'Stability/Positioning Issues']
+                                    quality_count = sum(
+                                        reason_counts.get(reason, 0) 
+                                        for reason in reason_counts.index
+                                        if reason in quality_categories
+                                    )
+                                    quality_pct = (quality_count / count) * 100
+                                    
+                                    if quality_pct > 30:
+                                        st.error(f"⚠️ High Quality Risk: {quality_pct:.1f}% quality issues")
+                                    elif quality_pct > 15:
+                                        st.warning(f"⚠️ Medium Risk: {quality_pct:.1f}% quality issues")
+                                    else:
+                                        st.success(f"✅ Low Risk: {quality_pct:.1f}% quality issues")
+                
                 # Generate actionable insights
-                quality_keywords = ['defective', 'bad', 'broken', 'missing', 'damaged', 'quality']
+                quality_categories = ['Product Defects/Quality', 'Performance/Effectiveness', 'Missing Components', 
+                                    'Design/Material Issues', 'Stability/Positioning Issues']
                 quality_reasons = [(reason, count) for reason, count in st.session_state.reason_summary.items() 
-                                 if any(keyword in reason.lower() for keyword in quality_keywords)]
+                                 if reason in quality_categories]
                 quality_count = sum(count for _, count in quality_reasons)
                 
                 col1, col2 = st.columns(2)
