@@ -1,10 +1,13 @@
 """
-Enhanced AI Analysis Module - Return Categorization Edition
+Enhanced AI Analysis Module - Medical Device Return Categorization
+Version: 7.0 - Streamlined for Quality Management
 
-Provides AI-powered analysis for Amazon return reasons and quality management insights.
+Provides AI-powered analysis for categorizing returns from:
+- PDF files (Amazon Seller Central)
+- FBA Return Reports
+- Product Complaints Ledger
 
-Author: Assistant
-Version: 6.0 - Quality Management Focus
+Focuses on medical device quality management and FDA compliance.
 """
 
 import logging
@@ -13,6 +16,7 @@ import json
 import re
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple, Union
+import time
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -32,18 +36,26 @@ requests, has_requests = safe_import('requests')
 # API Configuration
 API_TIMEOUT = 30
 MAX_RETRIES = 3
-MAX_TOKENS = 9700
+DEFAULT_MAX_TOKENS = 2000
 
-# Return categories for AI understanding
-RETURN_CATEGORY_DEFINITIONS = """
-SIZE_FIT_ISSUES: Product doesn't fit properly, too small/large, wrong dimensions
-QUALITY_DEFECTS: Product is broken, defective, damaged, malfunctioning, poor quality
-WRONG_PRODUCT: Received different item than ordered, not as described, incorrect product
-BUYER_MISTAKE: Customer ordered by mistake, accidentally purchased, wrong selection
-NO_LONGER_NEEDED: Customer no longer needs item, changed mind, patient died, plans changed
-FUNCTIONALITY_ISSUES: Product hard to use, uncomfortable, unstable, difficult to operate
-COMPATIBILITY_ISSUES: Product doesn't fit with other items, incompatible, wrong type
-"""
+# Medical device return categories
+MEDICAL_DEVICE_CATEGORIES = [
+    'Size/Fit Issues',
+    'Comfort Issues',
+    'Product Defects/Quality',
+    'Performance/Effectiveness',
+    'Stability/Positioning Issues',
+    'Equipment Compatibility',
+    'Design/Material Issues',
+    'Wrong Product/Misunderstanding',
+    'Missing Components',
+    'Customer Error/Changed Mind',
+    'Shipping/Fulfillment Issues',
+    'Assembly/Usage Difficulty',
+    'Medical/Health Concerns',
+    'Price/Value',
+    'Other/Miscellaneous'
+]
 
 class APIClient:
     """Robust OpenAI API client with error handling"""
@@ -71,20 +83,25 @@ class APIClient:
                 # Try multiple possible key names
                 for key_name in ["openai_api_key", "OPENAI_API_KEY", "openai", "api_key"]:
                     if key_name in st.secrets:
-                        logger.info(f"Found API key in Streamlit secrets under '{key_name}'")
-                        return str(st.secrets[key_name])
+                        api_key = str(st.secrets[key_name]).strip()
+                        if api_key and api_key.startswith('sk-'):
+                            logger.info(f"Found API key in Streamlit secrets under '{key_name}'")
+                            return api_key
                     
                 # Check nested secrets
-                if "openai" in st.secrets and "api_key" in st.secrets["openai"]:
-                    logger.info("Found API key in nested Streamlit secrets")
-                    return str(st.secrets["openai"]["api_key"])
+                if "openai" in st.secrets and isinstance(st.secrets.get("openai"), dict):
+                    if "api_key" in st.secrets["openai"]:
+                        api_key = str(st.secrets["openai"]["api_key"]).strip()
+                        if api_key and api_key.startswith('sk-'):
+                            logger.info("Found API key in nested Streamlit secrets")
+                            return api_key
         except Exception as e:
             logger.debug(f"Streamlit secrets not available: {e}")
         
         # Try environment variable
         for env_name in ["OPENAI_API_KEY", "OPENAI_API", "API_KEY"]:
-            api_key = os.environ.get(env_name)
-            if api_key:
+            api_key = os.environ.get(env_name, '').strip()
+            if api_key and api_key.startswith('sk-'):
                 logger.info(f"Found API key in environment variable '{env_name}'")
                 return api_key
         
@@ -98,7 +115,7 @@ class APIClient:
     def call_api(self, messages: List[Dict[str, str]], 
                 model: str = "gpt-4o-mini",
                 temperature: float = 0.3,
-                max_tokens: int = MAX_TOKENS) -> Dict[str, Any]:
+                max_tokens: int = DEFAULT_MAX_TOKENS) -> Dict[str, Any]:
         """Make API call with retry logic"""
         
         if not self.is_available():
@@ -108,9 +125,15 @@ class APIClient:
                 "result": "AI analysis requires OpenAI API key. Please add OPENAI_API_KEY to your Streamlit secrets or environment variables."
             }
         
-        # Ensure we're using the correct model name
-        if model == "gpt-4o":
-            model = "gpt-4o-mini"  # Use the more cost-effective version
+        # Ensure we're using valid model names
+        model_map = {
+            'gpt-4o': 'gpt-4o-mini',
+            'gpt-4': 'gpt-4-turbo-preview',
+            'gpt-3.5': 'gpt-3.5-turbo'
+        }
+        
+        if model in model_map:
+            model = model_map[model]
         
         payload = {
             "model": model,
@@ -118,6 +141,8 @@ class APIClient:
             "temperature": temperature,
             "max_tokens": max_tokens
         }
+        
+        last_error = None
         
         for attempt in range(MAX_RETRIES):
             try:
@@ -155,47 +180,51 @@ class APIClient:
                     
                 elif response.status_code == 429:
                     # Rate limit - wait and retry
-                    import time
                     wait_time = 2 ** attempt
                     logger.warning(f"Rate limited, waiting {wait_time} seconds")
                     time.sleep(wait_time)
                     continue
                     
+                elif response.status_code == 404:
+                    # Model not found, try fallback
+                    if model != 'gpt-3.5-turbo':
+                        logger.warning(f"Model {model} not found, trying gpt-3.5-turbo")
+                        model = 'gpt-3.5-turbo'
+                        payload['model'] = model
+                        continue
+                    
                 else:
                     error_data = response.json() if response.text else {}
                     error_msg = error_data.get('error', {}).get('message', f'API error {response.status_code}')
+                    last_error = error_msg
                     logger.error(f"API error: {error_msg}")
-                    return {
-                        "success": False,
-                        "error": error_msg,
-                        "result": None
-                    }
+                    
+                    if attempt < MAX_RETRIES - 1:
+                        time.sleep(2 ** attempt)
+                        continue
                     
             except requests.exceptions.Timeout:
+                last_error = "Request timed out"
                 logger.warning(f"API timeout on attempt {attempt + 1}")
-                if attempt == MAX_RETRIES - 1:
-                    return {
-                        "success": False,
-                        "error": "API timeout after multiple attempts",
-                        "result": None
-                    }
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                    
             except Exception as e:
+                last_error = str(e)
                 logger.error(f"API call error: {str(e)}")
-                if attempt == MAX_RETRIES - 1:
-                    return {
-                        "success": False,
-                        "error": f"API call failed: {str(e)}",
-                        "result": None
-                    }
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(2 ** attempt)
+                    continue
         
         return {
             "success": False,
-            "error": "Max retries exceeded",
+            "error": last_error or "Max retries exceeded",
             "result": None
         }
 
 class EnhancedAIAnalyzer:
-    """Main AI analyzer class optimized for return categorization and quality management"""
+    """Main AI analyzer class optimized for medical device return categorization"""
     
     def __init__(self):
         self.api_client = APIClient()
@@ -220,7 +249,7 @@ class EnhancedAIAnalyzer:
             # Try a test call with minimal tokens
             test_response = self.api_client.call_api(
                 [{"role": "user", "content": "Hi"}],
-                max_tokens=150
+                max_tokens=10
             )
             
             if test_response['success']:
@@ -234,300 +263,312 @@ class EnhancedAIAnalyzer:
         logger.info(f"API status check: {status}")
         return status
     
-    def categorize_return(self, return_reason: str, customer_comment: str) -> str:
-        """Categorize a single return using AI"""
-        prompt = f"""Categorize this Amazon product return into exactly ONE of these categories:
+    def categorize_return(self, complaint: str, return_reason: str = None, fba_reason: str = None) -> str:
+        """
+        Categorize a single return into medical device categories
+        
+        Args:
+            complaint: Customer complaint or comment text
+            return_reason: Return reason from PDF or ledger
+            fba_reason: FBA reason code
+            
+        Returns:
+            Category name from MEDICAL_DEVICE_CATEGORIES
+        """
+        
+        # Build context from all available information
+        context_parts = []
+        
+        if return_reason and return_reason.strip():
+            context_parts.append(f"Return Reason: {return_reason}")
+        
+        if fba_reason and fba_reason.strip():
+            # Map FBA codes to human-readable descriptions
+            fba_descriptions = {
+                'NOT_COMPATIBLE': 'Not compatible with equipment',
+                'DAMAGED_BY_FC': 'Damaged at fulfillment center',
+                'DAMAGED_BY_CARRIER': 'Damaged during shipping',
+                'DEFECTIVE': 'Product is defective',
+                'NOT_AS_DESCRIBED': 'Not as described on listing',
+                'WRONG_ITEM': 'Wrong item received',
+                'MISSING_PARTS': 'Missing parts or components',
+                'QUALITY_NOT_ADEQUATE': 'Quality not adequate',
+                'UNWANTED_ITEM': 'Customer no longer wants item',
+                'CUSTOMER_DAMAGED': 'Damaged by customer',
+                'UNAUTHORIZED_PURCHASE': 'Unauthorized purchase',
+                'BETTER_PRICE_AVAILABLE': 'Found better price elsewhere'
+            }
+            
+            fba_desc = fba_descriptions.get(fba_reason, fba_reason)
+            context_parts.append(f"FBA Code: {fba_reason} ({fba_desc})")
+        
+        context = "\n".join(context_parts) if context_parts else ""
+        
+        # Create categorization prompt
+        categories_list = "\n".join([f"{i+1}. {cat}" for i, cat in enumerate(MEDICAL_DEVICE_CATEGORIES)])
+        
+        prompt = f"""You are a quality management expert for medical devices. Categorize this return into exactly ONE category.
 
-{RETURN_CATEGORY_DEFINITIONS}
+Customer Complaint/Comment: {complaint}
+{context}
 
-Return reason: {return_reason}
-Customer comment: {customer_comment}
+Categories:
+{categories_list}
 
-Respond with ONLY the category name (e.g., SIZE_FIT_ISSUES)."""
+Rules:
+1. Choose the SINGLE most appropriate category based on the root cause
+2. For medical devices, prioritize safety and quality issues
+3. If multiple issues exist, choose the primary/most serious one
+4. Consider FDA reportability - quality defects are high priority
+5. Use FBA codes as hints but complaint text takes precedence
+
+Respond with ONLY the category name exactly as shown in the list."""
 
         response = self.api_client.call_api(
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a quality management expert categorizing product returns. Always respond with exactly one category name."
+                    "content": "You are a medical device quality expert. Always respond with exactly one category name from the provided list, nothing else."
                 },
                 {"role": "user", "content": prompt}
             ],
-            temperature=0,
-            max_tokens=750
+            temperature=0.1,  # Low temperature for consistency
+            max_tokens=50
         )
         
         if response['success']:
-            category = response['result'].strip().upper().replace(' ', '_')
-            # Validate category
-            valid_categories = ['SIZE_FIT_ISSUES', 'QUALITY_DEFECTS', 'WRONG_PRODUCT', 
-                              'BUYER_MISTAKE', 'NO_LONGER_NEEDED', 'FUNCTIONALITY_ISSUES', 
-                              'COMPATIBILITY_ISSUES']
+            category = response['result'].strip()
             
-            if category in valid_categories:
+            # Validate the category
+            if category in MEDICAL_DEVICE_CATEGORIES:
+                return category
+            
+            # Try to match if response includes number
+            for i, cat in enumerate(MEDICAL_DEVICE_CATEGORIES):
+                if str(i+1) in category or cat.lower() in category.lower():
+                    return cat
+        
+        # Log the failure for debugging
+        logger.warning(f"AI categorization failed or returned invalid category: {response}")
+        
+        # Fallback to rule-based categorization
+        return self._fallback_categorization(complaint, return_reason, fba_reason)
+    
+    def _fallback_categorization(self, complaint: str, return_reason: str = None, fba_reason: str = None) -> str:
+        """Rule-based fallback when AI is unavailable"""
+        
+        # FBA reason code mapping
+        fba_map = {
+            'NOT_COMPATIBLE': 'Equipment Compatibility',
+            'DAMAGED_BY_FC': 'Product Defects/Quality',
+            'DAMAGED_BY_CARRIER': 'Shipping/Fulfillment Issues',
+            'DEFECTIVE': 'Product Defects/Quality',
+            'NOT_AS_DESCRIBED': 'Wrong Product/Misunderstanding',
+            'WRONG_ITEM': 'Wrong Product/Misunderstanding',
+            'MISSING_PARTS': 'Missing Components',
+            'QUALITY_NOT_ADEQUATE': 'Performance/Effectiveness',
+            'UNWANTED_ITEM': 'Customer Error/Changed Mind',
+            'UNAUTHORIZED_PURCHASE': 'Customer Error/Changed Mind',
+            'CUSTOMER_DAMAGED': 'Customer Error/Changed Mind',
+            'BETTER_PRICE_AVAILABLE': 'Price/Value',
+            'DOES_NOT_FIT': 'Size/Fit Issues',
+            'ARRIVED_LATE': 'Shipping/Fulfillment Issues'
+        }
+        
+        # Check FBA mapping first
+        if fba_reason and fba_reason in fba_map:
+            return fba_map[fba_reason]
+        
+        # Combine all text
+        all_text = f"{complaint} {return_reason or ''} {fba_reason or ''}".lower()
+        
+        # Keyword-based rules
+        rules = [
+            (['small', 'large', 'size', 'fit', 'tight', 'loose'], 'Size/Fit Issues'),
+            (['uncomfortable', 'comfort', 'hurts', 'painful'], 'Comfort Issues'),
+            (['defective', 'broken', 'damaged', 'quality', 'malfunction'], 'Product Defects/Quality'),
+            (['not work', 'ineffective', 'performance'], 'Performance/Effectiveness'),
+            (['unstable', 'slides', 'position'], 'Stability/Positioning Issues'),
+            (['compatible', 'fit toilet', 'wheelchair'], 'Equipment Compatibility'),
+            (['heavy', 'material', 'design'], 'Design/Material Issues'),
+            (['wrong', 'different', 'expected'], 'Wrong Product/Misunderstanding'),
+            (['missing', 'incomplete'], 'Missing Components'),
+            (['mistake', 'changed mind', 'no longer'], 'Customer Error/Changed Mind'),
+            (['shipping', 'package', 'late'], 'Shipping/Fulfillment Issues'),
+            (['difficult', 'hard to', 'confusing'], 'Assembly/Usage Difficulty'),
+            (['doctor', 'medical', 'health'], 'Medical/Health Concerns'),
+            (['price', 'expensive', 'cheaper'], 'Price/Value')
+        ]
+        
+        for keywords, category in rules:
+            if any(keyword in all_text for keyword in keywords):
                 return category
         
-        return 'UNCATEGORIZED'
+        return 'Other/Miscellaneous'
     
-    def analyze_return_patterns(self, categorized_returns: Dict[str, List], 
-                              product_info: Optional[Dict] = None) -> str:
-        """Analyze return patterns and provide quality management insights"""
+    def generate_quality_insights(self, 
+                                category_summary: Dict[str, int],
+                                product_summary: Dict[str, Dict[str, int]],
+                                total_returns: int,
+                                data_sources: List[str]) -> str:
+        """
+        Generate comprehensive quality management insights
         
-        # Calculate statistics
-        total_returns = sum(len(returns) for returns in categorized_returns.values())
-        category_stats = {}
+        Args:
+            category_summary: Count of returns by category
+            product_summary: Returns by product and category
+            total_returns: Total number of returns
+            data_sources: List of data sources used (PDF, FBA, Ledger)
+            
+        Returns:
+            Formatted insights report
+        """
         
-        for category, returns in categorized_returns.items():
-            if returns:
-                category_stats[category] = {
-                    'count': len(returns),
-                    'percentage': (len(returns) / total_returns * 100) if total_returns > 0 else 0
-                }
+        # Calculate quality metrics
+        quality_categories = ['Product Defects/Quality', 'Performance/Effectiveness', 
+                            'Missing Components', 'Design/Material Issues']
+        quality_count = sum(category_summary.get(cat, 0) for cat in quality_categories)
+        quality_percentage = (quality_count / total_returns * 100) if total_returns > 0 else 0
         
-        # Build analysis prompt
-        stats_summary = "\n".join([
-            f"{cat}: {stats['count']} returns ({stats['percentage']:.1f}%)"
-            for cat, stats in category_stats.items()
-        ])
+        # Top categories
+        sorted_categories = sorted(category_summary.items(), key=lambda x: x[1], reverse=True)
         
-        # Sample returns for context
-        sample_returns = []
-        for category, returns in categorized_returns.items():
-            for ret in returns[:2]:  # Take 2 samples from each category
-                sample_returns.append(f"- {category}: {ret.get('return_reason', '')} | {ret.get('buyer_comment', '')}")
+        # Top products with issues
+        product_totals = {
+            product: sum(cats.values()) 
+            for product, cats in product_summary.items()
+        }
+        top_products = sorted(product_totals.items(), key=lambda x: x[1], reverse=True)[:5]
         
-        prompt = f"""As a quality management expert for medical devices, analyze these return patterns and provide actionable insights.
+        # Build prompt
+        prompt = f"""As a medical device quality management expert, analyze these return patterns and provide actionable insights for FDA compliance and quality improvement.
 
-RETURN STATISTICS:
-Total Returns: {total_returns}
+RETURN DATA SUMMARY:
+- Total Returns: {total_returns}
+- Data Sources: {', '.join(data_sources)}
+- Quality-Related Returns: {quality_count} ({quality_percentage:.1f}%)
 
-CATEGORY BREAKDOWN:
-{stats_summary}
+TOP RETURN CATEGORIES:
+{chr(10).join([f"- {cat}: {count} ({count/total_returns*100:.1f}%)" for cat, count in sorted_categories[:10]])}
 
-SAMPLE RETURNS:
-{chr(10).join(sample_returns[:10])}
+TOP 5 PRODUCTS BY RETURN VOLUME:
+{chr(10).join([f"- {prod}: {count} returns" for prod, count in top_products if prod and str(prod).strip()])}
 
-Provide analysis in this format:
+CRITICAL CONSIDERATIONS:
+- Product Defects/Quality issues may require FDA reporting (MDRs)
+- Medical/Health Concerns need immediate investigation
+- Pattern analysis for potential recalls or field actions
+- Customer safety is paramount
 
-## QUALITY MANAGEMENT SUMMARY
-[Brief overview of return patterns and quality concerns]
+Provide a comprehensive report in this format:
+
+## EXECUTIVE SUMMARY
+[2-3 sentences for quality leadership on key findings and urgency]
 
 ## CRITICAL QUALITY ISSUES
-[List top 3 quality-related concerns based on the data]
+1. [Most serious quality issue with specific data]
+2. [Second priority issue]
+3. [Third priority issue]
+
+## FDA/REGULATORY CONSIDERATIONS
+[Identify any patterns suggesting reportable events, potential recalls, or compliance issues]
 
 ## ROOT CAUSE ANALYSIS
-[Identify potential root causes for the main return categories]
+[For top 3 categories, identify likely root causes based on the data]
 
-## IMMEDIATE ACTION ITEMS
-1. [Most urgent action for quality team]
-2. [Second priority action]
-3. [Third priority action]
+## IMMEDIATE ACTIONS (Within 48 Hours)
+1. [Most urgent action with clear steps]
+2. [Second priority with responsible party]
+3. [Third priority with timeline]
 
-## LONG-TERM IMPROVEMENTS
-[Strategic recommendations for reducing returns]
+## 30-DAY QUALITY IMPROVEMENT PLAN
+[Week 1]: [Specific actions]
+[Week 2-3]: [Implementation steps]
+[Week 4]: [Verification activities]
 
-## PRODUCT-SPECIFIC INSIGHTS
-[Any patterns related to specific products/ASINs if apparent]
+## PRODUCT-SPECIFIC RECOMMENDATIONS
+[For each of the top 3 products with returns, provide targeted actions]
 
-Focus on medical device quality, safety, compliance, and user experience."""
+## METRICS FOR SUCCESS
+[Define KPIs to track improvement - target <2% quality return rate]
+
+Focus on patient safety, FDA compliance, and sustainable quality improvements."""
 
         response = self.api_client.call_api(
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a quality management expert for medical devices. Provide specific, actionable insights based on return data to improve product quality and reduce returns."
+                    "content": "You are a senior medical device quality management expert with deep knowledge of FDA regulations, ISO 13485, and quality systems. Provide specific, actionable recommendations."
                 },
                 {"role": "user", "content": prompt}
             ],
             temperature=0.3,
-            max_tokens=9500
+            max_tokens=2000
         )
         
         if response['success']:
             return response['result']
         else:
-            return self._generate_fallback_analysis(category_stats)
-    
-    def _generate_fallback_analysis(self, category_stats: Dict) -> str:
-        """Generate basic analysis when AI is unavailable"""
-        analysis = "## QUALITY MANAGEMENT SUMMARY\n\n"
-        
-        # Find top issues
-        sorted_categories = sorted(
-            category_stats.items(),
-            key=lambda x: x[1]['count'],
-            reverse=True
-        )
-        
-        if sorted_categories:
-            top_category = sorted_categories[0][0]
-            analysis += f"Primary return reason: {top_category.replace('_', ' ').title()} "
-            analysis += f"({sorted_categories[0][1]['percentage']:.1f}% of returns)\n\n"
-        
-        # Quality alerts
-        quality_returns = category_stats.get('QUALITY_DEFECTS', {}).get('percentage', 0)
-        if quality_returns > 20:
-            analysis += "⚠️ CRITICAL: Over 20% of returns are quality-related\n\n"
-        
-        analysis += "## IMMEDIATE ACTION ITEMS\n"
-        analysis += "1. Review quality control processes\n"
-        analysis += "2. Analyze specific defects mentioned in returns\n"
-        analysis += "3. Update product documentation if needed\n"
-        
-        return analysis
-    
-    def analyze_reviews_for_listing_optimization(self, 
-                                                reviews: List[Dict],
-                                                product_info: Dict,
-                                                listing_details: Optional[Dict] = None,
-                                                metrics: Optional[Dict] = None,
-                                                marketplace_data: Optional[Dict] = None) -> str:
-        """
-        Analyze reviews with marketplace data integration
-        Enhanced to understand return patterns from marketplace data
-        """
-        try:
-            # Check if we have return data in marketplace_data
-            return_insights = ""
-            if marketplace_data and 'return_patterns' in marketplace_data:
-                return_patterns = marketplace_data['return_patterns']
-                total_returns = sum(
-                    data.get('count', 0) 
-                    for data in return_patterns.values() 
-                    if isinstance(data, dict)
-                )
-                
-                if total_returns > 0:
-                    return_insights = f"\n\nRETURN DATA INSIGHTS:\nTotal Returns: {total_returns}\n"
-                    
-                    # Analyze return reasons
-                    for return_type, data in return_patterns.items():
-                        if isinstance(data, dict) and data.get('count', 0) > 0:
-                            return_insights += f"\n{return_type.upper()}: {data['count']} returns"
-                            if 'reasons' in data and data['reasons']:
-                                top_reasons = list(data['reasons'].items())[:3]
-                                return_insights += "\nTop reasons: " + ", ".join([f"{r[0]} ({r[1]})" for r in top_reasons])
-            
-            # Prepare review summaries
-            review_texts = []
-            for i, review in enumerate(reviews[:30], 1):
-                rating = review.get('rating', 3)
-                title = review.get('title', '')[:100]
-                body = review.get('body', '')[:300]
-                verified = " [Verified]" if review.get('verified') else ""
-                
-                review_text = f"Review {i} ({rating}/5){verified}: {title} - {body}"
-                review_texts.append(review_text)
-            
-            # Build the comprehensive prompt
-            listing_context = ""
-            if listing_details:
-                listing_context = f"""
-CURRENT LISTING DETAILS:
-Title: {listing_details.get('title', 'Not provided')}
-Brand: {listing_details.get('brand', 'Not provided')}
-Category: {listing_details.get('category', 'Not provided')}
-ASIN: {listing_details.get('asin', 'Not provided')}
-
-Current Bullet Points:
-{chr(10).join([f'• {b}' for b in listing_details.get('bullet_points', []) if b.strip()])}
-"""
-            
-            # Medical device context for quality management
-            medical_device_context = """
-Note: This is a medical device product. Pay special attention to:
-- Safety concerns and adverse events
-- Quality and reliability issues  
-- Usability and user training needs
-- Regulatory compliance implications
-- Documentation and instruction clarity
-- Return patterns indicating quality issues
-"""
-            
-            prompt = f"""You are an expert Amazon listing optimization specialist with medical device expertise.
-Analyze these customer reviews and return data to provide SPECIFIC, ACTIONABLE listing improvements.
-
-PRODUCT INFORMATION:
-ASIN: {product_info.get('asin', 'Unknown')}
-Total Reviews Analyzed: {len(reviews)}
-{listing_context}
-{medical_device_context}
-{return_insights}
-
-CUSTOMER REVIEWS:
-{chr(10).join(review_texts)}
-
-Provide optimization recommendations in this EXACT format:
-
-## TITLE OPTIMIZATION
-Current issues identified from reviews and returns:
-[List specific problems mentioned]
-
-Recommended new title (max 200 chars):
-[Exact title incorporating customer language and addressing concerns]
-
-## BULLET POINT REWRITE
-Based on customer feedback and return reasons, rewrite all 5 bullet points:
-
-• Bullet 1 (Address #1 concern): [Complete bullet point text]
-• Bullet 2 (Highlight safety/quality): [Complete bullet point text]
-• Bullet 3 (Usability/ease of use): [Complete bullet point text]
-• Bullet 4 (Specifications/compatibility): [Complete bullet point text]
-• Bullet 5 (Support/warranty): [Complete bullet point text]
-
-## QUALITY & SAFETY PRIORITIES
-[Based on reviews and returns, list quality improvements needed]
-
-## RETURN REDUCTION STRATEGY
-[Specific recommendations to reduce returns based on patterns]
-
-Focus on medical device quality, safety, and compliance while improving conversion."""
-
-            # Make the API call
-            response = self.api_client.call_api(
-                messages=[
-                    {
-                        "role": "system", 
-                        "content": "You are an Amazon listing optimization expert specializing in medical devices. Provide specific, implementable recommendations based on customer feedback and return data."
-                    },
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3,
-                max_tokens=9000
+            # Fallback insights
+            return self._generate_fallback_insights(
+                category_summary, product_summary, total_returns, 
+                quality_count, quality_percentage, sorted_categories
             )
-            
-            if response['success']:
-                logger.info("AI analysis completed successfully")
-                return response['result']
-            else:
-                error_msg = response.get('error', 'Unknown error')
-                logger.error(f"AI analysis failed: {error_msg}")
-                
-                # Return a helpful error message
-                return f"""## AI Analysis Error
+    
+    def _generate_fallback_insights(self, category_summary, product_summary, 
+                                   total_returns, quality_count, quality_percentage,
+                                   sorted_categories) -> str:
+        """Generate basic insights when AI is unavailable"""
+        
+        top_category = sorted_categories[0] if sorted_categories else ('Unknown', 0)
+        
+        insights = f"""## QUALITY MANAGEMENT SUMMARY
 
-{error_msg}
+**Analysis Date:** {datetime.now().strftime('%B %d, %Y')}
+**Total Returns Analyzed:** {total_returns}
+**Quality-Related Returns:** {quality_count} ({quality_percentage:.1f}%)
 
-### Troubleshooting Steps:
-1. Check that your OpenAI API key is correctly configured
-2. Verify the API key has sufficient credits
-3. Ensure you're using a valid API key that starts with 'sk-'
+## KEY FINDINGS
 
-### Manual Analysis Recommendations:
-While AI is unavailable, focus on:
-- Addressing the most common complaints in reviews
-- Reviewing return reasons for quality issues
-- Adding safety and quality assurances to bullet points
-- Including customer keywords in your title
-- Updating backend search terms with review language"""
-                
-        except Exception as e:
-            logger.error(f"Error in analyze_reviews_for_listing_optimization: {str(e)}")
-            return f"""## Analysis Error
+1. **Primary Return Category:** {top_category[0]} ({top_category[1]} returns, {top_category[1]/total_returns*100:.1f}%)
+2. **Quality Impact:** {quality_percentage:.1f}% of returns are quality-related
+3. **Multi-Source Analysis:** Data unified from PDF, FBA, and Ledger sources
 
-An error occurred during analysis: {str(e)}
+## IMMEDIATE ACTIONS REQUIRED
 
-Please check your configuration and try again."""
+1. **Quality Investigation**
+   - Review all {quality_count} quality-related returns
+   - Identify potential patterns for MDR reporting
+   - Document findings in quality system
 
-# Export main class
+2. **Product Focus**
+   - Prioritize top products with highest return rates
+   - Conduct root cause analysis
+   - Update inspection criteria
+
+3. **Customer Safety**
+   - Review Medical/Health Concerns category immediately
+   - Assess need for customer notifications
+   - Document in complaint files
+
+## RECOMMENDATIONS
+
+- Implement enhanced incoming inspection for top return categories
+- Update IFUs to address usage difficulty issues  
+- Consider design modifications for comfort/fit problems
+- Track improvement metrics after interventions
+
+## NEXT STEPS
+
+1. Schedule quality review meeting within 48 hours
+2. Assign CAPA owners for top 3 issues
+3. Report findings to management
+4. Monitor trends weekly for 30 days
+
+*Note: This is an automated analysis. Please review with quality team for final decisions.*
+"""
+        
+        return insights
+
+# Export main classes
 __all__ = ['EnhancedAIAnalyzer', 'APIClient']
