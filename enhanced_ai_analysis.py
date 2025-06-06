@@ -1,6 +1,6 @@
 """
 Enhanced AI Analysis Module - Medical Device Return Categorization
-Version: 7.0 - Streamlined for Quality Management
+Version: 7.1 - Updated API Key Method
 
 Provides AI-powered analysis for categorizing returns from:
 - PDF files (Amazon Seller Central)
@@ -75,37 +75,49 @@ class APIClient:
             logger.warning("No API key found - AI features will be disabled")
     
     def _get_api_key(self) -> Optional[str]:
-        """Get API key from multiple sources"""
+        """Get API key with clear feedback on source"""
+        key_sources = []
+        
         # Try Streamlit secrets first
         try:
             import streamlit as st
             if hasattr(st, 'secrets'):
                 # Try multiple possible key names
-                for key_name in ["openai_api_key", "OPENAI_API_KEY", "openai", "api_key"]:
+                secret_keys = ['openai_api_key', 'OPENAI_API_KEY', 'openai', 'api_key']
+                for key_name in secret_keys:
                     if key_name in st.secrets:
                         api_key = str(st.secrets[key_name]).strip()
                         if api_key and api_key.startswith('sk-'):
-                            logger.info(f"Found API key in Streamlit secrets under '{key_name}'")
+                            logger.info(f"API key found in Streamlit secrets under '{key_name}'")
                             return api_key
                     
                 # Check nested secrets
-                if "openai" in st.secrets and isinstance(st.secrets.get("openai"), dict):
+                if "openai" in st.secrets and isinstance(st.secrets["openai"], dict):
                     if "api_key" in st.secrets["openai"]:
                         api_key = str(st.secrets["openai"]["api_key"]).strip()
                         if api_key and api_key.startswith('sk-'):
-                            logger.info("Found API key in nested Streamlit secrets")
+                            logger.info("API key found in nested Streamlit secrets")
                             return api_key
+                
+                key_sources.append("Streamlit secrets (not found)")
         except Exception as e:
             logger.debug(f"Streamlit secrets not available: {e}")
+            key_sources.append("Streamlit secrets (not available)")
         
-        # Try environment variable
-        for env_name in ["OPENAI_API_KEY", "OPENAI_API", "API_KEY"]:
+        # Try environment variables
+        env_vars = ['OPENAI_API_KEY', 'OPENAI_API', 'API_KEY']
+        for env_name in env_vars:
             api_key = os.environ.get(env_name, '').strip()
             if api_key and api_key.startswith('sk-'):
-                logger.info(f"Found API key in environment variable '{env_name}'")
+                logger.info(f"API key found in environment variable '{env_name}'")
                 return api_key
         
-        logger.warning("No OpenAI API key found in Streamlit secrets or environment")
+        key_sources.append("Environment variables (not found)")
+        
+        # Log where we looked
+        logger.warning(f"No valid OpenAI API key found. Searched in: {', '.join(key_sources)}")
+        logger.info("To enable AI features, add your OpenAI API key to Streamlit secrets or environment variables")
+        
         return None
     
     def is_available(self) -> bool:
