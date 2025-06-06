@@ -1,16 +1,13 @@
 """
 Vive Health Quality Complaint Categorizer
 AI-Powered Return Reason Classification Tool
-Version: 6.0 - Multi-Provider AI Support (OpenAI + Claude)
+Version: 7.0 - Multi-Provider Support with Correct Export Format
 
-This enhanced version supports:
-- PDF files from Amazon Seller Central Manage Returns page
-- FBA Return Reports (.txt tab-separated files)
-- Product Complaints Ledger (Excel/.xlsx and CSV files)
-- Multiple AI providers (OpenAI, Claude, or both)
-- Provider comparison mode
-- Cost tracking and optimization
-- Cross-reference analysis between all data sources
+Key Features:
+- Choose between OpenAI, Claude, or both AI providers
+- Preserves exact input format, only fills Column K
+- Supports PDF, Excel, CSV, and FBA return files
+- Automatic API key loading from Streamlit secrets
 """
 
 import streamlit as st
@@ -45,7 +42,7 @@ try:
     EXCEL_AVAILABLE = True
 except ImportError:
     EXCEL_AVAILABLE = False
-    logger.warning("xlsxwriter not available - Excel export will use basic format")
+    logger.warning("xlsxwriter not available")
 
 try:
     import openpyxl
@@ -59,14 +56,14 @@ try:
     PDFPLUMBER_AVAILABLE = True
 except ImportError:
     PDFPLUMBER_AVAILABLE = False
-    logger.warning("pdfplumber not available - PDF parsing will be disabled")
+    logger.warning("pdfplumber not available")
 
 # App Configuration
 APP_CONFIG = {
     'title': 'Vive Health Medical Device Return Categorizer',
-    'version': '6.0',
+    'version': '7.0',
     'company': 'Vive Health',
-    'description': 'Multi-Provider AI Classification with PDF/Excel/CSV Support'
+    'description': 'Multi-Provider AI Classification - Column K Categorization'
 }
 
 # Cyberpunk color scheme
@@ -85,7 +82,7 @@ COLORS = {
     'claude': '#D4A574'
 }
 
-# Medical Device Return Categories (15 total)
+# Medical Device Return Categories
 RETURN_REASONS = [
     'Size/Fit Issues',
     'Comfort Issues',
@@ -104,7 +101,7 @@ RETURN_REASONS = [
     'Other/Miscellaneous'
 ]
 
-# FBA reason code mapping to medical device categories
+# FBA reason code mapping
 FBA_REASON_MAP = {
     'NOT_COMPATIBLE': 'Equipment Compatibility',
     'DAMAGED_BY_FC': 'Product Defects/Quality',
@@ -135,7 +132,7 @@ FBA_REASON_MAP = {
 }
 
 def inject_cyberpunk_css():
-    """Inject cyberpunk-themed CSS with multi-provider styling"""
+    """Inject cyberpunk-themed CSS"""
     st.markdown(f"""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600;700&display=swap');
@@ -252,8 +249,14 @@ def inject_cyberpunk_css():
         box-shadow: 0 6px 25px rgba(0, 217, 255, 0.6);
     }}
     
-    .stProgress > div > div > div > div {{
-        background: linear-gradient(90deg, var(--primary) 0%, var(--secondary) 100%);
+    .provider-button {{
+        background: rgba(116, 170, 156, 0.2) !important;
+        border: 2px solid var(--openai) !important;
+    }}
+    
+    .provider-button-claude {{
+        background: rgba(212, 165, 116, 0.2) !important;
+        border: 2px solid var(--claude) !important;
     }}
     
     #MainMenu, footer, header {{
@@ -274,101 +277,123 @@ def initialize_session_state():
         'reason_summary': {},
         'product_summary': {},
         'data_sources': set(),
-        'pdf_data': None,
-        'fba_data': None,
-        'ledger_data': None,
-        'unified_data': None,
         'selected_provider': 'openai',
-        'api_key_configured': False
+        'api_key_openai': '',
+        'api_key_claude': '',
+        'api_keys_configured': False
     }
     
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
 
-def check_and_set_api_keys():
-    """Check for API keys in Streamlit secrets and set them in environment"""
-    api_key_found = False
+def check_streamlit_secrets():
+    """Check for API keys in Streamlit secrets"""
+    keys_found = {}
     
-    # Check for OpenAI key in secrets
-    if hasattr(st, 'secrets'):
-        # Try various possible key names for OpenAI
-        openai_key_names = ['OPENAI_API_KEY', 'openai_api_key', 'openai', 'api_key']
-        for key_name in openai_key_names:
-            if key_name in st.secrets:
-                os.environ['OPENAI_API_KEY'] = str(st.secrets[key_name])
-                st.session_state.api_key_configured = True
-                api_key_found = True
-                logger.info(f"Found OpenAI API key in Streamlit secrets under '{key_name}'")
-                break
-        
-        # Check for Claude key in secrets
-        claude_key_names = ['ANTHROPIC_API_KEY', 'anthropic_api_key', 'claude_api_key', 'claude']
-        for key_name in claude_key_names:
-            if key_name in st.secrets:
-                os.environ['ANTHROPIC_API_KEY'] = str(st.secrets[key_name])
-                api_key_found = True
-                logger.info(f"Found Claude API key in Streamlit secrets under '{key_name}'")
-                break
+    try:
+        if hasattr(st, 'secrets'):
+            # Check for OpenAI key
+            openai_keys = ['OPENAI_API_KEY', 'openai_api_key', 'openai']
+            for key in openai_keys:
+                if key in st.secrets:
+                    keys_found['openai'] = str(st.secrets[key]).strip()
+                    break
+            
+            # Check for Claude key
+            claude_keys = ['ANTHROPIC_API_KEY', 'anthropic_api_key', 'claude_api_key', 'claude']
+            for key in claude_keys:
+                if key in st.secrets:
+                    keys_found['claude'] = str(st.secrets[key]).strip()
+                    break
+    except Exception as e:
+        logger.warning(f"Error checking secrets: {e}")
     
-    return api_key_found
+    return keys_found
 
 def setup_ai_provider():
-    """Setup AI provider based on user selection"""
+    """Setup AI provider with selection options"""
     st.markdown("""
     <div class="provider-selector">
         <h3 style="color: var(--primary); margin-top: 0;">🤖 AI PROVIDER CONFIGURATION</h3>
     </div>
     """, unsafe_allow_html=True)
     
-    # Check if API keys are already in Streamlit secrets
-    api_keys_in_secrets = check_and_set_api_keys()
+    # Check for keys in secrets
+    secret_keys = check_streamlit_secrets()
     
-    if api_keys_in_secrets:
-        st.success("✅ API keys loaded from Streamlit secrets")
-        st.info("Using OpenAI provider with pre-configured API key")
-        st.session_state.selected_provider = 'openai'
-    else:
-        # Manual configuration
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            provider = st.selectbox(
-                "Select AI Provider",
-                ["openai", "claude", "both"],
-                key="provider_select"
-            )
-            st.session_state.selected_provider = provider
-        
-        with col2:
-            if provider in ["openai", "both"]:
+    # Provider selection
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        provider_options = ["openai", "claude", "both"]
+        provider = st.selectbox(
+            "Select AI Provider",
+            provider_options,
+            key="provider_select",
+            help="Choose which AI provider to use for categorization"
+        )
+        st.session_state.selected_provider = provider
+    
+    # API key configuration
+    with col2:
+        if provider in ["openai", "both"]:
+            if 'openai' in secret_keys:
+                st.success("✅ OpenAI key found in secrets")
+                st.session_state.api_key_openai = secret_keys['openai']
+                os.environ['OPENAI_API_KEY'] = secret_keys['openai']
+            else:
                 openai_key = st.text_input(
                     "OpenAI API Key",
                     type="password",
                     placeholder="sk-...",
-                    key="openai_key_input"
+                    key="openai_key_input",
+                    value=st.session_state.api_key_openai
                 )
                 if openai_key:
+                    st.session_state.api_key_openai = openai_key
                     os.environ['OPENAI_API_KEY'] = openai_key
-                    st.session_state.api_key_configured = True
-        
-        with col3:
-            if provider in ["claude", "both"]:
+    
+    with col3:
+        if provider in ["claude", "both"]:
+            if 'claude' in secret_keys:
+                st.success("✅ Claude key found in secrets")
+                st.session_state.api_key_claude = secret_keys['claude']
+                os.environ['ANTHROPIC_API_KEY'] = secret_keys['claude']
+            else:
                 claude_key = st.text_input(
                     "Claude API Key",
                     type="password",
                     placeholder="sk-ant-...",
-                    key="claude_key_input"
+                    key="claude_key_input",
+                    value=st.session_state.api_key_claude
                 )
                 if claude_key:
+                    st.session_state.api_key_claude = claude_key
                     os.environ['ANTHROPIC_API_KEY'] = claude_key
-                    st.session_state.api_key_configured = True
+    
+    # Check if keys are configured
+    keys_configured = False
+    if provider == "openai" and (st.session_state.api_key_openai or 'openai' in secret_keys):
+        keys_configured = True
+    elif provider == "claude" and (st.session_state.api_key_claude or 'claude' in secret_keys):
+        keys_configured = True
+    elif provider == "both" and ((st.session_state.api_key_openai or 'openai' in secret_keys) and 
+                                  (st.session_state.api_key_claude or 'claude' in secret_keys)):
+        keys_configured = True
+    
+    st.session_state.api_keys_configured = keys_configured
+    
+    # Show status
+    if keys_configured:
+        st.success(f"✅ {provider.upper()} provider configured and ready")
+    else:
+        st.warning(f"⚠️ Please configure API key(s) for {provider}")
 
 def get_ai_client():
     """Get or create AI client based on selected provider"""
     if st.session_state.ai_client is None and AI_AVAILABLE:
         try:
-            # Create appropriate client based on selection
             provider = st.session_state.selected_provider
             
             if provider == "openai":
@@ -377,21 +402,23 @@ def get_ai_client():
                 st.session_state.ai_client = APIClient(AIProvider.CLAUDE)
             elif provider == "both":
                 st.session_state.ai_client = APIClient(AIProvider.BOTH)
+                
+            logger.info(f"Created AI client with provider: {provider}")
         except Exception as e:
             logger.error(f"Error creating AI client: {e}")
             st.error(f"Error initializing AI: {str(e)}")
-            
+    
     return st.session_state.ai_client
 
-def clean_dataframe_columns(df):
-    """Clean dataframe to ensure no duplicate columns"""
-    if df is None:
-        return None
+def clean_dataframe(df):
+    """Clean dataframe - remove duplicates and standardize"""
+    if df is None or df.empty:
+        return df
     
-    # First, remove any duplicate columns
+    # Remove duplicate columns
     df = df.loc[:, ~df.columns.duplicated()]
     
-    # Also strip whitespace from column names
+    # Strip whitespace from column names
     df.columns = df.columns.str.strip()
     
     return df
@@ -408,16 +435,13 @@ def parse_pdf_returns(pdf_file) -> pd.DataFrame:
         returns_data = []
         
         with pdfplumber.open(pdf_file) as pdf:
-            for page_num, page in enumerate(pdf.pages):
+            for page in pdf.pages:
                 text = page.extract_text()
-                
                 if not text:
                     continue
                 
-                # Pattern for Amazon return entries
+                # Extract return entries
                 order_pattern = r'Order ID:\s*(\d{3}-\d{7}-\d{7})'
-                
-                # Split by order IDs
                 order_matches = list(re.finditer(order_pattern, text))
                 
                 for i, match in enumerate(order_matches):
@@ -425,48 +449,40 @@ def parse_pdf_returns(pdf_file) -> pd.DataFrame:
                     end = order_matches[i+1].start() if i+1 < len(order_matches) else len(text)
                     
                     return_block = text[start:end]
-                    
-                    # Extract fields
                     order_id = match.group(1)
                     
-                    # Extract other fields using patterns
+                    # Extract fields
                     asin_match = re.search(r'ASIN:\s*([A-Z0-9]{10})', return_block)
                     sku_match = re.search(r'SKU:\s*([A-Z0-9-]+)', return_block)
                     product_match = re.search(r'(Vive[^\\n]+?)(?:Return Quantity|Return Reason)', return_block, re.DOTALL)
                     reason_match = re.search(r'Return Reason:\s*(.+?)(?:Buyer Comment|Request Date|$)', return_block, re.DOTALL)
                     comment_match = re.search(r'Buyer Comment:\s*(.+?)(?:Request Date|Order Date|$)', return_block, re.DOTALL)
                     date_match = re.search(r'Request Date:\s*(\d{2}/\d{2}/\d{4})', return_block)
-                    quantity_match = re.search(r'Return Quantity:\s*(\d+)', return_block)
                     
-                    return_data = {
+                    # Create row matching standard format
+                    row = {
                         'Date': date_match.group(1) if date_match else '',
+                        'Complaint': (comment_match.group(1).strip() if comment_match else '') + ' - ' + 
+                                    (product_match.group(1).strip() if product_match else ''),
                         'Product Identifier Tag': product_match.group(1).strip() if product_match else '',
                         'Imported SKU': sku_match.group(1) if sku_match else '',
-                        'UDI': '',  # Not in PDF
-                        'CS Ticket #': '',  # Not in PDF
-                        'Order #': order_id,
-                        'Source': 'PDF',
-                        'Categorizing / Investigating Agent': '',  # Not in PDF
-                        'Complaint': comment_match.group(1).strip() if comment_match else '',
-                        'Category': '',  # Will be filled later
-                        'Return_Reason_Raw': reason_match.group(1).strip() if reason_match else '',
                         'ASIN': asin_match.group(1) if asin_match else '',
-                        'Quantity': int(quantity_match.group(1)) if quantity_match else 1,
-                        'data_source': 'PDF'
+                        'UDI': '',
+                        'CS Ticket # - mapped to Order # if available': order_id,
+                        'Source - dropdown': 'PDF',
+                        'Categorizing / Investigating Agent': '',
+                        'Complaint': comment_match.group(1).strip() if comment_match else '',
+                        'Category': '',  # This will be filled by AI
+                        'Investigation': '',
+                        'FBA_Reason_Code': ''
                     }
                     
-                    # Clean up extracted text
-                    for key in ['Product Identifier Tag', 'Complaint', 'Return_Reason_Raw']:
-                        if return_data[key]:
-                            return_data[key] = ' '.join(return_data[key].split())
-                    
-                    returns_data.append(return_data)
+                    returns_data.append(row)
         
         if returns_data:
-            df = pd.DataFrame(returns_data)
-            return clean_dataframe_columns(df)
+            return pd.DataFrame(returns_data)
         else:
-            st.warning("No return data found in PDF. Please check the file format.")
+            st.warning("No return data found in PDF")
             return None
             
     except Exception as e:
@@ -475,49 +491,29 @@ def parse_pdf_returns(pdf_file) -> pd.DataFrame:
         return None
 
 def process_fba_returns(file_content, filename: str) -> pd.DataFrame:
-    """Process FBA return report"""
+    """Process FBA return report - preserve exact format"""
     try:
         # Read tab-separated file
         df = pd.read_csv(io.BytesIO(file_content), sep='\t')
         
-        # Map to standard columns
-        column_mapping = {
-            'return-date': 'Date',
-            'order-id': 'Order #',
-            'sku': 'Imported SKU',
-            'asin': 'ASIN',
-            'product-name': 'Product Identifier Tag',
-            'quantity': 'Quantity',
-            'reason': 'FBA_Reason_Code',
-            'customer-comments': 'Complaint'
-        }
+        # Map to standard format
+        processed_df = pd.DataFrame({
+            'Date': pd.to_datetime(df.get('return-date', '')).dt.strftime('%m/%d/%Y') if 'return-date' in df.columns else '',
+            'Complaint': df.get('customer-comments', '') + ' - ' + df.get('product-name', ''),
+            'Product Identifier Tag': df.get('product-name', ''),
+            'Imported SKU': df.get('sku', ''),
+            'ASIN': df.get('asin', ''),
+            'UDI': '',
+            'CS Ticket # - mapped to Order # if available': df.get('order-id', ''),
+            'Source - dropdown': 'FBA',
+            'Categorizing / Investigating Agent': '',
+            'Complaint': df.get('customer-comments', ''),
+            'Category': '',  # This will be filled by AI
+            'Investigation': '',
+            'FBA_Reason_Code': df.get('reason', '')
+        })
         
-        # Create standardized dataframe
-        std_df = pd.DataFrame()
-        
-        # Map available columns
-        for fba_col, std_col in column_mapping.items():
-            if fba_col in df.columns:
-                std_df[std_col] = df[fba_col]
-            else:
-                std_df[std_col] = ''
-        
-        # Add missing standard columns
-        std_df['UDI'] = ''
-        std_df['CS Ticket #'] = ''
-        std_df['Source'] = 'FBA'
-        std_df['Categorizing / Investigating Agent'] = ''
-        std_df['Category'] = ''
-        std_df['data_source'] = 'FBA'
-        
-        # Format date if present
-        if 'Date' in std_df.columns and len(std_df) > 0:
-            try:
-                std_df['Date'] = pd.to_datetime(std_df['Date']).dt.strftime('%m/%d/%Y')
-            except:
-                pass
-        
-        return clean_dataframe_columns(std_df)
+        return processed_df
         
     except Exception as e:
         logger.error(f"Error processing FBA returns: {e}")
@@ -525,83 +521,62 @@ def process_fba_returns(file_content, filename: str) -> pd.DataFrame:
         return None
 
 def process_complaints_file(file_content, filename: str) -> pd.DataFrame:
-    """Process complaints ledger Excel or CSV file"""
+    """Process complaints file - preserve exact column structure"""
     try:
-        # Determine file type and read accordingly
+        # Read file
         if filename.endswith('.csv'):
-            # Try different encodings for CSV
-            try:
-                df = pd.read_csv(io.BytesIO(file_content), encoding='utf-8')
-            except UnicodeDecodeError:
-                try:
-                    df = pd.read_csv(io.BytesIO(file_content), encoding='latin-1')
-                except:
-                    df = pd.read_csv(io.BytesIO(file_content), encoding='iso-8859-1')
-        else:  # Excel
+            df = pd.read_csv(io.BytesIO(file_content))
+        else:
             df = pd.read_excel(io.BytesIO(file_content))
         
-        # Clean column names and remove duplicates
-        df = clean_dataframe_columns(df)
+        # Clean columns
+        df = clean_dataframe(df)
         
-        # Check for complaint column (case-insensitive)
-        complaint_found = False
-        complaint_columns = []
-        
-        for col in df.columns:
-            if 'complaint' in col.lower():
-                complaint_columns.append(col)
-        
-        # If we have multiple complaint columns, keep only the first one
-        if len(complaint_columns) > 1:
-            # Keep the first complaint column and rename it
-            df = df.rename(columns={complaint_columns[0]: 'Complaint'})
-            # Drop other complaint columns
-            for col in complaint_columns[1:]:
-                if col in df.columns and col != 'Complaint':
-                    df = df.drop(columns=[col])
-            complaint_found = True
-        elif len(complaint_columns) == 1:
-            # Rename the single complaint column
-            df = df.rename(columns={complaint_columns[0]: 'Complaint'})
-            complaint_found = True
-        
-        # Ensure standard columns exist
-        standard_columns = [
-            'Date', 'Product Identifier Tag', 'Imported SKU', 'UDI',
-            'CS Ticket #', 'Order #', 'Source', 'Categorizing / Investigating Agent',
-            'Complaint', 'Category'
+        # Check if it already has the expected format
+        expected_columns = [
+            'Date', 'Complaint', 'Product Identifier Tag', 'Imported SKU', 
+            'ASIN', 'UDI', 'CS Ticket # - mapped to Order # if available',
+            'Source - dropdown', 'Categorizing / Investigating Agent',
+            'Complaint', 'Category', 'Investigation'
         ]
         
-        for col in standard_columns:
-            if col not in df.columns:
-                df[col] = ''
-        
-        df['data_source'] = 'Ledger'
-        
-        # Final cleanup
-        df = clean_dataframe_columns(df)
-        
-        return df
-        
+        # If it has most expected columns, assume it's already in the right format
+        matching_cols = [col for col in expected_columns if col in df.columns]
+        if len(matching_cols) >= 8:
+            # Ensure Category column exists but is empty for AI to fill
+            if 'Category' not in df.columns:
+                df['Category'] = ''
+            else:
+                df['Category'] = ''  # Clear existing categories for AI to refill
+            
+            # Add FBA_Reason_Code if not present
+            if 'FBA_Reason_Code' not in df.columns:
+                df['FBA_Reason_Code'] = ''
+                
+            return df
+        else:
+            # Try to map columns if they're named differently
+            st.warning("File format doesn't match expected structure. Please ensure your file matches the example format.")
+            return None
+            
     except Exception as e:
-        logger.error(f"Error processing complaints file: {e}")
+        logger.error(f"Error processing file: {e}")
         st.error(f"Error processing file: {str(e)}")
         return None
 
 def categorize_with_ai(complaint: str, fba_reason: str = None, ai_client=None) -> str:
-    """Use AI to categorize a complaint into return reasons"""
+    """Use AI to categorize a complaint"""
     
     if not ai_client or not ai_client.is_available():
         return fallback_categorization(complaint, fba_reason)
     
-    # Create prompt with medical device categories
+    # Create prompt
     reasons_list = "\n".join([f"- {reason}" for reason in RETURN_REASONS])
     
-    # Add FBA reason context if available
     fba_context = ""
     if fba_reason and fba_reason in FBA_REASON_MAP:
         suggested_reason = FBA_REASON_MAP[fba_reason]
-        fba_context = f"\n\nNote: Amazon's FBA system categorized this as '{fba_reason}' which typically maps to '{suggested_reason}'."
+        fba_context = f"\n\nFBA reason code: '{fba_reason}' typically indicates '{suggested_reason}'."
     
     prompt = f"""You are a quality management expert for medical devices. Analyze this customer complaint and select the SINGLE MOST APPROPRIATE return category.
 
@@ -632,7 +607,7 @@ Respond with ONLY the exact category text from the list, nothing else."""
         if response['success']:
             reason = response['result'].strip()
             
-            # Validate the reason - check for exact match
+            # Validate the reason
             if reason in RETURN_REASONS:
                 return reason
             
@@ -659,18 +634,18 @@ def fallback_categorization(complaint: str, fba_reason: str = None) -> str:
     
     complaint_lower = complaint.lower() if complaint else ""
     
-    # Define keyword mappings for medical device categories
+    # Keyword mappings
     keyword_map = {
         'Size/Fit Issues': ['small', 'large', 'size', 'fit', 'tight', 'loose', 'narrow', 'wide', 'big', 'tiny'],
         'Comfort Issues': ['uncomfortable', 'comfort', 'hurts', 'painful', 'pressure', 'sore', 'pain', 'ache'],
         'Product Defects/Quality': ['defective', 'broken', 'damaged', 'quality', 'malfunction', 'faulty', 'poor quality', 'defect', 'crack', 'tear', 'rip'],
-        'Performance/Effectiveness': ['not work', 'ineffective', 'useless', 'performance', 'doesn\'t work', 'does not work', 'not effective'],
+        'Performance/Effectiveness': ['not work', 'ineffective', 'useless', 'performance', "doesn't work", 'does not work', 'not effective'],
         'Stability/Positioning Issues': ['unstable', 'slides', 'moves', 'position', 'falls', 'tips', 'wobbly', 'shift'],
-        'Equipment Compatibility': ['compatible', 'fit toilet', 'fit wheelchair', 'walker', 'doesn\'t fit', 'not compatible', 'incompatible'],
+        'Equipment Compatibility': ['compatible', 'fit toilet', 'fit wheelchair', 'walker', "doesn't fit", 'not compatible', 'incompatible'],
         'Design/Material Issues': ['heavy', 'bulky', 'material', 'design', 'flimsy', 'thin', 'cheap material'],
         'Wrong Product/Misunderstanding': ['wrong', 'different', 'not as described', 'expected', 'not what', 'incorrect', 'mistake'],
         'Missing Components': ['missing', 'incomplete', 'no instructions', 'parts missing', 'not included'],
-        'Customer Error/Changed Mind': ['mistake', 'changed mind', 'no longer', 'patient died', 'don\'t need', 'ordered wrong'],
+        'Customer Error/Changed Mind': ['mistake', 'changed mind', 'no longer', 'patient died', "don't need", 'ordered wrong'],
         'Shipping/Fulfillment Issues': ['shipping', 'damaged arrival', 'late', 'package', 'delivery', 'arrived damaged'],
         'Assembly/Usage Difficulty': ['difficult', 'hard to', 'confusing', 'complicated', 'instructions', 'assembly', 'setup'],
         'Medical/Health Concerns': ['doctor', 'medical', 'health', 'allergic', 'reaction', 'injury', 'condition'],
@@ -691,31 +666,45 @@ def fallback_categorization(complaint: str, fba_reason: str = None) -> str:
     return 'Other/Miscellaneous'
 
 def categorize_all_data(df: pd.DataFrame) -> pd.DataFrame:
-    """Categorize all complaints and prepare export format"""
+    """Categorize all complaints - only modify Category column"""
     
     ai_client = get_ai_client()
+    
+    if not ai_client:
+        st.error("AI client not initialized")
+        return df
     
     progress_bar = st.progress(0)
     status_text = st.empty()
     
+    # Work on a copy
     df_copy = df.copy()
     
-    # Initialize the return reason column
-    df_copy['Return_Reason'] = ''
+    # Ensure Category column exists
+    if 'Category' not in df_copy.columns:
+        df_copy['Category'] = ''
     
     total_rows = len(df_copy)
     category_counts = Counter()
     product_issues = defaultdict(lambda: defaultdict(int))
     
+    # Process each row
     for idx, row in df_copy.iterrows():
-        # Get relevant fields
-        complaint = str(row.get('Complaint', '')) if pd.notna(row.get('Complaint')) else ""
+        # Get complaint text - handle both single and double complaint columns
+        complaint_cols = [col for col in df_copy.columns if 'Complaint' in col]
+        complaint = ""
+        for col in complaint_cols:
+            if pd.notna(row.get(col)) and str(row.get(col)).strip():
+                complaint = str(row.get(col))
+                break
+        
+        # Get FBA reason if available
         fba_reason = str(row.get('FBA_Reason_Code', '')) if pd.notna(row.get('FBA_Reason_Code')) else ""
         
         # Categorize
         if complaint or fba_reason:
             reason = categorize_with_ai(complaint, fba_reason, ai_client)
-            df_copy.at[idx, 'Return_Reason'] = reason
+            df_copy.at[idx, 'Category'] = reason
             category_counts[reason] += 1
             
             # Track by product
@@ -723,7 +712,7 @@ def categorize_all_data(df: pd.DataFrame) -> pd.DataFrame:
             if product and str(product).strip() and product != 'Unknown':
                 product_issues[product][reason] += 1
         else:
-            df_copy.at[idx, 'Return_Reason'] = 'Other/Miscellaneous'
+            df_copy.at[idx, 'Category'] = 'Other/Miscellaneous'
             category_counts['Other/Miscellaneous'] += 1
         
         # Update progress
@@ -731,7 +720,7 @@ def categorize_all_data(df: pd.DataFrame) -> pd.DataFrame:
         progress_bar.progress(progress)
         status_text.text(f"Processing: {idx + 1}/{total_rows} complaints categorized...")
         
-        # Small delay every 10 items to avoid rate limiting
+        # Small delay to avoid rate limiting
         if (idx + 1) % 10 == 0:
             time.sleep(0.1)
     
@@ -743,54 +732,78 @@ def categorize_all_data(df: pd.DataFrame) -> pd.DataFrame:
     
     return df_copy
 
-def prepare_export_data(df: pd.DataFrame) -> pd.DataFrame:
-    """Prepare data for export with Column K containing return reason"""
+def export_categorized_data(df: pd.DataFrame) -> bytes:
+    """Export data preserving exact input format with Category column filled"""
+    output = io.BytesIO()
     
-    # Create export dataframe matching the exact format shown in the example
-    export_df = pd.DataFrame()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        # Write main data - preserve exact column order
+        df.to_excel(writer, sheet_name='Categorized Complaints', index=False)
+        
+        # Add summary sheet
+        summary_data = []
+        for reason, count in sorted(st.session_state.reason_summary.items(), key=lambda x: x[1], reverse=True):
+            percentage = (count / len(df)) * 100
+            summary_data.append({
+                'Return Reason': reason,
+                'Count': count,
+                'Percentage': f"{percentage:.1f}%"
+            })
+        
+        summary_df = pd.DataFrame(summary_data)
+        summary_df.to_excel(writer, sheet_name='Summary', index=False)
+        
+        # Format the Excel file
+        workbook = writer.book
+        
+        # Format main sheet
+        worksheet1 = writer.sheets['Categorized Complaints']
+        
+        # Set column widths based on standard format
+        column_widths = {
+            0: 12,   # A - Date
+            1: 50,   # B - Complaint (full)
+            2: 30,   # C - Product Identifier Tag
+            3: 20,   # D - Imported SKU
+            4: 15,   # E - ASIN
+            5: 15,   # F - UDI
+            6: 25,   # G - CS Ticket #
+            7: 20,   # H - Source
+            8: 25,   # I - Categorizing Agent
+            9: 50,   # J - Complaint
+            10: 30,  # K - Category (HIGHLIGHTED)
+            11: 30   # L - Investigation
+        }
+        
+        for col_num, width in column_widths.items():
+            if col_num < len(df.columns):
+                worksheet1.set_column(col_num, col_num, width)
+        
+        # Highlight Column K (Category) - this is the 11th column (index 10)
+        highlight_format = workbook.add_format({
+            'bg_color': '#FFF2CC',
+            'border': 1,
+            'bold': True
+        })
+        
+        # Find the Category column index
+        category_col_idx = None
+        for idx, col in enumerate(df.columns):
+            if col == 'Category':
+                category_col_idx = idx
+                break
+        
+        if category_col_idx is not None:
+            worksheet1.set_column(category_col_idx, category_col_idx, 30, highlight_format)
+        
+        # Format summary sheet
+        worksheet2 = writer.sheets['Summary']
+        worksheet2.set_column('A:A', 30)
+        worksheet2.set_column('B:B', 10)
+        worksheet2.set_column('C:C', 12)
     
-    # Column A - Date
-    export_df['Date'] = df['Date'] if 'Date' in df.columns else ''
-    
-    # Column B - Complaint with Product info 
-    if 'Complaint' in df.columns and 'Product Identifier Tag' in df.columns:
-        export_df['Complaint_Full'] = df['Complaint'].astype(str) + ' - ' + df['Product Identifier Tag'].astype(str)
-    elif 'Complaint' in df.columns:
-        export_df['Complaint_Full'] = df['Complaint']
-    else:
-        export_df['Complaint_Full'] = ''
-    
-    # Column C - Product Identifier
-    export_df['Product Identifier'] = df['Product Identifier Tag'] if 'Product Identifier Tag' in df.columns else ''
-    
-    # Column D - Imported SKU
-    export_df['Imported SKU'] = df['Imported SKU'] if 'Imported SKU' in df.columns else ''
-    
-    # Column E - ASIN
-    export_df['ASIN'] = df['ASIN'] if 'ASIN' in df.columns else ''
-    
-    # Column F - UDI
-    export_df['UDI'] = df['UDI'] if 'UDI' in df.columns else ''
-    
-    # Column G - CS Ticket # - mapped to Order # if available
-    export_df['CS Ticket # - mapped to Order # if available'] = df['Order #'] if 'Order #' in df.columns else df.get('CS Ticket #', '')
-    
-    # Column H - Source - dropdown
-    export_df['Source - dropdown'] = df['Source'] if 'Source' in df.columns else df.get('data_source', 'Amazon Return')
-    
-    # Column I - Categorizing / Investigating Agent
-    export_df['Categorizing / Investigating Agent'] = df.get('Categorizing / Investigating Agent', 'Carolina')
-    
-    # Column J - Complaint (raw complaint text)
-    export_df['Complaint'] = df['Complaint'] if 'Complaint' in df.columns else ''
-    
-    # Column K - The output: AI categorized return category
-    export_df['Category'] = df['Return_Reason']
-    
-    # Additional columns for investigation
-    export_df['Investigation'] = ''
-    
-    return export_df
+    output.seek(0)
+    return output.getvalue()
 
 def display_results_summary(df: pd.DataFrame):
     """Display summary of categorization results"""
@@ -813,7 +826,7 @@ def display_results_summary(df: pd.DataFrame):
         """, unsafe_allow_html=True)
     
     with col2:
-        categorized = len(df[df['Return_Reason'] != ''])
+        categorized = len(df[df['Category'] != ''])
         st.markdown(f"""
         <div class="metric-card">
             <h3 style="color: var(--success);">{categorized}</h3>
@@ -822,7 +835,7 @@ def display_results_summary(df: pd.DataFrame):
         """, unsafe_allow_html=True)
     
     with col3:
-        unique_reasons = df['Return_Reason'].nunique()
+        unique_reasons = df['Category'].nunique()
         st.markdown(f"""
         <div class="metric-card">
             <h3 style="color: var(--accent);">{unique_reasons}</h3>
@@ -831,7 +844,6 @@ def display_results_summary(df: pd.DataFrame):
         """, unsafe_allow_html=True)
     
     with col4:
-        # Find most common reason
         if st.session_state.reason_summary:
             top_reason = max(st.session_state.reason_summary.items(), key=lambda x: x[1])[0]
             st.markdown(f"""
@@ -841,42 +853,34 @@ def display_results_summary(df: pd.DataFrame):
             </div>
             """, unsafe_allow_html=True)
     
-    # Reason breakdown
+    # Show distribution
     st.markdown("---")
     st.markdown("### 📈 Return Reason Distribution")
     
-    # Sort reasons by count
-    sorted_reasons = sorted(st.session_state.reason_summary.items(), key=lambda x: x[1], reverse=True)
-    
-    # Create two columns for the breakdown
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown("#### Top 10 Return Reasons")
-        for i, (reason, count) in enumerate(sorted_reasons[:10]):
+        st.markdown("#### Top Return Reasons")
+        sorted_reasons = sorted(st.session_state.reason_summary.items(), key=lambda x: x[1], reverse=True)
+        for reason, count in sorted_reasons[:10]:
             percentage = (count / len(df)) * 100
             
-            # Determine color based on reason type
-            if reason in ['Product Defects/Quality', 'Performance/Effectiveness', 'Missing Components', 
-                         'Design/Material Issues', 'Stability/Positioning Issues']:
+            # Color coding
+            if reason in ['Product Defects/Quality', 'Performance/Effectiveness', 'Missing Components']:
                 color = COLORS['danger']
-            elif reason in ['Size/Fit Issues', 'Wrong Product/Misunderstanding', 'Equipment Compatibility']:
+            elif reason in ['Size/Fit Issues', 'Wrong Product/Misunderstanding']:
                 color = COLORS['warning']
-            elif reason in ['Customer Error/Changed Mind', 'Price/Value']:
-                color = COLORS['success']
             else:
                 color = COLORS['primary']
             
             st.markdown(f"""
             <div style="margin: 0.5rem 0;">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <span class="category-badge" style="background: {color}40; border-color: {color}; color: {color};">
-                        {reason}
-                    </span>
+                <div style="display: flex; justify-content: space-between;">
+                    <span style="color: {color};">{reason}</span>
                     <span>{count} ({percentage:.1f}%)</span>
                 </div>
-                <div style="background: rgba(255,255,255,0.1); border-radius: 10px; height: 10px; margin-top: 5px;">
-                    <div style="background: {color}; width: {percentage}%; height: 100%; border-radius: 10px;"></div>
+                <div style="background: rgba(255,255,255,0.1); height: 10px; border-radius: 5px;">
+                    <div style="background: {color}; width: {percentage}%; height: 100%; border-radius: 5px;"></div>
                 </div>
             </div>
             """, unsafe_allow_html=True)
@@ -885,16 +889,9 @@ def display_results_summary(df: pd.DataFrame):
         # Quality insights
         st.markdown("#### 🎯 Quality Insights")
         
-        # Count quality-related reasons
-        quality_keywords = ['Product Defects/Quality', 'Performance/Effectiveness', 'Missing Components', 'Design/Material Issues', 'Stability/Positioning Issues']
-        quality_count = 0
-        quality_reasons = []
-        
-        for reason, count in st.session_state.reason_summary.items():
-            if reason in quality_keywords:
-                quality_count += count
-                quality_reasons.append((reason, count))
-        
+        quality_categories = ['Product Defects/Quality', 'Performance/Effectiveness', 'Missing Components', 
+                            'Design/Material Issues', 'Stability/Positioning Issues']
+        quality_count = sum(st.session_state.reason_summary.get(cat, 0) for cat in quality_categories)
         quality_percentage = (quality_count / len(df)) * 100 if len(df) > 0 else 0
         
         st.markdown(f"""
@@ -904,94 +901,10 @@ def display_results_summary(df: pd.DataFrame):
             <p style="margin: 0;">({quality_count} complaints)</p>
         </div>
         """, unsafe_allow_html=True)
-        
-        # Top quality issues
-        if quality_reasons:
-            st.markdown("**Top Quality Issues:**")
-            quality_reasons.sort(key=lambda x: x[1], reverse=True)
-            for reason, count in quality_reasons[:5]:
-                pct = (count / quality_count) * 100
-                st.markdown(f"- {reason}: {count} ({pct:.1f}% of quality issues)")
-
-def export_categorized_data(df: pd.DataFrame) -> bytes:
-    """Export categorized data to Excel with Column K populated"""
-    output = io.BytesIO()
-    
-    # Prepare export data
-    export_df = prepare_export_data(df)
-    
-    # Rename 'Complaint_Full' back to 'Complaint' for column B in the export
-    export_columns = export_df.columns.tolist()
-    if 'Complaint_Full' in export_columns:
-        # Find the index and rename
-        idx = export_columns.index('Complaint_Full')
-        export_columns[idx] = 'Complaint (Full)'  # Use a different name to avoid confusion
-        export_df.columns = export_columns
-    
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        # Write main data
-        export_df.to_excel(writer, sheet_name='Categorized Complaints', index=False)
-        
-        # Add summary sheet
-        summary_data = []
-        for reason, count in sorted(st.session_state.reason_summary.items(), key=lambda x: x[1], reverse=True):
-            percentage = (count / len(df)) * 100
-            summary_data.append({
-                'Return Reason': reason,
-                'Count': count,
-                'Percentage': f"{percentage:.1f}%"
-            })
-        
-        summary_df = pd.DataFrame(summary_data)
-        summary_df.to_excel(writer, sheet_name='Summary', index=False)
-        
-        # Format the Excel file
-        workbook = writer.book
-        
-        # Format main sheet
-        worksheet1 = writer.sheets['Categorized Complaints']
-        
-        # Set column widths
-        column_widths = {
-            'A': 12,   # Date
-            'B': 50,   # Complaint (Full)
-            'C': 25,   # Product Identifier
-            'D': 20,   # Imported SKU  
-            'E': 15,   # ASIN
-            'F': 15,   # UDI
-            'G': 25,   # CS Ticket #
-            'H': 20,   # Source
-            'I': 25,   # Categorizing Agent
-            'J': 50,   # Complaint
-            'K': 30,   # Category (KEY COLUMN)
-        }
-        
-        for col, width in column_widths.items():
-            col_idx = ord(col) - ord('A')
-            worksheet1.set_column(col_idx, col_idx, width)
-        
-        # Highlight Column K
-        highlight_format = workbook.add_format({
-            'bg_color': '#FFF2CC',
-            'border': 1
-        })
-        
-        # Apply highlight to Column K
-        worksheet1.set_column('K:K', 25, highlight_format)
-        
-        # Format summary sheet
-        worksheet2 = writer.sheets['Summary']
-        worksheet2.set_column('A:A', 30)
-        worksheet2.set_column('B:B', 10)
-        worksheet2.set_column('C:C', 12)
-    
-    output.seek(0)
-    return output.getvalue()
 
 def main():
     """Main application function"""
     
-    # MUST be the first Streamlit command - NO OTHER STREAMLIT CALLS BEFORE THIS
     st.set_page_config(
         page_title=APP_CONFIG['title'],
         page_icon="🔍",
@@ -999,10 +912,8 @@ def main():
         initial_sidebar_state="collapsed"
     )
     
-    # NOW we can check AI availability and show errors
     if not AI_AVAILABLE:
-        st.error("❌ Critical Error: AI module (enhanced_ai_analysis.py) not found!")
-        st.info("Please ensure the enhanced_ai_analysis.py file is in the same directory as this app.")
+        st.error("❌ AI module (enhanced_ai_analysis.py) not found!")
         st.stop()
     
     initialize_session_state()
@@ -1011,7 +922,7 @@ def main():
     # Header
     st.markdown(f"""
     <h1>{APP_CONFIG['title']}</h1>
-    <p style="text-align: center; color: var(--primary); font-size: 1.2em; margin-bottom: 2rem;">
+    <p style="text-align: center; color: var(--primary); font-size: 1.2em;">
         {APP_CONFIG['description']}
     </p>
     """, unsafe_allow_html=True)
@@ -1019,40 +930,26 @@ def main():
     # AI Provider Setup
     setup_ai_provider()
     
-    # Check if API key is configured
-    if not st.session_state.api_key_configured:
-        st.warning("⚠️ Please configure API key to continue")
+    if not st.session_state.api_keys_configured:
+        st.warning("⚠️ Please configure API keys to continue")
         st.stop()
     
     # Instructions
-    with st.expander("📖 How to Use This Tool", expanded=False):
+    with st.expander("📖 How to Use", expanded=False):
         st.markdown("""
-        ### Quick Start Guide
-        1. **AI is already configured** from Streamlit secrets
-        2. **Upload your files**:
-           - Product Complaints Ledger Excel file (.xlsx)
-           - Product Complaints Ledger CSV file (.csv)
-           - FBA Return Report (.txt tab-separated file)
-           - PDF from Amazon Seller Central (requires pdfplumber)
-        3. **AI will categorize** each complaint/comment into standard return reasons
-        4. **Sort results** by Product Name, SKU, Return Reason, or Date
-        5. **Download the results** with Column K populated with the return reason
+        ### Quick Guide:
+        1. **Select AI Provider**: Choose between OpenAI, Claude, or both
+        2. **Upload Files**: Excel, CSV, PDF, or FBA return reports
+        3. **Click Categorize**: AI will fill Column K with return categories
+        4. **Download Results**: Get your file back with Column K completed
         
-        ### Supported File Types:
-        - **Excel**: .xlsx and .xls files with standard columns
-        - **CSV**: .csv files with comma-separated values (handles various encodings)
-        - **FBA Return Reports**: Tab-separated .txt files from Amazon Seller Central
-        - **PDF Returns**: PDF files from Manage Returns page (if pdfplumber installed)
-        
-        ### Output Format:
-        - Columns A-J: Your original data preserved
-        - **Column K: AI-categorized return reason** (e.g., "Size/Fit Issues", "Product Defects/Quality")
-        - Available in both Excel (.xlsx) and CSV (.csv) formats
-        
-        The tool maintains your exact data structure and adds the categorized return reason in Column K.
+        ### Important:
+        - Your file format is preserved exactly as uploaded
+        - Only Column K (Category) is modified by the AI
+        - All other data remains unchanged
         """)
     
-    # File upload section
+    # File upload
     st.markdown("""
     <div class="neon-box">
         <h3 style="color: var(--accent);">📁 UPLOAD FILES</h3>
@@ -1060,91 +957,58 @@ def main():
     """, unsafe_allow_html=True)
     
     uploaded_files = st.file_uploader(
-        "Choose your files",
+        "Choose files to categorize",
         type=['xlsx', 'xls', 'csv', 'txt', 'pdf'],
-        accept_multiple_files=True,
-        help="Upload complaints files (.xlsx), FBA Return Reports (.txt), or PDFs"
+        accept_multiple_files=True
     )
     
     if uploaded_files:
-        st.session_state.uploaded_files = uploaded_files
-        
         all_data = []
         
-        with st.spinner("📖 Processing files..."):
-            for uploaded_file in uploaded_files:
-                file_content = uploaded_file.read()
-                filename = uploaded_file.name
+        with st.spinner("Processing files..."):
+            for file in uploaded_files:
+                file_content = file.read()
+                filename = file.name
                 
                 df = None
                 
-                # Process based on file type
                 if filename.endswith('.pdf'):
                     if PDFPLUMBER_AVAILABLE:
-                        st.info(f"📄 Processing PDF: {filename}")
-                        uploaded_file.seek(0)  # Reset file pointer
-                        df = parse_pdf_returns(uploaded_file)
-                        if df is not None:
-                            st.session_state.data_sources.add('PDF')
+                        file.seek(0)
+                        df = parse_pdf_returns(file)
                     else:
-                        st.warning("PDF processing requires pdfplumber. Install with: pip install pdfplumber")
+                        st.warning("PDF support requires pdfplumber")
                 
                 elif filename.endswith('.txt'):
-                    st.info(f"📊 Processing FBA Return Report: {filename}")
                     df = process_fba_returns(file_content, filename)
-                    if df is not None:
-                        st.session_state.data_sources.add('FBA')
                 
                 elif filename.endswith(('.xlsx', '.xls', '.csv')):
-                    st.info(f"📋 Processing Complaints File: {filename}")
                     df = process_complaints_file(file_content, filename)
-                    if df is not None:
-                        st.session_state.data_sources.add('Ledger')
                 
                 if df is not None:
-                    # Clean the dataframe before adding to list
-                    df = clean_dataframe_columns(df)
                     all_data.append(df)
+                    st.success(f"✅ Loaded: {filename}")
         
-        # Combine all data
         if all_data:
-            # Combine dataframes
-            combined_df = pd.concat(all_data, ignore_index=True)
+            # Combine all data
+            if len(all_data) == 1:
+                combined_df = all_data[0]
+            else:
+                combined_df = pd.concat(all_data, ignore_index=True)
             
-            # Final cleanup of combined dataframe
-            combined_df = clean_dataframe_columns(combined_df)
-            
+            combined_df = clean_dataframe(combined_df)
             st.session_state.processed_data = combined_df
             
-            # Show file info
-            st.markdown("### 📋 Data Summary")
-            st.info(f"Found {len(combined_df)} total records from {len(all_data)} file(s)")
+            # Show summary
+            st.info(f"📊 Total records: {len(combined_df)}")
             
-            # Show sample data
-            st.markdown("#### Sample Data")
-            display_cols = ['Date', 'Product Identifier Tag', 'Order #', 'Complaint']
-            
-            # Get available columns that exist in the dataframe
-            available_cols = []
-            for col in display_cols:
-                if col in combined_df.columns:
-                    available_cols.append(col)
-            
-            if available_cols:
-                try:
-                    # Create a copy of the data for display
-                    display_df = combined_df[available_cols].head(5).copy()
-                    st.dataframe(display_df, use_container_width=True)
-                except Exception as e:
-                    st.warning(f"Could not display sample data: {str(e)}")
-                    st.info(f"Available columns: {', '.join(combined_df.columns.tolist())}")
-            else:
-                st.warning("None of the expected columns found in the data")
-                st.info(f"Available columns: {', '.join(combined_df.columns.tolist())}")
+            # Show sample (safely)
+            if st.checkbox("Show data preview"):
+                st.dataframe(combined_df.head(10))
             
             # Categorize button
             if st.button("🚀 CATEGORIZE ALL RETURNS", type="primary", use_container_width=True):
-                with st.spinner("🤖 AI is analyzing and categorizing returns..."):
+                with st.spinner(f"🤖 Categorizing with {st.session_state.selected_provider.upper()}..."):
                     categorized_df = categorize_all_data(combined_df)
                     st.session_state.categorized_data = categorized_df
                     st.session_state.processing_complete = True
@@ -1152,195 +1016,48 @@ def main():
                 st.balloons()
                 st.success("✅ Categorization complete!")
             
-            # Show results if processing is complete
+            # Show results
             if st.session_state.processing_complete and st.session_state.categorized_data is not None:
-                # Add sorting options
-                st.markdown("---")
-                st.markdown("### 🔄 Sort & Filter Options")
-                col1, col2, col3 = st.columns([2, 2, 2])
                 
-                with col1:
-                    sort_by = st.selectbox(
-                        "Sort by",
-                        ["None", "Product Identifier Tag", "Imported SKU", "Return Reason", "Date"],
-                        key="sort_field"
-                    )
-                
-                with col2:
-                    sort_order = st.radio(
-                        "Order",
-                        ["Ascending", "Descending"],
-                        horizontal=True,
-                        key="sort_order"
-                    )
-                
-                with col3:
-                    # Add filter for return reasons
-                    unique_reasons = sorted(st.session_state.categorized_data['Return_Reason'].unique())
-                    filter_reason = st.selectbox(
-                        "Filter by Return Reason",
-                        ["All"] + unique_reasons,
-                        key="filter_reason"
-                    )
-                
-                # Apply sorting if selected
-                display_data = st.session_state.categorized_data.copy()
-                
-                # Apply filter first
-                if filter_reason != "All":
-                    display_data = display_data[display_data['Return_Reason'] == filter_reason]
-                
-                # Then apply sorting
-                if sort_by != "None":
-                    ascending = (sort_order == "Ascending")
-                    try:
-                        # Handle date sorting specially
-                        if sort_by == "Date":
-                            display_data['Date_parsed'] = pd.to_datetime(display_data['Date'], errors='coerce')
-                            display_data = display_data.sort_values('Date_parsed', ascending=ascending)
-                            display_data = display_data.drop('Date_parsed', axis=1)
-                        else:
-                            display_data = display_data.sort_values(sort_by, ascending=ascending)
-                    except Exception as e:
-                        st.warning(f"Could not sort by {sort_by}: {str(e)}")
-                
-                # Show filter info
-                if filter_reason != "All":
-                    st.info(f"Showing {len(display_data)} of {len(st.session_state.categorized_data)} returns with reason: {filter_reason}")
-                
-                display_results_summary(display_data)
+                display_results_summary(st.session_state.categorized_data)
                 
                 # Export section
                 st.markdown("---")
                 st.markdown("""
                 <div class="success-box">
                     <h3 style="color: var(--success);">📥 EXPORT RESULTS</h3>
-                    <p>Your categorized data is ready for download!</p>
-                    <p><strong>Column K contains the AI-categorized return reasons.</strong></p>
+                    <p><strong>Column K has been filled with AI-categorized return reasons!</strong></p>
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # Generate export file
+                # Generate export
                 excel_data = export_categorized_data(st.session_state.categorized_data)
-                
-                # Download button
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 
                 col1, col2 = st.columns(2)
                 
                 with col1:
                     st.download_button(
-                        label="📥 DOWNLOAD EXCEL (.xlsx)",
+                        label="📥 DOWNLOAD EXCEL",
                         data=excel_data,
                         file_name=f"categorized_returns_{timestamp}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True
                     )
                 
                 with col2:
-                    # Also provide CSV option
-                    csv_export_df = prepare_export_data(display_data)
-                    # Rename 'Complaint_Full' for clarity in CSV
-                    if 'Complaint_Full' in csv_export_df.columns:
-                        csv_export_df = csv_export_df.rename(columns={'Complaint_Full': 'Complaint (Full)'})
-                    csv_data = csv_export_df.to_csv(index=False)
+                    csv_data = st.session_state.categorized_data.to_csv(index=False)
                     st.download_button(
-                        label="📥 DOWNLOAD CSV (.csv)",
+                        label="📥 DOWNLOAD CSV",
                         data=csv_data,
                         file_name=f"categorized_returns_{timestamp}.csv",
                         mime="text/csv",
                         use_container_width=True
                     )
                 
-                # Show preview
-                st.markdown("### 🔍 Categorized Data Preview")
-                
-                # Show key columns including Column K
-                preview_df = prepare_export_data(st.session_state.categorized_data).head(10)
-                # Rename 'Complaint_Full' for display clarity
-                if 'Complaint_Full' in preview_df.columns:
-                    preview_df = preview_df.rename(columns={'Complaint_Full': 'Complaint (Full)'})
-                st.dataframe(preview_df, use_container_width=True)
-                
-                # Quality team action items
-                st.markdown("---")
-                st.markdown("""
-                <div class="neon-box">
-                    <h3 style="color: var(--primary);">💡 QUALITY TEAM ACTION ITEMS</h3>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                # Add product-specific insights if sorted by product
-                if sort_by in ["Product Identifier Tag", "Imported SKU"]:
-                    st.markdown("### 📦 Product-Specific Analysis")
-                    
-                    # Group by the sort field
-                    grouped = display_data.groupby(sort_by)
-                    
-                    # Show top 5 products by return count
-                    product_counts = grouped.size().sort_values(ascending=False).head(5)
-                    
-                    for product, count in product_counts.items():
-                        if product and str(product).strip():
-                            product_data = grouped.get_group(product)
-                            
-                            # Get top return reasons for this product
-                            reason_counts = product_data['Return_Reason'].value_counts().head(3)
-                            
-                            with st.expander(f"📦 {product} - {count} returns"):
-                                col1, col2 = st.columns(2)
-                                
-                                with col1:
-                                    st.markdown("**Top Return Reasons:**")
-                                    for reason, reason_count in reason_counts.items():
-                                        pct = (reason_count / count) * 100
-                                        st.markdown(f"- {reason}: {reason_count} ({pct:.1f}%)")
-                                
-                                with col2:
-                                    # Check if this is a quality concern
-                                    quality_categories = ['Product Defects/Quality', 'Performance/Effectiveness', 
-                                                        'Missing Components', 'Design/Material Issues', 
-                                                        'Stability/Positioning Issues']
-                                    quality_count = sum(
-                                        reason_counts.get(reason, 0) 
-                                        for reason in reason_counts.index
-                                        if reason in quality_categories
-                                    )
-                                    quality_pct = (quality_count / count) * 100
-                                    
-                                    if quality_pct > 30:
-                                        st.error(f"⚠️ High Quality Risk: {quality_pct:.1f}% quality issues")
-                                    elif quality_pct > 15:
-                                        st.warning(f"⚠️ Medium Risk: {quality_pct:.1f}% quality issues")
-                                    else:
-                                        st.success(f"✅ Low Risk: {quality_pct:.1f}% quality issues")
-                
-                # Generate actionable insights
-                quality_categories = ['Product Defects/Quality', 'Performance/Effectiveness', 'Missing Components', 
-                                    'Design/Material Issues', 'Stability/Positioning Issues']
-                quality_reasons = [(reason, count) for reason, count in st.session_state.reason_summary.items() 
-                                 if reason in quality_categories]
-                quality_count = sum(count for _, count in quality_reasons)
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.markdown(f"""
-                    **Key Findings:**
-                    - 🎯 {quality_count} quality-related complaints
-                    - 📊 Top reason: {max(st.session_state.reason_summary.items(), key=lambda x: x[1])[0] if st.session_state.reason_summary else 'None'}
-                    - 🔍 {len(quality_reasons)} different quality issues identified
-                    - 📂 Data sources: {', '.join(st.session_state.data_sources)}
-                    """)
-                
-                with col2:
-                    st.markdown("""
-                    **Recommended Actions:**
-                    1. Review all quality-related complaints in Column K
-                    2. Create CAPA for top 3 return reasons
-                    3. Cross-reference with product reviews
-                    4. Update inspection criteria
-                    5. Share findings with suppliers
-                    """)
+                # Preview
+                if st.checkbox("Show categorized data preview"):
+                    st.dataframe(st.session_state.categorized_data.head(20))
 
 if __name__ == "__main__":
     main()
