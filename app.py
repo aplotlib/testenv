@@ -1342,4 +1342,240 @@ def main():
     st.markdown("""
     <div class="main-header">
         <h1 class="main-title">VIVE HEALTH RETURN CATEGORIZER</h1>
-        <p style="font-size: 1.2em; color: var(
+        <p style="font-size: 1.2em; color: var(--text); margin: 0.5rem 0;">
+            Medical Device Quality Management Tool
+        </p>
+        <p style="color: var(--accent);">
+            Upload → AI Categorizes → Download Results
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Show required format
+    with st.expander("📋 Required File Format & Instructions", expanded=True):
+        display_required_format()
+        
+        st.markdown("### 📊 Supported File Types:")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.info("✅ Excel (.xlsx, .xls)")
+        with col2:
+            st.info("✅ CSV (.csv)")
+        with col3:
+            st.info("✅ FBA Returns (.txt)")
+        with col4:
+            st.info("✅ PDF (Seller Central)")
+    
+    # AI Configuration Section
+    config_ready = setup_simplified_ai()
+    
+    if not config_ready:
+        st.warning("⚠️ Please configure API keys to continue")
+        st.stop()
+    
+    # File upload section
+    st.markdown("---")
+    st.markdown("### 📁 Upload Files")
+    
+    uploaded_files = st.file_uploader(
+        "Choose file(s) to categorize",
+        type=['xlsx', 'xls', 'csv', 'txt', 'pdf'],
+        accept_multiple_files=True,
+        help="Upload your complaints file - must have a 'Complaint' column"
+    )
+    
+    if uploaded_files:
+        all_data = []
+        
+        with st.spinner("Loading files..."):
+            for file in uploaded_files:
+                file_content = file.read()
+                filename = file.name
+                
+                df = None
+                
+                if filename.endswith('.pdf'):
+                    if PDFPLUMBER_AVAILABLE:
+                        file.seek(0)
+                        df = parse_pdf_returns(file)
+                    else:
+                        st.warning(f"⚠️ PDF support requires pdfplumber: `pip install pdfplumber`")
+                
+                elif filename.endswith('.txt'):
+                    df = process_fba_returns(file_content, filename)
+                
+                elif filename.endswith(('.xlsx', '.xls', '.csv')):
+                    df = process_complaints_file(file_content, filename)
+                
+                if df is not None and not df.empty:
+                    all_data.append(df)
+                    st.success(f"✅ Loaded: {filename} ({len(df)} rows with complaints)")
+                    
+                    # Show what was detected
+                    cols_info = st.columns(4)
+                    
+                    # Check for Product Identifier Tag
+                    product_cols = [col for col in df.columns if 'product' in col.lower()]
+                    if product_cols:
+                        with cols_info[0]:
+                            st.info(f"📦 Product column: ✅ Found")
+                    
+                    # Complaint column
+                    complaint_cols = [col for col in df.columns if 'complaint' in col.lower()]
+                    with cols_info[1]:
+                        st.info(f"💬 Complaints: {len(complaint_cols)} column(s)")
+                    
+                    # Category column
+                    category_cols = [col for col in df.columns if 'category' in col.lower()]
+                    with cols_info[2]:
+                        st.info(f"📝 Category: {'Found' if category_cols else 'Will add'}")
+                    
+                    # Rows with data
+                    with cols_info[3]:
+                        st.info(f"📊 Valid rows: {len(df)}")
+                elif df is not None:
+                    st.warning(f"⚠️ {filename} - No valid complaint data found")
+                else:
+                    st.error(f"❌ Could not process: {filename}")
+        
+        if all_data:
+            # Combine all data
+            if len(all_data) == 1:
+                combined_df = all_data[0]
+            else:
+                combined_df = pd.concat(all_data, ignore_index=True)
+            
+            st.session_state.processed_data = combined_df
+            
+            # Show file summary
+            st.success(f"📊 **Total records ready for categorization: {len(combined_df)}**")
+            
+            # Show power recommendation
+            if len(combined_df) > 2000:
+                st.info("💡 **Recommendation**: Use High Power mode for this large file")
+            elif len(combined_df) > 500:
+                st.info("💡 **Recommendation**: Standard power should work well for this file")
+            else:
+                st.info("💡 **Recommendation**: Standard power is perfect for this file size")
+            
+            # Preview data
+            if st.checkbox("Preview data"):
+                # Show first 10 rows, focusing on key columns
+                preview_cols = []
+                
+                # Find key columns to show
+                for col in combined_df.columns:
+                    if any(term in col.lower() for term in ['complaint', 'product', 'order', 'category']):
+                        preview_cols.append(col)
+                
+                # If we found key columns, show those; otherwise show all
+                if preview_cols:
+                    st.dataframe(combined_df[preview_cols].head(10))
+                else:
+                    st.dataframe(combined_df.head(10))
+            
+            # Categorize button
+            st.markdown("---")
+            col1, col2, col3 = st.columns([1, 2, 1])
+            
+            with col2:
+                if st.button(
+                    "🚀 CATEGORIZE ALL RETURNS", 
+                    type="primary", 
+                    use_container_width=True,
+                    help=f"Process {len(combined_df)} returns using {st.session_state.selected_provider.upper()}"
+                ):
+                    start_time = time.time()
+                    
+                    # Show AI configuration being used
+                    st.info(f"""
+                    **Processing Configuration:**
+                    - Provider: {st.session_state.selected_provider.upper()}
+                    - Power: {"⚡⚡ High" if st.session_state.power_mode == "high" else "⚡ Standard"}
+                    - Max Tokens: {st.session_state.max_tokens}
+                    {"- Mode: Dual AI Comparison" if st.session_state.get('use_dual_ai') else ""}
+                    """)
+                    
+                    with st.spinner(f"🤖 Categorizing with {st.session_state.selected_provider.upper()}..."):
+                        categorized_df = categorize_all_data(combined_df)
+                        st.session_state.categorized_data = categorized_df
+                        st.session_state.processing_complete = True
+                    
+                    # Show completion time
+                    elapsed_time = time.time() - start_time
+                    st.success(f"✅ Categorization complete in {elapsed_time:.1f} seconds!")
+                    
+                    # Show quick stats
+                    categorized_count = len(categorized_df[categorized_df['Category'].notna() & (categorized_df['Category'] != '')])
+                    st.info(f"Categorized {categorized_count} complaints into {len(st.session_state.reason_summary)} categories")
+            
+            # Show results
+            if st.session_state.processing_complete and st.session_state.categorized_data is not None:
+                
+                display_results_with_products(st.session_state.categorized_data)
+                
+                # Export section
+                st.markdown("---")
+                st.markdown("""
+                <div style="background: rgba(0, 245, 160, 0.1); border: 2px solid var(--success); 
+                          border-radius: 15px; padding: 2rem; text-align: center;">
+                    <h3 style="color: var(--success);">✅ CATEGORIZATION COMPLETE!</h3>
+                    <p>Your data has been categorized and is ready for download.</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Export options
+                col1, col2, col3 = st.columns([1, 1, 1])
+                
+                # Generate exports
+                excel_data = export_categorized_data(st.session_state.categorized_data)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                
+                with col1:
+                    st.download_button(
+                        label="📥 DOWNLOAD EXCEL",
+                        data=excel_data,
+                        file_name=f"categorized_returns_{timestamp}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True,
+                        help="Excel file with categorized data and summary sheets"
+                    )
+                
+                with col2:
+                    # Find the original columns to preserve order
+                    original_df = st.session_state.categorized_data
+                    csv_data = original_df.to_csv(index=False)
+                    
+                    st.download_button(
+                        label="📥 DOWNLOAD CSV",
+                        data=csv_data,
+                        file_name=f"categorized_returns_{timestamp}.csv",
+                        mime="text/csv",
+                        use_container_width=True,
+                        help="CSV file with categorized data"
+                    )
+                
+                with col3:
+                    # Generate quality report
+                    quality_report = generate_quality_report()
+                    st.download_button(
+                        label="📥 QUALITY REPORT",
+                        data=quality_report,
+                        file_name=f"quality_analysis_{timestamp}.txt",
+                        mime="text/plain",
+                        use_container_width=True,
+                        help="Detailed quality analysis report"
+                    )
+                
+                # Show export info
+                st.info("""
+                **📋 What's in your export:**
+                - ✅ All original columns preserved
+                - ✅ Category column filled with AI classifications
+                - ✅ Summary sheet with category breakdown
+                - ✅ Quality issues analysis
+                - ✅ Product-specific insights (if product data available)
+                """)
+
+if __name__ == "__main__":
+    main()
