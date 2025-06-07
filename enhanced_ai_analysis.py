@@ -1,11 +1,12 @@
 """
 Enhanced AI Analysis Module - Return Reason Categorization
-Version 10.0 - Fixed for Vive Health Quality Management
+Version 11.0 - Fixed for Vive Health Quality Management
 
-Features:
-- Dual AI support (OpenAI + Claude) for consensus
-- Medical device return categorization
-- Simple, reliable categorization focused on quality management
+Key Features:
+- AI-first categorization using GPT-4 (with GPT-3.5 fallback)
+- Medical device specific categorization
+- Clear error messages and fallback logic
+- FBA reason code mapping
 """
 
 import logging
@@ -55,7 +56,7 @@ MEDICAL_DEVICE_CATEGORIES = [
     'Other/Miscellaneous'
 ]
 
-# Category keywords for better matching
+# Category keywords for fallback matching
 CATEGORY_KEYWORDS = {
     'Size/Fit Issues': ['small', 'large', 'big', 'loose', 'tight', 'size', 'fit', 'narrow', 'wide', 'short', 'tall', 'thin'],
     'Comfort Issues': ['uncomfortable', 'comfort', 'hurts', 'painful', 'pain', 'pressure', 'sore', 'firm', 'hard', 'soft', 'stiff'],
@@ -243,19 +244,27 @@ Category distinctions:
 - "Customer Error/Changed Mind": Customer mistake, no longer needed, patient died
 - "Medical/Health Concerns": Health reactions, safety issues, doctor concerns
 
-Respond with ONLY the category name, nothing else."""
+Your response must be EXACTLY one of the category names listed above. Do not add any other words, punctuation, or explanation."""
 
             payload = {
                 "model": "gpt-4",  # Use GPT-4 for better accuracy
                 "messages": [
                     {
                         "role": "system", 
-                        "content": "You are a quality expert categorizing medical device returns. Always respond with only the exact category name from the provided list."
+                        "content": f"""You are a quality expert categorizing medical device returns. 
+
+You MUST respond with EXACTLY one of these categories (copy exactly as shown):
+{chr(10).join(f'"{cat}"' for cat in MEDICAL_DEVICE_CATEGORIES)}
+
+Do not add any other text, explanation, or punctuation. Just the category name."""
                     },
                     {"role": "user", "content": prompt}
                 ],
                 "temperature": 0.1,  # Low temperature for consistency
-                "max_tokens": 50
+                "max_tokens": 30,    # Reduced to ensure only category name
+                "top_p": 0.95,
+                "frequency_penalty": 0,
+                "presence_penalty": 0
             }
             
             response = requests.post(
@@ -269,13 +278,20 @@ Respond with ONLY the category name, nothing else."""
                 result = response.json()
                 category_result = result["choices"][0]["message"]["content"].strip()
                 
-                # Clean the response
-                category_result = category_result.strip('"').strip("'").strip()
+                # Clean the response - remove quotes and extra whitespace
+                category_result = category_result.strip()
+                # Remove surrounding quotes if present
+                if category_result.startswith('"') and category_result.endswith('"'):
+                    category_result = category_result[1:-1]
+                if category_result.startswith("'") and category_result.endswith("'"):
+                    category_result = category_result[1:-1]
+                category_result = category_result.strip()
                 
                 # Find exact match first
                 for valid_cat in MEDICAL_DEVICE_CATEGORIES:
                     if category_result == valid_cat:
                         severity = detect_severity(complaint, valid_cat)
+                        logger.info(f"AI categorized '{complaint[:50]}...' as '{valid_cat}'")
                         return valid_cat, 0.9, severity, 'en'
                 
                 # Try case-insensitive match
@@ -295,7 +311,50 @@ Respond with ONLY the category name, nothing else."""
                 return 'Other/Miscellaneous', 0.6, 'none', 'en'
                 
             else:
-                logger.error(f"API error {response.status_code}: {response.text}")
+                # Log detailed error
+                error_msg = f"API error {response.status_code}"
+                try:
+                    error_data = response.json()
+                    error_msg += f": {error_data.get('error', {}).get('message', response.text)}"
+                except:
+                    error_msg += f": {response.text[:200]}"
+                
+                logger.error(error_msg)
+                
+                # If GPT-4 fails, try GPT-3.5-turbo as fallback
+                if response.status_code in [404, 403] and payload["model"] == "gpt-4":
+                    logger.info("Falling back to GPT-3.5-turbo")
+                    payload["model"] = "gpt-3.5-turbo"
+                    
+                    fallback_response = requests.post(
+                        self.base_url,
+                        headers=self.headers,
+                        json=payload,
+                        timeout=API_TIMEOUT
+                    )
+                    
+                    if fallback_response.status_code == 200:
+                        result = fallback_response.json()
+                        category_result = result["choices"][0]["message"]["content"].strip()
+                        
+                        # Process result same as above
+                        # Clean the response - remove quotes and extra whitespace
+                        category_result = category_result.strip()
+                        if category_result.startswith('"') and category_result.endswith('"'):
+                            category_result = category_result[1:-1]
+                        if category_result.startswith("'") and category_result.endswith("'"):
+                            category_result = category_result[1:-1]
+                        category_result = category_result.strip()
+                        
+                        for valid_cat in MEDICAL_DEVICE_CATEGORIES:
+                            if category_result == valid_cat:
+                                severity = detect_severity(complaint, valid_cat)
+                                return valid_cat, 0.85, severity, 'en'
+                        
+                        for valid_cat in MEDICAL_DEVICE_CATEGORIES:
+                            if category_result.lower() == valid_cat.lower():
+                                severity = detect_severity(complaint, valid_cat)
+                                return valid_cat, 0.85, severity, 'en'
                 
                 # Fallback to FBA mapping if available
                 if fba_reason and fba_reason in FBA_REASON_MAP:
@@ -356,11 +415,3 @@ __all__ = [
     'detect_severity',
     'is_duplicate'
 ]
-    
-    def _get_api_key(self) -> Optional[str]:
-        """Get API key from multiple sources"""
-        # Try Streamlit secrets first
-        try:
-            import streamlit as st
-            if hasattr(st, 'secrets'):
-                for key_name in ["openai_api_key", "OPENAI_API_KEY", "openai", "api
