@@ -502,6 +502,22 @@ def display_results(df: pd.DataFrame):
                 <p style="margin: 0.5rem 0 0 0;">{other_returns/total_categorized*100:.1f}% of all returns</p>
             </div>
             """, unsafe_allow_html=True)
+            
+            # Show items needing review if many "Other/Miscellaneous"
+            other_items = df[df['Category'] == 'Other/Miscellaneous']
+            if len(other_items) > 0:
+                with st.expander(f"⚠️ Review {len(other_items)} uncategorized items"):
+                    columns_to_show = ['Complaint']
+                    if 'Product Identifier Tag' in df.columns:
+                        columns_to_show.append('Product Identifier Tag')
+                    if 'Order #' in df.columns:
+                        columns_to_show.append('Order #')
+                    
+                    st.dataframe(
+                        other_items[columns_to_show].head(20),
+                        use_container_width=True
+                    )
+                    st.caption("Showing first 20 items. Download full export to see all.")
     
     # Quality Insights tab (if available)
     if st.session_state.quality_insights:
@@ -575,41 +591,11 @@ def display_results(df: pd.DataFrame):
         
         # Products tab
         with tab_list[2]:
-            display_product_analysis()
+            display_product_analysis(df)
     else:
         # Products tab (when no quality insights)
         with tab_list[1]:
-            display_product_analysis()
-
-def display_product_analysis(df: pd.DataFrame):
-    """Display product-specific analysis"""
-    if st.session_state.product_summary:
-        st.markdown("#### Top Products by Returns")
-        
-        product_totals = [(prod, sum(cats.values())) 
-                        for prod, cats in st.session_state.product_summary.items()]
-        
-        for product, total in sorted(product_totals, key=lambda x: x[1], reverse=True)[:10]:
-            # Get top issue for this product
-            issues = st.session_state.product_summary[product]
-            top_issue = max(issues.items(), key=lambda x: x[1]) if issues else ('Unknown', 0)
-            
-            # Check if quality insights exist for this product
-            quality_info = ""
-            if st.session_state.quality_insights and product in st.session_state.quality_insights['product_specific_issues']:
-                prod_insights = st.session_state.quality_insights['product_specific_issues'][product]
-                if prod_insights['safety_critical'] > 0:
-                    quality_info = f" | ⚠️ {prod_insights['safety_critical']} safety issues"
-            
-            st.markdown(f"""
-            <div style="background: rgba(26,26,46,0.5); padding: 0.5rem; margin: 0.5rem 0; 
-                      border-radius: 8px; border-left: 3px solid var(--accent);">
-                <strong>{product[:50]}</strong>
-                <div style="font-size: 0.9em; color: var(--muted);">
-                    Returns: {total} | Top Issue: {top_issue[0]}{quality_info}
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+            display_product_analysis(df)
     
     # Show items needing review if many "Other/Miscellaneous"
     other_items = df[df['Category'] == 'Other/Miscellaneous']
