@@ -581,7 +581,7 @@ def display_results(df: pd.DataFrame):
         with tab_list[1]:
             display_product_analysis()
 
-def display_product_analysis():
+def display_product_analysis(df: pd.DataFrame):
     """Display product-specific analysis"""
     if st.session_state.product_summary:
         st.markdown("#### Top Products by Returns")
@@ -610,6 +610,22 @@ def display_product_analysis():
                 </div>
             </div>
             """, unsafe_allow_html=True)
+    
+    # Show items needing review if many "Other/Miscellaneous"
+    other_items = df[df['Category'] == 'Other/Miscellaneous']
+    if len(other_items) > 0:
+        with st.expander(f"⚠️ Review {len(other_items)} uncategorized items"):
+            columns_to_show = ['Complaint']
+            if 'Product Identifier Tag' in df.columns:
+                columns_to_show.append('Product Identifier Tag')
+            if 'Order #' in df.columns:
+                columns_to_show.append('Order #')
+            
+            st.dataframe(
+                other_items[columns_to_show].head(20),
+                use_container_width=True
+            )
+            st.caption("Showing first 20 items. Download full export to see all.")
     
     # Show items needing review if many "Other/Miscellaneous"
     other_items = df[df['Category'] == 'Other/Miscellaneous']
