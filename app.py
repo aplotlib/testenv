@@ -575,19 +575,35 @@ def display_results(df: pd.DataFrame):
             if insights['risk_assessment']['top_risk_products']:
                 st.markdown("### 🚨 High Risk Products")
                 
-                risk_df = pd.DataFrame(insights['risk_assessment']['top_risk_products'])
-                if not risk_df.empty:
-                    # Display as a formatted table
-                    st.dataframe(
-                        risk_df[['product', 'total_issues', 'safety_issues', 'primary_root_cause']].rename(columns={
-                            'product': 'Product',
-                            'total_issues': 'Total Quality Issues',
-                            'safety_issues': 'Safety Critical',
-                            'primary_root_cause': 'Primary Root Cause'
-                        }),
-                        use_container_width=True,
-                        hide_index=True
-                    )
+                try:
+                    risk_df = pd.DataFrame(insights['risk_assessment']['top_risk_products'])
+                    if not risk_df.empty:
+                        # Display as a formatted table
+                        display_columns = []
+                        rename_dict = {}
+                        
+                        if 'product' in risk_df.columns:
+                            display_columns.append('product')
+                            rename_dict['product'] = 'Product'
+                        if 'total_issues' in risk_df.columns:
+                            display_columns.append('total_issues')
+                            rename_dict['total_issues'] = 'Total Quality Issues'
+                        if 'safety_issues' in risk_df.columns:
+                            display_columns.append('safety_issues')
+                            rename_dict['safety_issues'] = 'Safety Critical'
+                        if 'primary_root_cause' in risk_df.columns:
+                            display_columns.append('primary_root_cause')
+                            rename_dict['primary_root_cause'] = 'Primary Root Cause'
+                        
+                        if display_columns:
+                            st.dataframe(
+                                risk_df[display_columns].rename(columns=rename_dict),
+                                use_container_width=True,
+                                hide_index=True
+                            )
+                except Exception as e:
+                    logger.error(f"Error displaying risk products: {e}")
+                    st.warning("Unable to display risk products table")
         
         # Products tab
         with tab_list[2]:
