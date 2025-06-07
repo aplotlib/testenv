@@ -40,8 +40,7 @@ try:
     from enhanced_ai_analysis import (
         EnhancedAIAnalyzer, AIProvider,
         MEDICAL_DEVICE_CATEGORIES, FBA_REASON_MAP,
-        generate_quality_insights, BatchProcessor,
-        TOKEN_LIMITS, BATCH_SIZE
+        generate_quality_insights
     )
     AI_AVAILABLE = True
     api_error_message = None
@@ -67,7 +66,6 @@ except ImportError as e:
         'Price/Value',
         'Other/Miscellaneous'
     ]
-    BATCH_SIZE = 100
 
 try:
     import xlsxwriter
@@ -232,13 +230,7 @@ def initialize_session_state():
         'date_range_start': None,
         'date_range_end': None,
         'severity_counts': {'critical': 0, 'major': 0, 'minor': 0},
-        'quality_insights': None,
-        'ai_provider': AIProvider.BOTH if AI_AVAILABLE else None,
-        'categorization_mode': 'standard',
-        'batch_processing': True,
-        'checkpoint_file': None,
-        'processing_checkpoint': None,
-        'consensus_stats': {'agree': 0, 'disagree': 0, 'single_ai': 0}
+        'quality_insights': None  # New: Store quality pattern insights
     }
     
     for key, value in defaults.items():
@@ -627,22 +619,22 @@ def display_product_analysis():
                 other_items[['Complaint', 'Product Identifier Tag', 'Order #']].head(20),
                 use_container_width=True
             )
-                            # Show export info
-                st.info(f"""
-                **📋 Enhanced Export Contents:**
-                - ✅ All original columns with Category in column K
-                - ✅ Summary sheet with category breakdown
-                - 🆕 **Root Cause Analysis** sheet (quality patterns identified)
-                - 🆕 **Quality Actions** sheet (prioritized recommendations)
-                - 🆕 **High Risk Products** sheet (products needing immediate attention)
-                - ✅ Quality categories highlighted in red for easy identification
-                
-                **🔍 New Quality Insights Include:**
-                - Pattern recognition (material vs component vs design issues)
-                - Safety-critical issue flagging
-                - Actionable recommendations by root cause
-                - Risk assessment by product
-                """)
+                        # Show export info
+            st.info(f"""
+            **📋 Enhanced Export Contents:**
+            - ✅ All original columns with Category in column K
+            - ✅ Summary sheet with category breakdown
+            - 🆕 **Root Cause Analysis** sheet (quality patterns identified)
+            - 🆕 **Quality Actions** sheet (prioritized recommendations)
+            - 🆕 **High Risk Products** sheet (products needing immediate attention)
+            - ✅ Quality categories highlighted in red for easy identification
+            
+            **🔍 New Quality Insights Include:**
+            - Pattern recognition (material vs component vs design issues)
+            - Safety-critical issue flagging
+            - Actionable recommendations by root cause
+            - Risk assessment by product
+            """)
 
 def export_data(df: pd.DataFrame) -> bytes:
     """Export data maintaining original format with Category in column K"""
