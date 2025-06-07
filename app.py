@@ -1,12 +1,13 @@
 """
-Vive Health Quality Complaint Categorizer - Restored Working Version
-AI-Powered Return Reason Classification Tool
-Version: 11.2 - Back to Working State with Dual AI
+Vive Health Quality Complaint Categorizer - Fixed Version
+AI-Powered Return Reason Classification Tool with PDF Support
+Version: 12.0 - Fixed structural issues and added PDF support
 
 Key Features:
-- Requires AI to function (OpenAI + Claude from Streamlit secrets)
-- Manual categorization only offered as user choice when AI fails
-- Restored to working state before recent changes
+- PDF parsing for Amazon Seller Central returns
+- FBA Return Report (.txt) support
+- Dual AI categorization (OpenAI + Claude)
+- Quality insights and root cause analysis
 """
 
 import streamlit as st
@@ -36,7 +37,7 @@ st.set_page_config(
 
 # Check for required modules
 try:
-    from enhanced_ai_analysis import EnhancedAIAnalyzer, AIProvider
+    from enhanced_ai_analysis import EnhancedAIAnalyzer, AIProvider, FBA_REASON_MAP
     AI_AVAILABLE = True
 except ImportError as e:
     AI_AVAILABLE = False
@@ -47,6 +48,13 @@ try:
     EXCEL_AVAILABLE = True
 except ImportError:
     EXCEL_AVAILABLE = False
+
+try:
+    import pdfplumber
+    PDF_AVAILABLE = True
+except ImportError:
+    PDF_AVAILABLE = False
+    logger.warning("pdfplumber not available - PDF support disabled")
 
 # Medical Device Return Categories
 MEDICAL_DEVICE_CATEGORIES = [
@@ -70,7 +78,7 @@ MEDICAL_DEVICE_CATEGORIES = [
 # App Configuration
 APP_CONFIG = {
     'title': 'Vive Health Medical Device Return Categorizer',
-    'version': '11.2',
+    'version': '12.0',
     'company': 'Vive Health'
 }
 
@@ -176,6 +184,14 @@ def inject_custom_css():
         margin: 1rem 0;
     }}
     
+    .pdf-info-box {{
+        background: rgba(255, 183, 0, 0.1);
+        border: 2px solid var(--accent);
+        border-radius: 10px;
+        padding: 1.5rem;
+        margin: 1rem 0;
+    }}
+    
     .stMetric {{
         background: rgba(26, 26, 46, 0.6);
         padding: 1rem;
@@ -206,7 +222,9 @@ def initialize_session_state():
         'quality_insights': None,
         'ai_failed': False,
         'manual_mode': False,
-        'ai_provider': 'both'  # Default to both APIs
+        'ai_provider': 'both',  # Default to both APIs
+        'pdf_extracted_data': None,
+        'fba_return_data': None
     }
     
     for key, value in defaults.items():
@@ -269,20 +287,164 @@ def display_required_format():
     """Display the required file format"""
     st.markdown("""
     <div class="format-box">
-        <h4 style="color: var(--primary);">📋 Required File Format</h4>
-        <p>Your file must contain these columns:</p>
+        <h4 style="color: var(--primary);">📋 Supported File Formats</h4>
+        
+        <h5>1. PDF Files (Amazon Seller Central Returns)</h5>
+        <ul>
+            <li>Export from Manage Returns page as PDF</li>
+            <li>Tool extracts: Order ID, ASIN, SKU, Return Reason, Buyer Comment</li>
+            <li>Automatic categorization based on reason + comment</li>
+        </ul>
+        
+        <h5>2. FBA Return Reports (.txt)</h5>
+        <ul>
+            <li>Tab-delimited file from FBA Returns Report</li>
+            <li>Contains: return-date, order-id, sku, asin, reason, customer-comments</li>
+            <li>Maps FBA reason codes to quality categories</li>
+        </ul>
+        
+        <h5>3. CSV/Excel Files</h5>
         <ul>
             <li><strong>Complaint</strong> - The return reason/comment text (Required)</li>
             <li><strong>Product Identifier Tag</strong> - Product name/SKU (Recommended)</li>
             <li><strong>Order #</strong> - Order number (Optional)</li>
             <li><strong>Date</strong> - Return date (Optional)</li>
-            <li><strong>Source</strong> - Where the complaint came from (Optional)</li>
         </ul>
+        
         <p style="color: var(--accent); margin-top: 1rem;">
-            💡 The tool will add the Category column with AI classification
+            💡 The tool will automatically detect file type and extract relevant data
         </p>
     </div>
     """, unsafe_allow_html=True)
+
+def parse_amazon_returns_pdf(pdf_content) -> pd.DataFrame:
+    """Parse Amazon Seller Central Manage Returns PDF"""
+    if not PDF_AVAILABLE:
+        st.error("PDF processing not available. Please install pdfplumber: pip install pdfplumber")
+        return None
+    
+    try:
+        returns_data = []
+        
+        with pdfplumber.open(io.BytesIO(pdf_content)) as pdf:
+            for page_num, page in enumerate(pdf.pages):
+                text = page.extract_text()
+                
+                if not text:
+                    continue
+                
+                # Extract individual return entries
+                returns = extract_return_entries_from_text(text)
+                returns_data.extend(returns)
+                
+                # Show progress
+                st.caption(f"Processing page {page_num + 1}/{len(pdf.pages)}...")
+        
+        if returns_data:
+            df = pd.DataFrame(returns_data)
+            # Add Complaint column from buyer comment and reason
+            df['Complaint'] = df.apply(lambda row: f"{row.get('return_reason', '')}. {row.get('buyer_comment', '')}".strip(), axis=1)
+            df['Product Identifier Tag'] = df.get('product_name', '')
+            df['Order #'] = df.get('order_id', '')
+            df['Category'] = ''  # Will be filled by AI
+            
+            st.success(f"✅ Extracted {len(df)} returns from PDF")
+            return df
+        else:
+            st.warning("No return data found in PDF")
+            return None
+            
+    except Exception as e:
+        st.error(f"Error parsing PDF: {str(e)}")
+        logger.error(f"PDF parsing error: {e}")
+        return None
+
+def extract_return_entries_from_text(text: str) -> List[Dict]:
+    """Extract individual return records from PDF text"""
+    returns = []
+    
+    # Pattern to identify return blocks
+    order_pattern = r'Order ID:\s*(\d{3}-\d{7}-\d{7})'
+    
+    # Split text by order IDs
+    order_matches = list(re.finditer(order_pattern, text))
+    
+    for i, match in enumerate(order_matches):
+        start = match.start()
+        end = order_matches[i+1].start() if i+1 < len(order_matches) else len(text)
+        
+        return_block = text[start:end]
+        
+        # Extract fields from return block
+        return_data = {
+            'order_id': match.group(1),
+            'buyer': extract_field(return_block, r'Buyer:\s*(.+?)(?:Marketplace|$)'),
+            'product_name': extract_field(return_block, r'(Vive[^\\n]+?)(?:Return Quantity|ASIN|$)'),
+            'asin': extract_field(return_block, r'ASIN:\s*([A-Z0-9]{10})'),
+            'sku': extract_field(return_block, r'SKU:\s*([A-Z0-9\-]+)'),
+            'return_reason': extract_field(return_block, r'Return Reason:\s*(.+?)(?:Buyer Comment|$)'),
+            'buyer_comment': extract_field(return_block, r'Buyer Comment:\s*(.+?)(?:Request Date|$)'),
+            'request_date': extract_field(return_block, r'Request Date:\s*(\d{2}/\d{2}/\d{4})'),
+            'quantity': extract_field(return_block, r'Return Quantity:\s*(\d+)') or '1'
+        }
+        
+        # Clean extracted data
+        for key, value in return_data.items():
+            if value:
+                return_data[key] = value.strip()
+        
+        returns.append(return_data)
+    
+    return returns
+
+def extract_field(text: str, pattern: str) -> str:
+    """Extract field using regex pattern"""
+    match = re.search(pattern, text, re.DOTALL | re.MULTILINE)
+    return match.group(1).strip() if match else ""
+
+def parse_fba_return_report(file_content) -> pd.DataFrame:
+    """Parse FBA Return Report .txt file"""
+    try:
+        # FBA reports are typically tab-delimited
+        df = pd.read_csv(io.BytesIO(file_content), sep='\t', encoding='utf-8')
+        
+        # Expected columns in FBA return report
+        expected_cols = ['return-date', 'order-id', 'sku', 'asin', 'product-name', 
+                        'reason', 'customer-comments', 'quantity']
+        
+        # Check if this looks like an FBA return report
+        if not any(col in df.columns for col in expected_cols):
+            return None
+        
+        # Standardize column names
+        df = df.rename(columns={
+            'customer-comments': 'Complaint',
+            'product-name': 'Product Identifier Tag',
+            'order-id': 'Order #',
+            'return-date': 'Date'
+        })
+        
+        # Create complaint from reason + customer comments
+        if 'reason' in df.columns:
+            df['FBA_Reason_Code'] = df['reason']
+            # Map FBA reason codes to categories if available
+            if AI_AVAILABLE and hasattr(FBA_REASON_MAP, '__getitem__'):
+                df['Suggested_Category'] = df['reason'].map(FBA_REASON_MAP).fillna('Other/Miscellaneous')
+            
+            # Combine reason and comments for AI analysis
+            df['Complaint'] = df.apply(
+                lambda row: f"Reason: {row.get('reason', '')}. Customer comment: {row.get('Complaint', '')}".strip(), 
+                axis=1
+            )
+        
+        df['Category'] = ''  # Will be filled by AI
+        
+        st.success(f"✅ Loaded FBA Return Report: {len(df)} returns")
+        return df
+        
+    except Exception as e:
+        logger.error(f"Error parsing FBA report: {e}")
+        return None
 
 def display_ai_status():
     """Display AI status and configuration"""
@@ -369,7 +531,17 @@ def display_ai_status():
 def process_complaints_file(file_content, filename: str, date_filter=None) -> pd.DataFrame:
     """Process complaints file with date filtering"""
     try:
-        # Read file
+        # Try PDF first
+        if filename.endswith('.pdf'):
+            return parse_amazon_returns_pdf(file_content)
+        
+        # Try FBA return report
+        if filename.endswith('.txt'):
+            fba_df = parse_fba_return_report(file_content)
+            if fba_df is not None:
+                return fba_df
+        
+        # Standard CSV/Excel processing
         if filename.endswith('.csv'):
             df = pd.read_csv(io.BytesIO(file_content))
         else:
@@ -447,7 +619,9 @@ def categorize_all_data_ai(df: pd.DataFrame) -> pd.DataFrame:
             continue
         
         # Get FBA reason if available
-        fba_reason = str(row.get('reason', '')) if pd.notna(row.get('reason')) else ""
+        fba_reason = str(row.get('FBA_Reason_Code', '')) if pd.notna(row.get('FBA_Reason_Code')) else ""
+        if not fba_reason:
+            fba_reason = str(row.get('reason', '')) if pd.notna(row.get('reason')) else ""
         
         try:
             # Categorize using AI
@@ -509,7 +683,8 @@ def categorize_all_data_ai(df: pd.DataFrame) -> pd.DataFrame:
             st.session_state.reason_summary,
             st.session_state.product_summary
         )
-    except:
+    except Exception as e:
+        logger.error(f"Error generating quality insights: {e}")
         st.session_state.quality_insights = None
     
     return df
@@ -1000,7 +1175,7 @@ def main():
             AI-Powered Medical Device Quality Management Tool
         </p>
         <p style="font-size: 1em; color: var(--accent);">
-            🤖 Dual AI Support: OpenAI + Claude from Streamlit Secrets
+            🤖 Dual AI Support | 📄 PDF Support | 📦 FBA Returns | 🎯 Quality Insights
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -1038,6 +1213,16 @@ def main():
             st.success("✅ Claude Ready")
         
         st.info(f"Provider: {st.session_state.ai_provider.title()}")
+        
+        # File type support
+        st.markdown("---")
+        st.markdown("#### 📁 Supported Files")
+        if PDF_AVAILABLE:
+            st.success("✅ PDF Support")
+        else:
+            st.warning("❌ PDF (install pdfplumber)")
+        st.success("✅ CSV/Excel")
+        st.success("✅ FBA .txt Reports")
     
     # Main content
     with st.expander("📋 Required File Format & Instructions", expanded=False):
@@ -1045,21 +1230,29 @@ def main():
         
         st.markdown("### 🤖 AI-Powered Categorization:")
         st.info("""
-        This tool uses advanced AI (OpenAI GPT-4 and/or Claude) to analyze each return complaint:
+        This tool uses advanced AI to analyze each return complaint:
         - Understands context and nuance
         - Medical device specific terminology
         - Handles complex multi-issue returns
         - Dual AI consensus for maximum accuracy
+        - Maps FBA reason codes automatically
         """)
         
-        st.markdown("### 🔍 Quality Insights:")
-        st.success("""
-        **Automatic Quality Analysis:**
-        - Risk assessment by category and product
-        - Prioritized action recommendations  
-        - Product-specific quality metrics
-        - Export with quality highlighting
-        """)
+        st.markdown("### 📄 PDF Support:")
+        if PDF_AVAILABLE:
+            st.success("""
+            **Amazon Seller Central PDF Processing:**
+            - Export returns from Manage Returns page as PDF
+            - Tool extracts all return data automatically
+            - AI categorizes based on reason + customer comments
+            """)
+        else:
+            st.warning("""
+            **PDF support not available.** Install pdfplumber:
+            ```
+            pip install pdfplumber
+            ```
+            """)
     
     # File upload section
     st.markdown("---")
@@ -1070,13 +1263,18 @@ def main():
     
     uploaded_files = st.file_uploader(
         "Choose file(s) to categorize",
-        type=['xlsx', 'xls', 'csv'],
+        type=['xlsx', 'xls', 'csv', 'txt', 'pdf'],
         accept_multiple_files=True,
-        help="Upload files with a 'Complaint' column"
+        help="Upload PDF from Amazon Seller Central, FBA return reports (.txt), or CSV/Excel files"
     )
     
     if uploaded_files:
         all_data = []
+        
+        # Show PDF info if PDF uploaded
+        pdf_files = [f for f in uploaded_files if f.name.endswith('.pdf')]
+        if pdf_files and not PDF_AVAILABLE:
+            st.error("❌ PDF files detected but pdfplumber not installed. Please install: pip install pdfplumber")
         
         # Prepare date filter
         date_filter = None
@@ -1092,7 +1290,14 @@ def main():
                 
                 if df is not None and not df.empty:
                     all_data.append(df)
-                    st.success(f"✅ Loaded: {filename} ({len(df)} rows)")
+                    
+                    # Show file type detected
+                    if filename.endswith('.pdf'):
+                        st.success(f"✅ PDF Loaded: {filename} ({len(df)} returns extracted)")
+                    elif filename.endswith('.txt') and 'FBA_Reason_Code' in df.columns:
+                        st.success(f"✅ FBA Report: {filename} ({len(df)} returns)")
+                    else:
+                        st.success(f"✅ Loaded: {filename} ({len(df)} rows)")
         
         if all_data:
             # Combine all data
@@ -1102,9 +1307,19 @@ def main():
             # Show summary
             st.success(f"📊 **Total records ready: {len(combined_df)}**")
             
+            # Show data source breakdown
+            if len(all_data) > 1:
+                st.info(f"Combined data from {len(all_data)} files")
+            
             # Preview
             if st.checkbox("Preview data"):
-                st.dataframe(combined_df.head(10))
+                preview_cols = ['Complaint', 'Category']
+                if 'Product Identifier Tag' in combined_df.columns:
+                    preview_cols.append('Product Identifier Tag')
+                if 'FBA_Reason_Code' in combined_df.columns:
+                    preview_cols.append('FBA_Reason_Code')
+                    
+                st.dataframe(combined_df[preview_cols].head(10))
             
             # Categorize button
             st.markdown("---")
@@ -1230,6 +1445,7 @@ def main():
                 - Method: {method_used}
                 - Provider: {st.session_state.ai_provider.upper() if not st.session_state.ai_failed else 'Manual'}
                 - Quality analysis: {'Enabled' if st.session_state.quality_insights else 'Basic'}
+                - Data sources: PDF, FBA Reports, CSV/Excel supported
                 """)
 
 if __name__ == "__main__":
