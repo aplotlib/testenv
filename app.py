@@ -1,13 +1,12 @@
 """
-Vive Health Quality Complaint Categorizer - Fixed Version
+Vive Health Quality Complaint Categorizer - Restored Working Version
 AI-Powered Return Reason Classification Tool
-Version: 11.0 - Simplified and Fixed
+Version: 11.2 - Back to Working State with Dual AI
 
-Key Fixes:
-- Removed duplicate detection
-- Fixed export format (Category in column K only)
-- Fixed API client access issue
-- Simplified categorization flow
+Key Features:
+- Requires AI to function (OpenAI + Claude from Streamlit secrets)
+- Manual categorization only offered as user choice when AI fails
+- Restored to working state before recent changes
 """
 
 import streamlit as st
@@ -37,35 +36,11 @@ st.set_page_config(
 
 # Check for required modules
 try:
-    from enhanced_ai_analysis import (
-        EnhancedAIAnalyzer, AIProvider,
-        MEDICAL_DEVICE_CATEGORIES, FBA_REASON_MAP,
-        generate_quality_insights
-    )
+    from enhanced_ai_analysis import EnhancedAIAnalyzer, AIProvider
     AI_AVAILABLE = True
-    api_error_message = None
 except ImportError as e:
     AI_AVAILABLE = False
-    api_error_message = f"AI module not available: {str(e)}"
-    logger.error(api_error_message)
-    # Fallback categories
-    MEDICAL_DEVICE_CATEGORIES = [
-        'Size/Fit Issues',
-        'Comfort Issues',
-        'Product Defects/Quality',
-        'Performance/Effectiveness',
-        'Stability/Positioning Issues',
-        'Equipment Compatibility',
-        'Design/Material Issues',
-        'Wrong Product/Misunderstanding',
-        'Missing Components',
-        'Customer Error/Changed Mind',
-        'Shipping/Fulfillment Issues',
-        'Assembly/Usage Difficulty',
-        'Medical/Health Concerns',
-        'Price/Value',
-        'Other/Miscellaneous'
-    ]
+    logger.error(f"AI module not available: {str(e)}")
 
 try:
     import xlsxwriter
@@ -73,12 +48,30 @@ try:
 except ImportError:
     EXCEL_AVAILABLE = False
 
+# Medical Device Return Categories
+MEDICAL_DEVICE_CATEGORIES = [
+    'Size/Fit Issues',
+    'Comfort Issues',
+    'Product Defects/Quality',
+    'Performance/Effectiveness',
+    'Stability/Positioning Issues',
+    'Equipment Compatibility',
+    'Design/Material Issues',
+    'Wrong Product/Misunderstanding',
+    'Missing Components',
+    'Customer Error/Changed Mind',
+    'Shipping/Fulfillment Issues',
+    'Assembly/Usage Difficulty',
+    'Medical/Health Concerns',
+    'Price/Value',
+    'Other/Miscellaneous'
+]
+
 # App Configuration
 APP_CONFIG = {
     'title': 'Vive Health Medical Device Return Categorizer',
-    'version': '11.0',
-    'company': 'Vive Health',
-    'description': 'AI-Powered Quality Management Tool'
+    'version': '11.2',
+    'company': 'Vive Health'
 }
 
 # Colors
@@ -95,7 +88,7 @@ COLORS = {
     'muted': '#666680'
 }
 
-# Quality-related categories for highlighting
+# Quality-related categories
 QUALITY_CATEGORIES = [
     'Product Defects/Quality',
     'Performance/Effectiveness',
@@ -158,34 +151,29 @@ def inject_custom_css():
         margin: 2rem 0;
     }}
     
-    .quality-action {{
-        background: rgba(255, 107, 53, 0.1);
-        border-left: 4px solid var(--warning);
-        padding: 1rem;
-        margin: 0.5rem 0;
-        border-radius: 5px;
-        transition: all 0.3s ease;
+    .ai-status-box {{
+        background: rgba(0, 217, 255, 0.1);
+        border: 2px solid var(--primary);
+        border-radius: 10px;
+        padding: 1.5rem;
+        margin: 1rem 0;
+        text-align: center;
     }}
     
-    .quality-action:hover {{
-        transform: translateX(5px);
-        box-shadow: 0 4px 15px rgba(255, 107, 53, 0.3);
-    }}
-    
-    .risk-assessment {{
+    .error-box {{
         background: rgba(255, 0, 84, 0.1);
         border: 2px solid var(--danger);
         border-radius: 10px;
         padding: 1.5rem;
-        margin-bottom: 1rem;
+        margin: 1rem 0;
     }}
     
-    .pattern-box {{
-        background: rgba(0, 217, 255, 0.05);
-        border: 1px solid var(--primary);
-        border-radius: 8px;
-        padding: 1rem;
-        margin: 0.5rem 0;
+    .manual-override {{
+        background: rgba(255, 183, 0, 0.1);
+        border: 2px solid var(--accent);
+        border-radius: 10px;
+        padding: 1.5rem;
+        margin: 1rem 0;
     }}
     
     .stMetric {{
@@ -193,21 +181,6 @@ def inject_custom_css():
         padding: 1rem;
         border-radius: 10px;
         border: 1px solid rgba(0, 217, 255, 0.3);
-    }}
-    
-    .stTabs [data-baseweb="tab-list"] {{
-        background-color: rgba(26, 26, 46, 0.6);
-        border-radius: 10px;
-    }}
-    
-    .stTabs [data-baseweb="tab"] {{
-        color: var(--text);
-        font-weight: 600;
-    }}
-    
-    .stTabs [aria-selected="true"] {{
-        background-color: var(--primary) !important;
-        color: var(--dark) !important;
     }}
     
     #MainMenu, footer, header {{
@@ -230,19 +203,62 @@ def initialize_session_state():
         'date_range_start': None,
         'date_range_end': None,
         'severity_counts': {'critical': 0, 'major': 0, 'minor': 0},
-        'quality_insights': None  # New: Store quality pattern insights
+        'quality_insights': None,
+        'ai_failed': False,
+        'manual_mode': False,
+        'ai_provider': 'both'  # Default to both APIs
     }
     
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
 
+def check_api_keys():
+    """Check for API keys in Streamlit secrets"""
+    keys_found = {}
+    
+    try:
+        if hasattr(st, 'secrets'):
+            # Check for OpenAI key
+            openai_keys = ['OPENAI_API_KEY', 'openai_api_key', 'openai']
+            for key in openai_keys:
+                if key in st.secrets:
+                    keys_found['openai'] = str(st.secrets[key]).strip()
+                    break
+            
+            # Check for Claude key
+            claude_keys = ['ANTHROPIC_API_KEY', 'anthropic_api_key', 'claude_api_key', 'claude']
+            for key in claude_keys:
+                if key in st.secrets:
+                    keys_found['claude'] = str(st.secrets[key]).strip()
+                    break
+    except Exception as e:
+        logger.warning(f"Error checking secrets: {e}")
+    
+    return keys_found
+
 def get_ai_analyzer():
-    """Get or create AI analyzer"""
+    """Get or create AI analyzer with dual API support"""
     if st.session_state.ai_analyzer is None and AI_AVAILABLE:
         try:
-            st.session_state.ai_analyzer = EnhancedAIAnalyzer()
-            logger.info("Created AI analyzer")
+            # Set up environment variables from secrets
+            keys = check_api_keys()
+            
+            if 'openai' in keys:
+                os.environ['OPENAI_API_KEY'] = keys['openai']
+            if 'claude' in keys:
+                os.environ['ANTHROPIC_API_KEY'] = keys['claude']
+            
+            # Create analyzer with preferred provider
+            if st.session_state.ai_provider == 'both':
+                provider = AIProvider.BOTH
+            elif st.session_state.ai_provider == 'openai':
+                provider = AIProvider.OPENAI
+            else:
+                provider = AIProvider.CLAUDE
+            
+            st.session_state.ai_analyzer = EnhancedAIAnalyzer(provider)
+            logger.info(f"Created AI analyzer with provider: {provider}")
         except Exception as e:
             logger.error(f"Error creating AI analyzer: {e}")
             st.error(f"Error initializing AI: {str(e)}")
@@ -263,10 +279,92 @@ def display_required_format():
             <li><strong>Source</strong> - Where the complaint came from (Optional)</li>
         </ul>
         <p style="color: var(--accent); margin-top: 1rem;">
-            💡 The tool will add the Category column (Column K) with AI classification
+            💡 The tool will add the Category column with AI classification
         </p>
     </div>
     """, unsafe_allow_html=True)
+
+def display_ai_status():
+    """Display AI status and configuration"""
+    if not AI_AVAILABLE:
+        st.markdown("""
+        <div class="error-box">
+            <h3 style="color: var(--danger); margin: 0;">❌ AI Module Not Available</h3>
+            <p>The enhanced_ai_analysis.py module is required for this tool to function.</p>
+            <p>Please ensure the AI module is in the same directory as this app.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        return False
+    
+    # Check API keys
+    keys = check_api_keys()
+    
+    st.markdown("""
+    <div class="ai-status-box">
+        <h3 style="color: var(--primary); margin-top: 0;">🤖 AI Configuration</h3>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Display API status
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if 'openai' in keys:
+            st.success("✅ OpenAI API")
+            st.caption("GPT-4 Ready")
+        else:
+            st.error("❌ OpenAI API")
+            st.caption("Key not found")
+    
+    with col2:
+        if 'claude' in keys:
+            st.success("✅ Claude API")
+            st.caption("Sonnet Ready")
+        else:
+            st.error("❌ Claude API")
+            st.caption("Key not found")
+    
+    with col3:
+        # AI Provider selection
+        provider_options = {
+            'both': '🔷 Both (Best)',
+            'openai': '🟢 OpenAI Only',
+            'claude': '🟠 Claude Only'
+        }
+        
+        st.session_state.ai_provider = st.selectbox(
+            "AI Provider",
+            options=list(provider_options.keys()),
+            format_func=lambda x: provider_options[x],
+            index=0
+        )
+    
+    # Check if we have at least one API key
+    if not keys:
+        st.markdown("""
+        <div class="error-box">
+            <h4 style="color: var(--danger); margin-top: 0;">⚠️ No API Keys Found</h4>
+            <p>Please add your API keys to Streamlit secrets:</p>
+            <ul>
+                <li><strong>openai_api_key</strong>: Your OpenAI API key</li>
+                <li><strong>anthropic_api_key</strong>: Your Claude API key</li>
+            </ul>
+            <p>You need at least one API key for the tool to work.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        return False
+    
+    # Check if selected provider is available
+    if st.session_state.ai_provider == 'both' and len(keys) < 2:
+        st.warning("⚠️ Both APIs selected but only one key available. Will use available API.")
+    elif st.session_state.ai_provider == 'openai' and 'openai' not in keys:
+        st.error("❌ OpenAI selected but API key not found.")
+        return False
+    elif st.session_state.ai_provider == 'claude' and 'claude' not in keys:
+        st.error("❌ Claude selected but API key not found.")
+        return False
+    
+    return True
 
 def process_complaints_file(file_content, filename: str, date_filter=None) -> pd.DataFrame:
     """Process complaints file with date filtering"""
@@ -302,16 +400,9 @@ def process_complaints_file(file_content, filename: str, date_filter=None) -> pd
         if initial_count > len(df):
             st.info(f"📋 Filtered out {initial_count - len(df)} empty rows")
         
-        # Add Category column if not present (Column K position)
+        # Add Category column if not present
         if 'Category' not in df.columns:
-            # Insert at position K (10th column, 0-indexed)
-            cols = df.columns.tolist()
-            if len(cols) >= 10:
-                cols.insert(10, 'Category')
-                df = df.reindex(columns=cols)
-                df['Category'] = ''
-            else:
-                df['Category'] = ''
+            df['Category'] = ''
         
         return df
             
@@ -320,21 +411,24 @@ def process_complaints_file(file_content, filename: str, date_filter=None) -> pd
         st.error(f"Error processing file: {str(e)}")
         return None
 
-def categorize_all_data(df: pd.DataFrame) -> pd.DataFrame:
+def categorize_all_data_ai(df: pd.DataFrame) -> pd.DataFrame:
     """Categorize all complaints using AI"""
     
     analyzer = get_ai_analyzer()
     
     if not analyzer:
-        st.error("AI analyzer not initialized. Please check API key configuration.")
-        return df
+        st.session_state.ai_failed = True
+        raise Exception("AI analyzer not initialized")
     
     # Check API status
-    api_status = analyzer.get_api_status()
-    if not api_status['available']:
-        st.error("❌ AI not available. Please configure your OpenAI API key.")
-        st.info("Add your OpenAI API key to Streamlit secrets or environment variables.")
-        return df
+    try:
+        api_status = analyzer.get_api_status()
+        if not api_status['available']:
+            st.session_state.ai_failed = True
+            raise Exception("AI not available - API key issues")
+    except Exception as e:
+        st.session_state.ai_failed = True
+        raise Exception(f"AI status check failed: {str(e)}")
     
     progress_bar = st.progress(0)
     status_text = st.empty()
@@ -344,6 +438,7 @@ def categorize_all_data(df: pd.DataFrame) -> pd.DataFrame:
     product_issues = defaultdict(lambda: defaultdict(int))
     severity_counts = Counter()
     successful_categorizations = 0
+    failed_categorizations = 0
     
     for idx, row in df.iterrows():
         complaint = str(row['Complaint']).strip() if pd.notna(row['Complaint']) else ""
@@ -354,47 +449,53 @@ def categorize_all_data(df: pd.DataFrame) -> pd.DataFrame:
         # Get FBA reason if available
         fba_reason = str(row.get('reason', '')) if pd.notna(row.get('reason')) else ""
         
-        # Categorize using AI
-        category, confidence, severity, language = analyzer.categorize_return(complaint, fba_reason)
-        
-        # Update dataframe - only set Category
-        df.at[idx, 'Category'] = category
-        
-        # Track statistics
-        category_counts[category] += 1
-        severity_counts[severity] += 1
-        
-        if category != 'Other/Miscellaneous':
-            successful_categorizations += 1
-        
-        # Track by product
-        if 'Product Identifier Tag' in df.columns and pd.notna(row.get('Product Identifier Tag')):
-            product = str(row['Product Identifier Tag']).strip()
-            if product:
-                product_issues[product][category] += 1
+        try:
+            # Categorize using AI
+            if hasattr(analyzer, 'categorize_return'):
+                category, confidence, severity, language = analyzer.categorize_return(complaint, fba_reason)
+            else:
+                # Fallback to basic API call
+                result = analyzer.api_client.categorize_return(complaint, fba_reason=fba_reason)
+                if isinstance(result, dict) and 'openai' in result:
+                    category = result['openai']
+                else:
+                    category = result
+                confidence, severity, language = 0.8, 'none', 'en'
+            
+            # Update dataframe
+            df.at[idx, 'Category'] = category
+            
+            # Track statistics
+            category_counts[category] += 1
+            severity_counts[severity] += 1
+            
+            if category != 'Other/Miscellaneous':
+                successful_categorizations += 1
+            
+            # Track by product
+            if 'Product Identifier Tag' in df.columns and pd.notna(row.get('Product Identifier Tag')):
+                product = str(row['Product Identifier Tag']).strip()
+                if product:
+                    product_issues[product][category] += 1
+                    
+        except Exception as e:
+            logger.error(f"AI categorization failed for row {idx}: {e}")
+            df.at[idx, 'Category'] = 'Other/Miscellaneous'
+            failed_categorizations += 1
         
         # Update progress
         progress = (idx + 1) / total_rows
         progress_bar.progress(progress)
-        status_text.text(f"🤖 AI Processing: {idx + 1}/{total_rows} | Categorized: {successful_categorizations}")
+        status_text.text(f"🤖 AI Processing: {idx + 1}/{total_rows} | Success: {successful_categorizations} | Failed: {failed_categorizations}")
     
     # Calculate success rate
     success_rate = (successful_categorizations / total_rows * 100) if total_rows > 0 else 0
-    status_text.text(f"✅ Complete! AI categorized {successful_categorizations}/{total_rows} returns ({success_rate:.1f}% specific categories)")
     
-    # Show warning if many defaults
-    other_count = category_counts.get('Other/Miscellaneous', 0)
-    if other_count > total_rows * 0.2:  # More than 20% uncategorized
-        st.warning(f"""
-        ⚠️ {other_count} returns ({other_count/total_rows*100:.1f}%) were categorized as 'Other/Miscellaneous'.
-        
-        This might indicate:
-        - Very ambiguous complaint text
-        - Non-standard return reasons
-        - API issues (check logs)
-        
-        Consider reviewing these manually.
-        """)
+    if failed_categorizations > total_rows * 0.5:  # More than 50% failed
+        st.session_state.ai_failed = True
+        raise Exception(f"Too many AI failures: {failed_categorizations}/{total_rows}")
+    
+    status_text.text(f"✅ AI Complete! Categorized: {successful_categorizations}/{total_rows} ({success_rate:.1f}% success)")
     
     # Store summaries
     st.session_state.reason_summary = dict(category_counts)
@@ -402,22 +503,189 @@ def categorize_all_data(df: pd.DataFrame) -> pd.DataFrame:
     st.session_state.severity_counts = dict(severity_counts)
     
     # Generate quality insights
-    if AI_AVAILABLE and 'generate_quality_insights' in globals():
-        try:
-            st.session_state.quality_insights = generate_quality_insights(
-                df, 
-                st.session_state.reason_summary,
-                st.session_state.product_summary
-            )
-            logger.info("Generated quality insights")
-        except Exception as e:
-            logger.error(f"Error generating quality insights: {e}")
-            st.session_state.quality_insights = None
+    try:
+        st.session_state.quality_insights = generate_quality_insights(
+            df, 
+            st.session_state.reason_summary,
+            st.session_state.product_summary
+        )
+    except:
+        st.session_state.quality_insights = None
     
     return df
 
+def categorize_manually(df: pd.DataFrame) -> pd.DataFrame:
+    """Manual categorization option when AI fails"""
+    
+    st.warning("🔧 **Manual Categorization Mode**")
+    st.info("AI categorization failed. You can manually categorize each complaint or assign default categories.")
+    
+    # Option 1: Assign all to "Other/Miscellaneous"
+    if st.button("📝 Set All to 'Other/Miscellaneous' (Quick Option)", use_container_width=True):
+        df['Category'] = 'Other/Miscellaneous'
+        
+        # Basic summaries
+        st.session_state.reason_summary = {'Other/Miscellaneous': len(df)}
+        st.session_state.product_summary = {}
+        st.session_state.severity_counts = {'none': len(df)}
+        st.session_state.quality_insights = None
+        
+        st.success("✅ All complaints categorized as 'Other/Miscellaneous'")
+        return df
+    
+    # Option 2: Manual categorization interface
+    st.markdown("---")
+    st.markdown("### 🔧 Manual Categorization Interface")
+    
+    # Show first few complaints for manual categorization
+    st.info("Categorize the first 10 complaints manually, then apply patterns to the rest:")
+    
+    manual_categories = {}
+    
+    for idx in range(min(10, len(df))):
+        row = df.iloc[idx]
+        complaint = str(row['Complaint'])[:100] + "..."
+        
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.text(complaint)
+        with col2:
+            category = st.selectbox(
+                "Category",
+                options=MEDICAL_DEVICE_CATEGORIES,
+                key=f"manual_cat_{idx}",
+                index=14  # Default to "Other/Miscellaneous"
+            )
+            manual_categories[idx] = category
+    
+    if st.button("📊 Apply Manual Categories", use_container_width=True):
+        # Apply manual categories to first 10
+        for idx, category in manual_categories.items():
+            df.at[idx, 'Category'] = category
+        
+        # Set remaining to "Other/Miscellaneous"
+        for idx in range(10, len(df)):
+            df.at[idx, 'Category'] = 'Other/Miscellaneous'
+        
+        # Generate basic summaries
+        category_counts = df['Category'].value_counts().to_dict()
+        st.session_state.reason_summary = category_counts
+        st.session_state.product_summary = {}
+        st.session_state.severity_counts = {'none': len(df)}
+        st.session_state.quality_insights = None
+        
+        st.success(f"✅ Manual categorization complete! {len(manual_categories)} manual, {len(df)-10} auto-assigned.")
+        return df
+    
+    return df
+
+def generate_quality_insights(df: pd.DataFrame, reason_summary: dict, product_summary: dict) -> dict:
+    """Generate quality insights"""
+    
+    total_returns = len(df)
+    quality_issues = {cat: count for cat, count in reason_summary.items() 
+                     if cat in QUALITY_CATEGORIES}
+    total_quality = sum(quality_issues.values())
+    quality_rate = (total_quality / total_returns * 100) if total_returns > 0 else 0
+    
+    # Determine risk level
+    if quality_rate > 30:
+        risk_level = "HIGH"
+    elif quality_rate > 15:
+        risk_level = "MEDIUM"
+    else:
+        risk_level = "LOW"
+    
+    # Find top quality issues
+    top_quality_issues = sorted(quality_issues.items(), key=lambda x: x[1], reverse=True)[:3]
+    
+    # Generate action items
+    action_items = []
+    for category, count in top_quality_issues:
+        if count > 0:
+            severity = "HIGH" if count > total_returns * 0.1 else "MEDIUM"
+            action_items.append({
+                'severity': severity,
+                'issue': category,
+                'frequency': count,
+                'recommendation': f"Investigate root cause of {category.lower()} issues",
+                'affected_products': list(product_summary.keys())[:3]
+            })
+    
+    # Find high-risk products
+    top_risk_products = []
+    for product, issues in product_summary.items():
+        quality_issues_count = sum(count for cat, count in issues.items() if cat in QUALITY_CATEGORIES)
+        if quality_issues_count > 0:
+            total_issues = sum(issues.values())
+            primary_issue = max(issues.items(), key=lambda x: x[1])[0] if issues else "Unknown"
+            
+            top_risk_products.append({
+                'product': product,
+                'total_issues': total_issues,
+                'quality_issues': quality_issues_count,
+                'safety_issues': 0,
+                'primary_root_cause': primary_issue
+            })
+    
+    # Sort by total issues
+    top_risk_products.sort(key=lambda x: x['total_issues'], reverse=True)
+    
+    return {
+        'risk_assessment': {
+            'overall_risk_level': risk_level,
+            'quality_rate': quality_rate,
+            'safety_critical_count': 0,
+            'top_risk_products': top_risk_products[:5]
+        },
+        'root_cause_distribution': {
+            category: {
+                'count': count,
+                'products': [p for p in product_summary.keys() if category in product_summary[p]],
+                'examples': [f"Example {category.lower()} complaint"]
+            }
+            for category, count in top_quality_issues
+        },
+        'action_items': action_items
+    }
+
+def display_product_analysis(df: pd.DataFrame):
+    """Display product-specific analysis"""
+    
+    if st.session_state.product_summary:
+        st.markdown("#### 📦 Product Analysis")
+        
+        # Create product data for display
+        product_data = []
+        for product, issues in st.session_state.product_summary.items():
+            total_returns = sum(issues.values())
+            quality_issues = sum(count for cat, count in issues.items() if cat in QUALITY_CATEGORIES)
+            top_issue = max(issues.items(), key=lambda x: x[1]) if issues else ('Unknown', 0)
+            
+            product_data.append({
+                'Product': product[:50] + "..." if len(product) > 50 else product,
+                'Total Returns': total_returns,
+                'Quality Issues': quality_issues,
+                'Quality %': f"{(quality_issues/total_returns*100):.1f}%" if total_returns > 0 else "0%",
+                'Top Issue': top_issue[0],
+                'Count': top_issue[1]
+            })
+        
+        # Sort by total returns
+        product_data.sort(key=lambda x: x['Total Returns'], reverse=True)
+        
+        # Display as dataframe
+        if product_data:
+            product_df = pd.DataFrame(product_data[:20])
+            st.dataframe(product_df, use_container_width=True, hide_index=True)
+            
+            if len(st.session_state.product_summary) > 20:
+                st.caption(f"Showing top 20 of {len(st.session_state.product_summary)} products.")
+    else:
+        st.info("No product information available. Ensure your file has a 'Product Identifier Tag' column.")
+
 def display_results(df: pd.DataFrame):
-    """Display categorization results with quality insights"""
+    """Display categorization results"""
     
     st.markdown("""
     <div class="results-header">
@@ -449,10 +717,9 @@ def display_results(df: pd.DataFrame):
         unique_products = df['Product Identifier Tag'].nunique() if 'Product Identifier Tag' in df.columns else 0
         st.metric("Products", unique_products)
     
-    # Create tabs including quality insights
-    tabs = ["📈 Categories", "🔍 Quality Patterns", "📦 Products"]
+    # Create tabs
     if st.session_state.quality_insights:
-        tab_list = st.tabs(tabs)
+        tab_list = st.tabs(["📈 Categories", "🔍 Quality Insights", "📦 Products"])
     else:
         tab_list = st.tabs(["📈 Categories", "📦 Products"])
     
@@ -502,25 +769,9 @@ def display_results(df: pd.DataFrame):
                 <p style="margin: 0.5rem 0 0 0;">{other_returns/total_categorized*100:.1f}% of all returns</p>
             </div>
             """, unsafe_allow_html=True)
-            
-            # Show items needing review if many "Other/Miscellaneous"
-            other_items = df[df['Category'] == 'Other/Miscellaneous']
-            if len(other_items) > 0:
-                with st.expander(f"⚠️ Review {len(other_items)} uncategorized items"):
-                    columns_to_show = ['Complaint']
-                    if 'Product Identifier Tag' in df.columns:
-                        columns_to_show.append('Product Identifier Tag')
-                    if 'Order #' in df.columns:
-                        columns_to_show.append('Order #')
-                    
-                    st.dataframe(
-                        other_items[columns_to_show].head(20),
-                        use_container_width=True
-                    )
-                    st.caption("Showing first 20 items. Download full export to see all.")
     
-    # Quality Insights tab (if available)
-    if st.session_state.quality_insights:
+    # Quality insights tab (if available)
+    if st.session_state.quality_insights and len(tab_list) > 2:
         with tab_list[1]:
             insights = st.session_state.quality_insights
             
@@ -533,25 +784,8 @@ def display_results(df: pd.DataFrame):
                       border-radius: 10px; padding: 1.5rem; margin-bottom: 1rem;">
                 <h3 style="color: var(--{risk_color}); margin: 0;">⚠️ Quality Risk Level: {risk_level}</h3>
                 <p style="margin: 0.5rem 0;">Quality Issue Rate: {insights['risk_assessment']['quality_rate']:.1f}%</p>
-                <p style="margin: 0;">Safety Critical Issues: {insights['risk_assessment']['safety_critical_count']}</p>
             </div>
             """, unsafe_allow_html=True)
-            
-            # Root Cause Analysis
-            st.markdown("### 🔍 Root Cause Patterns Detected")
-            
-            if insights['root_cause_distribution']:
-                for root_cause, data in sorted(insights['root_cause_distribution'].items(), 
-                                             key=lambda x: x[1]['count'], reverse=True):
-                    with st.expander(f"{root_cause} - {data['count']} occurrences"):
-                        products_list = data['products']  # Already converted to list in generate_quality_insights
-                        st.markdown(f"**Affected Products:** {', '.join(products_list[:5])}")
-                        if len(products_list) > 5:
-                            st.caption(f"...and {len(products_list) - 5} more")
-                        
-                        st.markdown("**Example Complaints:**")
-                        for example in data['examples']:
-                            st.markdown(f"- {example}...")
             
             # Action Items
             if insights['action_items']:
@@ -567,7 +801,6 @@ def display_results(df: pd.DataFrame):
                             {action['severity']} Priority: {action['issue']} ({action['frequency']} cases)
                         </h4>
                         <p style="margin: 0.5rem 0;"><strong>Action:</strong> {action['recommendation']}</p>
-                        <p style="margin: 0; font-size: 0.9em;"><strong>Products:</strong> {', '.join(action['affected_products'][:3])}</p>
                     </div>
                     """, unsafe_allow_html=True)
             
@@ -575,94 +808,51 @@ def display_results(df: pd.DataFrame):
             if insights['risk_assessment']['top_risk_products']:
                 st.markdown("### 🚨 High Risk Products")
                 
-                try:
-                    risk_df = pd.DataFrame(insights['risk_assessment']['top_risk_products'])
-                    if not risk_df.empty:
-                        # Display as a formatted table
-                        display_columns = []
-                        rename_dict = {}
-                        
-                        if 'product' in risk_df.columns:
-                            display_columns.append('product')
-                            rename_dict['product'] = 'Product'
-                        if 'total_issues' in risk_df.columns:
-                            display_columns.append('total_issues')
-                            rename_dict['total_issues'] = 'Total Quality Issues'
-                        if 'safety_issues' in risk_df.columns:
-                            display_columns.append('safety_issues')
-                            rename_dict['safety_issues'] = 'Safety Critical'
-                        if 'primary_root_cause' in risk_df.columns:
-                            display_columns.append('primary_root_cause')
-                            rename_dict['primary_root_cause'] = 'Primary Root Cause'
-                        
-                        if display_columns:
-                            st.dataframe(
-                                risk_df[display_columns].rename(columns=rename_dict),
-                                use_container_width=True,
-                                hide_index=True
-                            )
-                except Exception as e:
-                    logger.error(f"Error displaying risk products: {e}")
-                    st.warning("Unable to display risk products table")
-        
-        # Products tab
-        with tab_list[2]:
-            display_product_analysis(df)
-    else:
-        # Products tab (when no quality insights)
-        with tab_list[1]:
-            display_product_analysis(df)
+                risk_data = []
+                for prod in insights['risk_assessment']['top_risk_products'][:10]:
+                    risk_data.append({
+                        'Product': prod['product'][:50] + "..." if len(prod['product']) > 50 else prod['product'],
+                        'Total Issues': prod['total_issues'],
+                        'Quality Issues': prod['quality_issues'],
+                        'Primary Issue': prod['primary_root_cause']
+                    })
+                
+                if risk_data:
+                    risk_df = pd.DataFrame(risk_data)
+                    st.dataframe(risk_df, use_container_width=True, hide_index=True)
     
-    # Show items needing review if many "Other/Miscellaneous"
+    # Products tab
+    products_tab_index = 2 if len(tab_list) > 2 else 1
+    with tab_list[products_tab_index]:
+        display_product_analysis(df)
+    
+    # Show uncategorized items
     other_items = df[df['Category'] == 'Other/Miscellaneous']
     if len(other_items) > 0:
-        with st.expander(f"⚠️ Review {len(other_items)} uncategorized items"):
-            columns_to_show = ['Complaint']
+        st.markdown("---")
+        st.markdown(f"### ⚠️ Review {len(other_items)} Uncategorized Items")
+        
+        with st.expander("View uncategorized complaints"):
+            available_columns = ['Complaint']
             if 'Product Identifier Tag' in df.columns:
-                columns_to_show.append('Product Identifier Tag')
+                available_columns.append('Product Identifier Tag')
             if 'Order #' in df.columns:
-                columns_to_show.append('Order #')
+                available_columns.append('Order #')
             
             st.dataframe(
-                other_items[columns_to_show].head(20),
+                other_items[available_columns].head(20),
                 use_container_width=True
             )
             st.caption("Showing first 20 items. Download full export to see all.")
-    
-    # Show items needing review if many "Other/Miscellaneous"
-    other_items = df[df['Category'] == 'Other/Miscellaneous']
-    if len(other_items) > 0:
-        with st.expander(f"⚠️ Review {len(other_items)} uncategorized items"):
-            st.dataframe(
-                other_items[['Complaint', 'Product Identifier Tag', 'Order #']].head(20),
-                use_container_width=True
-            )
-                        # Show export info
-            st.info(f"""
-            **📋 Enhanced Export Contents:**
-            - ✅ All original columns with Category in column K
-            - ✅ Summary sheet with category breakdown
-            - 🆕 **Root Cause Analysis** sheet (quality patterns identified)
-            - 🆕 **Quality Actions** sheet (prioritized recommendations)
-            - 🆕 **High Risk Products** sheet (products needing immediate attention)
-            - ✅ Quality categories highlighted in red for easy identification
-            
-            **🔍 New Quality Insights Include:**
-            - Pattern recognition (material vs component vs design issues)
-            - Safety-critical issue flagging
-            - Actionable recommendations by root cause
-            - Risk assessment by product
-            """)
 
 def export_data(df: pd.DataFrame) -> bytes:
-    """Export data maintaining original format with Category in column K"""
+    """Export data with quality insights"""
     
     output = io.BytesIO()
     
     if EXCEL_AVAILABLE:
-        # Create Excel file
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            # Write main data - preserving original column order
+            # Write main data
             df.to_excel(writer, sheet_name='Categorized Returns', index=False)
             
             # Add summary sheet
@@ -683,26 +873,11 @@ def export_data(df: pd.DataFrame) -> bytes:
                 summary_df = pd.DataFrame(summary_data)
                 summary_df.to_excel(writer, sheet_name='Summary', index=False)
             
-            # Add quality insights sheet if available
+            # Add quality insights if available
             if st.session_state.quality_insights:
                 insights = st.session_state.quality_insights
                 
-                # Root Cause Analysis
-                if insights['root_cause_distribution']:
-                    root_cause_data = []
-                    for root_cause, data in sorted(insights['root_cause_distribution'].items(), 
-                                                 key=lambda x: x[1]['count'], reverse=True):
-                        root_cause_data.append({
-                            'Root Cause': root_cause,
-                            'Occurrences': data['count'],
-                            'Affected Products': ', '.join(data['products'][:5]),  # Already a list
-                            'Example': data['examples'][0] if data['examples'] else ''
-                        })
-                    
-                    root_cause_df = pd.DataFrame(root_cause_data)
-                    root_cause_df.to_excel(writer, sheet_name='Root Cause Analysis', index=False)
-                
-                # Action Items
+                # Action items
                 if insights['action_items']:
                     action_data = []
                     for action in insights['action_items']:
@@ -710,44 +885,33 @@ def export_data(df: pd.DataFrame) -> bytes:
                             'Priority': action['severity'],
                             'Issue': action['issue'],
                             'Frequency': action['frequency'],
-                            'Recommendation': action['recommendation'],
-                            'Affected Products': ', '.join(action['affected_products'][:3])
+                            'Recommendation': action['recommendation']
                         })
                     
                     action_df = pd.DataFrame(action_data)
                     action_df.to_excel(writer, sheet_name='Quality Actions', index=False)
-                
-                # High Risk Products
-                if insights['risk_assessment']['top_risk_products']:
-                    risk_df = pd.DataFrame(insights['risk_assessment']['top_risk_products'])
-                    risk_df = risk_df[['product', 'total_issues', 'safety_issues', 'primary_root_cause']]
-                    risk_df.columns = ['Product', 'Total Quality Issues', 'Safety Critical', 'Primary Root Cause']
-                    risk_df.to_excel(writer, sheet_name='High Risk Products', index=False)
             
             # Format workbook
             workbook = writer.book
-            
-            # Auto-adjust columns on main sheet
             worksheet = writer.sheets['Categorized Returns']
+            
+            # Auto-adjust columns
             for i, col in enumerate(df.columns):
                 max_len = max(
                     len(str(col)) + 2,
-                    df[col].astype(str).str.len().max() + 2
+                    df[col].astype(str).str.len().max() + 2 if len(df) > 0 else 10
                 )
-                max_len = min(max_len, 50)  # Cap at 50 characters
+                max_len = min(max_len, 50)
                 worksheet.set_column(i, i, max_len)
             
-            # Add conditional formatting for quality categories
+            # Highlight quality categories
             if 'Category' in df.columns:
                 cat_col_idx = df.columns.get_loc('Category')
-                
-                # Create format for quality issues
                 quality_format = workbook.add_format({
                     'bg_color': '#FFE6E6',
                     'font_color': '#CC0000'
                 })
                 
-                # Apply to quality categories
                 for quality_cat in QUALITY_CATEGORIES:
                     worksheet.conditional_format(1, cat_col_idx, len(df), cat_col_idx, {
                         'type': 'cell',
@@ -763,7 +927,7 @@ def export_data(df: pd.DataFrame) -> bytes:
     return output.getvalue()
 
 def generate_quality_report(df: pd.DataFrame) -> str:
-    """Generate enhanced quality analysis report with pattern insights"""
+    """Generate quality analysis report"""
     
     total_returns = len(df)
     quality_issues = {cat: count for cat, count in st.session_state.reason_summary.items() 
@@ -778,10 +942,9 @@ EXECUTIVE SUMMARY
 ================
 Total Returns Analyzed: {total_returns}
 Quality-Related Returns: {total_quality} ({quality_pct:.1f}%)
-Critical Issues: {st.session_state.severity_counts.get('critical', 0)}
+AI Processing: {'Success' if not st.session_state.ai_failed else 'Failed (Manual mode used)'}
 """
     
-    # Add quality insights if available
     if st.session_state.quality_insights:
         insights = st.session_state.quality_insights
         report += f"""
@@ -789,18 +952,7 @@ QUALITY RISK ASSESSMENT
 ======================
 Overall Risk Level: {insights['risk_assessment']['overall_risk_level']}
 Quality Issue Rate: {insights['risk_assessment']['quality_rate']:.1f}%
-Safety Critical Issues: {insights['risk_assessment']['safety_critical_count']}
-
-ROOT CAUSE ANALYSIS
-==================
 """
-        for root_cause, data in sorted(insights['root_cause_distribution'].items(), 
-                                     key=lambda x: x[1]['count'], reverse=True):
-            report += f"\n{root_cause}: {data['count']} occurrences"
-            report += f"\n  Affected Products: {', '.join(data['products'][:3])}"  # Already a list
-            if len(data['products']) > 3:
-                report += f" (+{len(data['products']) - 3} more)"
-            report += "\n"
         
         if insights['action_items']:
             report += """
@@ -809,19 +961,7 @@ RECOMMENDED ACTIONS (PRIORITIZED)
 """
             for i, action in enumerate(insights['action_items'], 1):
                 report += f"\n{i}. [{action['severity']}] {action['issue']} ({action['frequency']} cases)"
-                report += f"\n   Action: {action['recommendation']}"
-                report += f"\n   Products: {', '.join(action['affected_products'][:3])}\n"
-        
-        if insights['risk_assessment']['top_risk_products']:
-            report += """
-HIGH RISK PRODUCTS
-==================
-"""
-            for prod in insights['risk_assessment']['top_risk_products'][:5]:
-                report += f"\n{prod['product']}"
-                report += f"\n  Total Issues: {prod['total_issues']}"
-                report += f"\n  Safety Issues: {prod['safety_issues']}"
-                report += f"\n  Primary Cause: {prod['primary_root_cause']}\n"
+                report += f"\n   Action: {action['recommendation']}\n"
     
     report += f"""
 RETURN CATEGORIES
@@ -834,60 +974,20 @@ RETURN CATEGORIES
         quality_flag = " [QUALITY]" if cat in QUALITY_CATEGORIES else ""
         report += f"{cat}{quality_flag}: {count} ({pct:.1f}%)\n"
     
-    # Top products section
-    if st.session_state.product_summary:
-        report += f"""
-TOP PRODUCTS BY RETURN VOLUME
-=============================
-"""
-        product_totals = [(prod, sum(cats.values())) 
-                         for prod, cats in st.session_state.product_summary.items()]
-        
-        for product, total in sorted(product_totals, key=lambda x: x[1], reverse=True)[:10]:
-            top_issue = max(st.session_state.product_summary[product].items(), 
-                          key=lambda x: x[1])
-            report += f"\n{product}"
-            report += f"\n  Total Returns: {total}"
-            report += f"\n  Top Issue: {top_issue[0]} ({top_issue[1]} returns)\n"
-    
     report += f"""
 RECOMMENDATIONS
 ==============
-1. Focus quality improvements on identified root causes
-2. Prioritize HIGH severity action items immediately  
-3. Review high-risk products for potential design changes
-4. Implement incoming inspection for components with high failure rates
-5. Consider MDR (Medical Device Reporting) for safety-critical issues
-6. Track improvement metrics after implementing corrective actions
-
-QUALITY IMPROVEMENT FOCUS AREAS
-==============================
-Based on pattern analysis, prioritize:
+1. Focus quality improvements on top return categories
+2. Address high-priority action items immediately  
+3. Review products with highest return rates
+4. Implement corrective actions for recurring quality issues
+5. Monitor improvement metrics after implementing changes
 """
-    
-    if st.session_state.quality_insights:
-        # Add top 3 root causes as focus areas
-        for root_cause, data in list(sorted(
-            insights['root_cause_distribution'].items(), 
-            key=lambda x: x[1]['count'], 
-            reverse=True
-        ))[:3]:
-            report += f"- {root_cause}: Address in {len(data['products'])} products\n"
-    else:
-        report += "- Run analysis to identify quality patterns\n"
     
     return report
 
 def main():
     """Main application function"""
-    
-    if not AI_AVAILABLE:
-        st.error("""
-        ❌ **AI module not found!** 
-        
-        Please ensure `enhanced_ai_analysis.py` is in the same directory as this app.
-        """)
-        st.stop()
     
     initialize_session_state()
     inject_custom_css()
@@ -900,10 +1000,14 @@ def main():
             AI-Powered Medical Device Quality Management Tool
         </p>
         <p style="font-size: 1em; color: var(--accent);">
-            🆕 Now with Quality Pattern Recognition & Root Cause Analysis
+            🤖 Dual AI Support: OpenAI + Claude from Streamlit Secrets
         </p>
     </div>
     """, unsafe_allow_html=True)
+    
+    # Check AI status first
+    if not display_ai_status():
+        st.stop()
     
     # Sidebar for settings
     with st.sidebar:
@@ -915,85 +1019,60 @@ def main():
         st.session_state.date_filter_enabled = enable_date_filter
         
         if enable_date_filter:
-            col1, col2 = st.columns(2)
-            with col1:
-                start_date = st.date_input("Start date", 
-                                          value=datetime.now() - timedelta(days=30))
-                st.session_state.date_range_start = start_date
-            with col2:
-                end_date = st.date_input("End date", 
-                                        value=datetime.now())
-                st.session_state.date_range_end = end_date
+            start_date = st.date_input("Start date", 
+                                      value=datetime.now() - timedelta(days=30))
+            st.session_state.date_range_start = start_date
+            
+            end_date = st.date_input("End date", 
+                                    value=datetime.now())
+            st.session_state.date_range_end = end_date
         
-        # API Status
-        if AI_AVAILABLE:
-            st.markdown("---")
-            st.markdown("#### 🤖 AI Status")
-            analyzer = get_ai_analyzer()
-            if analyzer:
-                status = analyzer.get_api_status()
-                if status['available']:
-                    st.success("✅ AI Ready")
-                    st.caption("Using GPT-4 (AI-first categorization)")
-                else:
-                    st.error("❌ API key not configured")
-                    st.info("""
-                    To use AI categorization:
-                    1. Get an OpenAI API key
-                    2. Add to Streamlit secrets:
-                       - Key: `openai_api_key`
-                       - Value: Your API key
-                    """)
-        else:
-            st.error("❌ AI module missing")
+        # AI Status summary
+        st.markdown("---")
+        st.markdown("#### 🤖 Current Status")
+        
+        keys = check_api_keys()
+        if 'openai' in keys:
+            st.success("✅ OpenAI Ready")
+        if 'claude' in keys:
+            st.success("✅ Claude Ready")
+        
+        st.info(f"Provider: {st.session_state.ai_provider.title()}")
     
     # Main content
-    # Show required format
     with st.expander("📋 Required File Format & Instructions", expanded=False):
         display_required_format()
         
-        st.markdown("### 🤖 AI-First Categorization:")
+        st.markdown("### 🤖 AI-Powered Categorization:")
         st.info("""
-        This tool uses OpenAI GPT-4 to analyze each return complaint and categorize it accurately.
-        The AI considers:
-        - The full context of the complaint
+        This tool uses advanced AI (OpenAI GPT-4 and/or Claude) to analyze each return complaint:
+        - Understands context and nuance
         - Medical device specific terminology
-        - Complex multi-issue returns
-        - Nuanced language and implications
+        - Handles complex multi-issue returns
+        - Dual AI consensus for maximum accuracy
         """)
         
-        st.markdown("### 🔍 NEW: Quality Pattern Recognition")
+        st.markdown("### 🔍 Quality Insights:")
         st.success("""
-        **Automatic Root Cause Analysis** identifies:
-        - Material failures (velcro, straps, fabric)
-        - Component failures (pumps, valves, motors)
-        - Design flaws vs manufacturing defects
-        - Safety-critical issues requiring immediate attention
-        - Specific failure patterns by product
-        
-        Get **actionable quality insights** with prioritized recommendations!
+        **Automatic Quality Analysis:**
+        - Risk assessment by category and product
+        - Prioritized action recommendations  
+        - Product-specific quality metrics
+        - Export with quality highlighting
         """)
-        
-        st.markdown("### 📊 Supported File Types:")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.info("✅ Excel (.xlsx, .xls)")
-        with col2:
-            st.info("✅ CSV (.csv)")
     
     # File upload section
     st.markdown("---")
     st.markdown("### 📁 Upload Files")
     
-    # Date filter info
     if st.session_state.date_filter_enabled:
-        st.info(f"📅 Date filter active: {st.session_state.date_range_start} to {st.session_state.date_range_end}")
+        st.info(f"📅 Date filter: {st.session_state.date_range_start} to {st.session_state.date_range_end}")
     
     uploaded_files = st.file_uploader(
         "Choose file(s) to categorize",
         type=['xlsx', 'xls', 'csv'],
         accept_multiple_files=True,
-        help="Upload your complaints file(s) - must have a 'Complaint' column"
+        help="Upload files with a 'Complaint' column"
     )
     
     if uploaded_files:
@@ -1038,23 +1117,45 @@ def main():
                     use_container_width=True
                 ):
                     start_time = time.time()
+                    st.session_state.ai_failed = False
+                    st.session_state.manual_mode = False
                     
-                    # Check AI status first
-                    analyzer = get_ai_analyzer()
-                    if not analyzer or not analyzer.get_api_status()['available']:
-                        st.error("❌ AI not available. Please configure your OpenAI API key.")
-                        st.stop()
+                    st.info(f"🤖 Using {st.session_state.ai_provider.upper()} AI for categorization...")
                     
-                    st.info("🤖 Using GPT-4 AI for accurate medical device return categorization...")
-                    
-                    with st.spinner(f"🤖 AI Processing {len(combined_df)} returns..."):
-                        categorized_df = categorize_all_data(combined_df)
-                        st.session_state.categorized_data = categorized_df
-                        st.session_state.processing_complete = True
-                    
-                    # Show completion time
-                    elapsed_time = time.time() - start_time
-                    st.success(f"✅ AI categorization complete in {elapsed_time:.1f} seconds!")
+                    try:
+                        with st.spinner(f"🤖 AI Processing {len(combined_df)} returns..."):
+                            categorized_df = categorize_all_data_ai(combined_df)
+                            st.session_state.categorized_data = categorized_df
+                            st.session_state.processing_complete = True
+                        
+                        # Show completion time
+                        elapsed_time = time.time() - start_time
+                        st.success(f"✅ AI categorization complete in {elapsed_time:.1f} seconds!")
+                        
+                    except Exception as e:
+                        st.error(f"❌ AI categorization failed: {str(e)}")
+                        st.session_state.ai_failed = True
+                        
+                        # Offer manual categorization
+                        st.markdown("""
+                        <div class="manual-override">
+                            <h3 style="color: var(--accent); margin-top: 0;">🔧 Manual Override Available</h3>
+                            <p>AI categorization failed. Would you like to categorize manually?</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        if st.button("🔧 Switch to Manual Categorization", type="secondary"):
+                            st.session_state.manual_mode = True
+                            st.rerun()
+            
+            # Manual categorization if AI failed and user chose manual mode
+            if st.session_state.ai_failed and st.session_state.manual_mode:
+                try:
+                    categorized_df = categorize_manually(combined_df)
+                    st.session_state.categorized_data = categorized_df
+                    st.session_state.processing_complete = True
+                except Exception as e:
+                    st.error(f"Manual categorization failed: {str(e)}")
             
             # Show results
             if st.session_state.processing_complete and st.session_state.categorized_data is not None:
@@ -1063,18 +1164,19 @@ def main():
                 
                 # Export section
                 st.markdown("---")
-                st.markdown("""
+                completion_msg = "✅ AI ANALYSIS COMPLETE!" if not st.session_state.ai_failed else "✅ MANUAL CATEGORIZATION COMPLETE!"
+                
+                st.markdown(f"""
                 <div style="background: rgba(0, 245, 160, 0.1); border: 2px solid var(--success); 
                           border-radius: 15px; padding: 2rem; text-align: center;">
-                    <h3 style="color: var(--success);">✅ ANALYSIS COMPLETE!</h3>
-                    <p>Your data has been categorized and is ready for export.</p>
+                    <h3 style="color: var(--success);">{completion_msg}</h3>
+                    <p>Your data has been categorized and analyzed for quality insights.</p>
                 </div>
                 """, unsafe_allow_html=True)
                 
                 # Export options
                 col1, col2, col3 = st.columns(3)
                 
-                # Generate exports
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 
                 with col1:
@@ -1086,7 +1188,7 @@ def main():
                         file_name=f"categorized_returns_{timestamp}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True,
-                        help="Excel file with Category in column K"
+                        help="Complete analysis with quality insights"
                     )
                 
                 with col2:
@@ -1110,24 +1212,24 @@ def main():
                         file_name=f"quality_analysis_{timestamp}.txt",
                         mime="text/plain",
                         use_container_width=True,
-                        help="Comprehensive quality report with severity analysis"
+                        help="Detailed quality analysis with recommendations"
                     )
                 
                 # Show export info
-                st.info(f"""
-                **📋 Enhanced Export Contents:**
-                - ✅ All original columns with Category in column K
-                - ✅ Summary sheet with category breakdown
-                - 🆕 **Root Cause Analysis** sheet (quality patterns identified)
-                - 🆕 **Quality Actions** sheet (prioritized recommendations)  
-                - 🆕 **High Risk Products** sheet (products needing immediate attention)
-                - ✅ Quality categories highlighted in red for easy identification
+                method_used = "AI-powered" if not st.session_state.ai_failed else "Manual"
                 
-                **🔍 New Quality Insights Include:**
-                - Pattern recognition (material vs component vs design issues)
-                - Safety-critical issue flagging
-                - Actionable recommendations by root cause
-                - Risk assessment by product
+                st.info(f"""
+                **📋 Export Contents ({method_used} categorization):**
+                - ✅ Original data with categorization
+                - ✅ Category summary with quality flagging
+                - ✅ Quality insights and action items
+                - ✅ Product-specific analysis
+                - ✅ Quality categories highlighted in Excel
+                
+                **🤖 Processing Details:**
+                - Method: {method_used}
+                - Provider: {st.session_state.ai_provider.upper() if not st.session_state.ai_failed else 'Manual'}
+                - Quality analysis: {'Enabled' if st.session_state.quality_insights else 'Basic'}
                 """)
 
 if __name__ == "__main__":
