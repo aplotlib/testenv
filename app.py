@@ -39,7 +39,8 @@ st.set_page_config(
 try:
     from enhanced_ai_analysis import (
         EnhancedAIAnalyzer, AIProvider,
-        MEDICAL_DEVICE_CATEGORIES, FBA_REASON_MAP
+        MEDICAL_DEVICE_CATEGORIES, FBA_REASON_MAP,
+        generate_quality_insights
     )
     AI_AVAILABLE = True
     api_error_message = None
@@ -157,11 +158,56 @@ def inject_custom_css():
         margin: 2rem 0;
     }}
     
+    .quality-action {{
+        background: rgba(255, 107, 53, 0.1);
+        border-left: 4px solid var(--warning);
+        padding: 1rem;
+        margin: 0.5rem 0;
+        border-radius: 5px;
+        transition: all 0.3s ease;
+    }}
+    
+    .quality-action:hover {{
+        transform: translateX(5px);
+        box-shadow: 0 4px 15px rgba(255, 107, 53, 0.3);
+    }}
+    
+    .risk-assessment {{
+        background: rgba(255, 0, 84, 0.1);
+        border: 2px solid var(--danger);
+        border-radius: 10px;
+        padding: 1.5rem;
+        margin-bottom: 1rem;
+    }}
+    
+    .pattern-box {{
+        background: rgba(0, 217, 255, 0.05);
+        border: 1px solid var(--primary);
+        border-radius: 8px;
+        padding: 1rem;
+        margin: 0.5rem 0;
+    }}
+    
     .stMetric {{
         background: rgba(26, 26, 46, 0.6);
         padding: 1rem;
         border-radius: 10px;
         border: 1px solid rgba(0, 217, 255, 0.3);
+    }}
+    
+    .stTabs [data-baseweb="tab-list"] {{
+        background-color: rgba(26, 26, 46, 0.6);
+        border-radius: 10px;
+    }}
+    
+    .stTabs [data-baseweb="tab"] {{
+        color: var(--text);
+        font-weight: 600;
+    }}
+    
+    .stTabs [aria-selected="true"] {{
+        background-color: var(--primary) !important;
+        color: var(--dark) !important;
     }}
     
     #MainMenu, footer, header {{
@@ -183,7 +229,8 @@ def initialize_session_state():
         'date_filter_enabled': False,
         'date_range_start': None,
         'date_range_end': None,
-        'severity_counts': {'critical': 0, 'major': 0, 'minor': 0}
+        'severity_counts': {'critical': 0, 'major': 0, 'minor': 0},
+        'quality_insights': None  # New: Store quality pattern insights
     }
     
     for key, value in defaults.items():
@@ -335,15 +382,42 @@ def categorize_all_data(df: pd.DataFrame) -> pd.DataFrame:
     success_rate = (successful_categorizations / total_rows * 100) if total_rows > 0 else 0
     status_text.text(f"✅ Complete! AI categorized {successful_categorizations}/{total_rows} returns ({success_rate:.1f}% specific categories)")
     
+    # Show warning if many defaults
+    other_count = category_counts.get('Other/Miscellaneous', 0)
+    if other_count > total_rows * 0.2:  # More than 20% uncategorized
+        st.warning(f"""
+        ⚠️ {other_count} returns ({other_count/total_rows*100:.1f}%) were categorized as 'Other/Miscellaneous'.
+        
+        This might indicate:
+        - Very ambiguous complaint text
+        - Non-standard return reasons
+        - API issues (check logs)
+        
+        Consider reviewing these manually.
+        """)
+    
     # Store summaries
     st.session_state.reason_summary = dict(category_counts)
     st.session_state.product_summary = dict(product_issues)
     st.session_state.severity_counts = dict(severity_counts)
     
+    # Generate quality insights
+    if AI_AVAILABLE and 'generate_quality_insights' in globals():
+        try:
+            st.session_state.quality_insights = generate_quality_insights(
+                df, 
+                st.session_state.reason_summary,
+                st.session_state.product_summary
+            )
+            logger.info("Generated quality insights")
+        except Exception as e:
+            logger.error(f"Error generating quality insights: {e}")
+            st.session_state.quality_insights = None
+    
     return df
 
 def display_results(df: pd.DataFrame):
-    """Display categorization results"""
+    """Display categorization results with quality insights"""
     
     st.markdown("""
     <div class="results-header">
@@ -375,57 +449,192 @@ def display_results(df: pd.DataFrame):
         unique_products = df['Product Identifier Tag'].nunique() if 'Product Identifier Tag' in df.columns else 0
         st.metric("Products", unique_products)
     
-    # Category distribution
-    st.markdown("### 📈 Return Categories")
+    # Create tabs including quality insights
+    tabs = ["📈 Categories", "🔍 Quality Patterns", "📦 Products"]
+    if st.session_state.quality_insights:
+        tab_list = st.tabs(tabs)
+    else:
+        tab_list = st.tabs(["📈 Categories", "📦 Products"])
     
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        sorted_reasons = sorted(st.session_state.reason_summary.items(), 
-                              key=lambda x: x[1], reverse=True)
+    # Category distribution tab
+    with tab_list[0]:
+        col1, col2 = st.columns(2)
         
-        for reason, count in sorted_reasons[:10]:
-            percentage = (count / total_categorized) * 100 if total_categorized > 0 else 0
+        with col1:
+            st.markdown("#### Top Return Categories")
+            sorted_reasons = sorted(st.session_state.reason_summary.items(), 
+                                  key=lambda x: x[1], reverse=True)
             
-            # Color coding
-            if reason in QUALITY_CATEGORIES:
-                color = COLORS['danger']
-                icon = "🔴"
-            else:
-                color = COLORS['primary']
-                icon = "🔵"
+            for reason, count in sorted_reasons[:10]:
+                percentage = (count / total_categorized) * 100 if total_categorized > 0 else 0
+                
+                # Color coding
+                if reason in QUALITY_CATEGORIES:
+                    color = COLORS['danger']
+                    icon = "🔴"
+                else:
+                    color = COLORS['primary']
+                    icon = "🔵"
+                
+                st.markdown(f"""
+                <div style="margin: 0.5rem 0;">
+                    <div style="display: flex; justify-content: space-between;">
+                        <span>{icon} {reason}</span>
+                        <span>{count} ({percentage:.1f}%)</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        with col2:
+            # Quality vs Non-Quality breakdown
+            st.markdown("#### Quality vs Other Returns")
+            quality_returns = sum(count for cat, count in st.session_state.reason_summary.items() 
+                                if cat in QUALITY_CATEGORIES)
+            other_returns = total_categorized - quality_returns
             
             st.markdown(f"""
-            <div style="margin: 0.5rem 0;">
-                <div style="display: flex; justify-content: space-between;">
-                    <span>{icon} {reason}</span>
-                    <span>{count} ({percentage:.1f}%)</span>
+            <div style="background: rgba(255,0,84,0.1); padding: 1rem; border-radius: 10px; margin: 0.5rem 0;">
+                <h4 style="color: var(--danger); margin: 0;">Quality Issues: {quality_returns}</h4>
+                <p style="margin: 0.5rem 0 0 0;">{quality_returns/total_categorized*100:.1f}% of all returns</p>
+            </div>
+            <div style="background: rgba(0,217,255,0.1); padding: 1rem; border-radius: 10px; margin: 0.5rem 0;">
+                <h4 style="color: var(--primary); margin: 0;">Other Returns: {other_returns}</h4>
+                <p style="margin: 0.5rem 0 0 0;">{other_returns/total_categorized*100:.1f}% of all returns</p>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    # Quality Insights tab (if available)
+    if st.session_state.quality_insights:
+        with tab_list[1]:
+            insights = st.session_state.quality_insights
+            
+            # Risk Assessment
+            risk_level = insights['risk_assessment']['overall_risk_level']
+            risk_color = {'HIGH': 'danger', 'MEDIUM': 'warning', 'LOW': 'success'}[risk_level]
+            
+            st.markdown(f"""
+            <div style="background: rgba(255,0,84,0.1); border: 2px solid var(--{risk_color}); 
+                      border-radius: 10px; padding: 1.5rem; margin-bottom: 1rem;">
+                <h3 style="color: var(--{risk_color}); margin: 0;">⚠️ Quality Risk Level: {risk_level}</h3>
+                <p style="margin: 0.5rem 0;">Quality Issue Rate: {insights['risk_assessment']['quality_rate']:.1f}%</p>
+                <p style="margin: 0;">Safety Critical Issues: {insights['risk_assessment']['safety_critical_count']}</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Root Cause Analysis
+            st.markdown("### 🔍 Root Cause Patterns Detected")
+            
+            if insights['root_cause_distribution']:
+                for root_cause, data in sorted(insights['root_cause_distribution'].items(), 
+                                             key=lambda x: x[1]['count'], reverse=True):
+                    with st.expander(f"{root_cause} - {data['count']} occurrences"):
+                        products_list = data['products']  # Already converted to list in generate_quality_insights
+                        st.markdown(f"**Affected Products:** {', '.join(products_list[:5])}")
+                        if len(products_list) > 5:
+                            st.caption(f"...and {len(products_list) - 5} more")
+                        
+                        st.markdown("**Example Complaints:**")
+                        for example in data['examples']:
+                            st.markdown(f"- {example}...")
+            
+            # Action Items
+            if insights['action_items']:
+                st.markdown("### 🎯 Recommended Quality Actions")
+                
+                for action in insights['action_items']:
+                    severity_color = 'danger' if action['severity'] == 'HIGH' else 'warning'
+                    
+                    st.markdown(f"""
+                    <div style="background: rgba(255,107,53,0.1); border-left: 4px solid var(--{severity_color}); 
+                              padding: 1rem; margin: 0.5rem 0; border-radius: 5px;">
+                        <h4 style="color: var(--{severity_color}); margin: 0;">
+                            {action['severity']} Priority: {action['issue']} ({action['frequency']} cases)
+                        </h4>
+                        <p style="margin: 0.5rem 0;"><strong>Action:</strong> {action['recommendation']}</p>
+                        <p style="margin: 0; font-size: 0.9em;"><strong>Products:</strong> {', '.join(action['affected_products'][:3])}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            # High Risk Products
+            if insights['risk_assessment']['top_risk_products']:
+                st.markdown("### 🚨 High Risk Products")
+                
+                risk_df = pd.DataFrame(insights['risk_assessment']['top_risk_products'])
+                if not risk_df.empty:
+                    # Display as a formatted table
+                    st.dataframe(
+                        risk_df[['product', 'total_issues', 'safety_issues', 'primary_root_cause']].rename(columns={
+                            'product': 'Product',
+                            'total_issues': 'Total Quality Issues',
+                            'safety_issues': 'Safety Critical',
+                            'primary_root_cause': 'Primary Root Cause'
+                        }),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+        
+        # Products tab
+        with tab_list[2]:
+            display_product_analysis()
+    else:
+        # Products tab (when no quality insights)
+        with tab_list[1]:
+            display_product_analysis()
+
+def display_product_analysis():
+    """Display product-specific analysis"""
+    if st.session_state.product_summary:
+        st.markdown("#### Top Products by Returns")
+        
+        product_totals = [(prod, sum(cats.values())) 
+                        for prod, cats in st.session_state.product_summary.items()]
+        
+        for product, total in sorted(product_totals, key=lambda x: x[1], reverse=True)[:10]:
+            # Get top issue for this product
+            issues = st.session_state.product_summary[product]
+            top_issue = max(issues.items(), key=lambda x: x[1]) if issues else ('Unknown', 0)
+            
+            # Check if quality insights exist for this product
+            quality_info = ""
+            if st.session_state.quality_insights and product in st.session_state.quality_insights['product_specific_issues']:
+                prod_insights = st.session_state.quality_insights['product_specific_issues'][product]
+                if prod_insights['safety_critical'] > 0:
+                    quality_info = f" | ⚠️ {prod_insights['safety_critical']} safety issues"
+            
+            st.markdown(f"""
+            <div style="background: rgba(26,26,46,0.5); padding: 0.5rem; margin: 0.5rem 0; 
+                      border-radius: 8px; border-left: 3px solid var(--accent);">
+                <strong>{product[:50]}</strong>
+                <div style="font-size: 0.9em; color: var(--muted);">
+                    Returns: {total} | Top Issue: {top_issue[0]}{quality_info}
                 </div>
             </div>
             """, unsafe_allow_html=True)
     
-    with col2:
-        # Top products with issues
-        if st.session_state.product_summary:
-            st.markdown("#### Top Products by Returns")
-            
-            product_totals = [(prod, sum(cats.values())) 
-                            for prod, cats in st.session_state.product_summary.items()]
-            
-            for product, total in sorted(product_totals, key=lambda x: x[1], reverse=True)[:10]:
-                # Get top issue for this product
-                issues = st.session_state.product_summary[product]
-                top_issue = max(issues.items(), key=lambda x: x[1]) if issues else ('Unknown', 0)
+    # Show items needing review if many "Other/Miscellaneous"
+    other_items = df[df['Category'] == 'Other/Miscellaneous']
+    if len(other_items) > 0:
+        with st.expander(f"⚠️ Review {len(other_items)} uncategorized items"):
+            st.dataframe(
+                other_items[['Complaint', 'Product Identifier Tag', 'Order #']].head(20),
+                use_container_width=True
+            )
+                            # Show export info
+                st.info(f"""
+                **📋 Enhanced Export Contents:**
+                - ✅ All original columns with Category in column K
+                - ✅ Summary sheet with category breakdown
+                - 🆕 **Root Cause Analysis** sheet (quality patterns identified)
+                - 🆕 **Quality Actions** sheet (prioritized recommendations)
+                - 🆕 **High Risk Products** sheet (products needing immediate attention)
+                - ✅ Quality categories highlighted in red for easy identification
                 
-                st.markdown(f"""
-                <div style="background: rgba(26,26,46,0.5); padding: 0.5rem; margin: 0.5rem 0; 
-                          border-radius: 8px; border-left: 3px solid var(--accent);">
-                    <strong>{product[:50]}</strong>
-                    <div style="font-size: 0.9em; color: var(--muted);">
-                        Returns: {total} | Top Issue: {top_issue[0]}
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+                **🔍 New Quality Insights Include:**
+                - Pattern recognition (material vs component vs design issues)
+                - Safety-critical issue flagging
+                - Actionable recommendations by root cause
+                - Risk assessment by product
+                """)
 
 def export_data(df: pd.DataFrame) -> bytes:
     """Export data maintaining original format with Category in column K"""
@@ -456,6 +665,47 @@ def export_data(df: pd.DataFrame) -> bytes:
                 summary_df = pd.DataFrame(summary_data)
                 summary_df.to_excel(writer, sheet_name='Summary', index=False)
             
+            # Add quality insights sheet if available
+            if st.session_state.quality_insights:
+                insights = st.session_state.quality_insights
+                
+                # Root Cause Analysis
+                if insights['root_cause_distribution']:
+                    root_cause_data = []
+                    for root_cause, data in sorted(insights['root_cause_distribution'].items(), 
+                                                 key=lambda x: x[1]['count'], reverse=True):
+                        root_cause_data.append({
+                            'Root Cause': root_cause,
+                            'Occurrences': data['count'],
+                            'Affected Products': ', '.join(data['products'][:5]),  # Already a list
+                            'Example': data['examples'][0] if data['examples'] else ''
+                        })
+                    
+                    root_cause_df = pd.DataFrame(root_cause_data)
+                    root_cause_df.to_excel(writer, sheet_name='Root Cause Analysis', index=False)
+                
+                # Action Items
+                if insights['action_items']:
+                    action_data = []
+                    for action in insights['action_items']:
+                        action_data.append({
+                            'Priority': action['severity'],
+                            'Issue': action['issue'],
+                            'Frequency': action['frequency'],
+                            'Recommendation': action['recommendation'],
+                            'Affected Products': ', '.join(action['affected_products'][:3])
+                        })
+                    
+                    action_df = pd.DataFrame(action_data)
+                    action_df.to_excel(writer, sheet_name='Quality Actions', index=False)
+                
+                # High Risk Products
+                if insights['risk_assessment']['top_risk_products']:
+                    risk_df = pd.DataFrame(insights['risk_assessment']['top_risk_products'])
+                    risk_df = risk_df[['product', 'total_issues', 'safety_issues', 'primary_root_cause']]
+                    risk_df.columns = ['Product', 'Total Quality Issues', 'Safety Critical', 'Primary Root Cause']
+                    risk_df.to_excel(writer, sheet_name='High Risk Products', index=False)
+            
             # Format workbook
             workbook = writer.book
             
@@ -468,6 +718,25 @@ def export_data(df: pd.DataFrame) -> bytes:
                 )
                 max_len = min(max_len, 50)  # Cap at 50 characters
                 worksheet.set_column(i, i, max_len)
+            
+            # Add conditional formatting for quality categories
+            if 'Category' in df.columns:
+                cat_col_idx = df.columns.get_loc('Category')
+                
+                # Create format for quality issues
+                quality_format = workbook.add_format({
+                    'bg_color': '#FFE6E6',
+                    'font_color': '#CC0000'
+                })
+                
+                # Apply to quality categories
+                for quality_cat in QUALITY_CATEGORIES:
+                    worksheet.conditional_format(1, cat_col_idx, len(df), cat_col_idx, {
+                        'type': 'cell',
+                        'criteria': '==',
+                        'value': f'"{quality_cat}"',
+                        'format': quality_format
+                    })
     else:
         # CSV fallback
         df.to_csv(output, index=False)
@@ -476,7 +745,7 @@ def export_data(df: pd.DataFrame) -> bytes:
     return output.getvalue()
 
 def generate_quality_report(df: pd.DataFrame) -> str:
-    """Generate quality analysis report"""
+    """Generate enhanced quality analysis report with pattern insights"""
     
     total_returns = len(df)
     quality_issues = {cat: count for cat, count in st.session_state.reason_summary.items() 
@@ -492,7 +761,51 @@ EXECUTIVE SUMMARY
 Total Returns Analyzed: {total_returns}
 Quality-Related Returns: {total_quality} ({quality_pct:.1f}%)
 Critical Issues: {st.session_state.severity_counts.get('critical', 0)}
+"""
+    
+    # Add quality insights if available
+    if st.session_state.quality_insights:
+        insights = st.session_state.quality_insights
+        report += f"""
+QUALITY RISK ASSESSMENT
+======================
+Overall Risk Level: {insights['risk_assessment']['overall_risk_level']}
+Quality Issue Rate: {insights['risk_assessment']['quality_rate']:.1f}%
+Safety Critical Issues: {insights['risk_assessment']['safety_critical_count']}
 
+ROOT CAUSE ANALYSIS
+==================
+"""
+        for root_cause, data in sorted(insights['root_cause_distribution'].items(), 
+                                     key=lambda x: x[1]['count'], reverse=True):
+            report += f"\n{root_cause}: {data['count']} occurrences"
+            report += f"\n  Affected Products: {', '.join(data['products'][:3])}"  # Already a list
+            if len(data['products']) > 3:
+                report += f" (+{len(data['products']) - 3} more)"
+            report += "\n"
+        
+        if insights['action_items']:
+            report += """
+RECOMMENDED ACTIONS (PRIORITIZED)
+=================================
+"""
+            for i, action in enumerate(insights['action_items'], 1):
+                report += f"\n{i}. [{action['severity']}] {action['issue']} ({action['frequency']} cases)"
+                report += f"\n   Action: {action['recommendation']}"
+                report += f"\n   Products: {', '.join(action['affected_products'][:3])}\n"
+        
+        if insights['risk_assessment']['top_risk_products']:
+            report += """
+HIGH RISK PRODUCTS
+==================
+"""
+            for prod in insights['risk_assessment']['top_risk_products'][:5]:
+                report += f"\n{prod['product']}"
+                report += f"\n  Total Issues: {prod['total_issues']}"
+                report += f"\n  Safety Issues: {prod['safety_issues']}"
+                report += f"\n  Primary Cause: {prod['primary_root_cause']}\n"
+    
+    report += f"""
 RETURN CATEGORIES
 =================
 """
@@ -500,16 +813,8 @@ RETURN CATEGORIES
     for cat, count in sorted(st.session_state.reason_summary.items(), 
                            key=lambda x: x[1], reverse=True):
         pct = (count / total_returns * 100) if total_returns > 0 else 0
-        report += f"{cat}: {count} ({pct:.1f}%)\n"
-    
-    if quality_issues:
-        report += f"""
-QUALITY ISSUES DETAIL
-====================
-"""
-        for cat, count in sorted(quality_issues.items(), key=lambda x: x[1], reverse=True):
-            pct = (count / total_returns * 100) if total_returns > 0 else 0
-            report += f"{cat}: {count} ({pct:.1f}%)\n"
+        quality_flag = " [QUALITY]" if cat in QUALITY_CATEGORIES else ""
+        report += f"{cat}{quality_flag}: {count} ({pct:.1f}%)\n"
     
     # Top products section
     if st.session_state.product_summary:
@@ -523,18 +828,35 @@ TOP PRODUCTS BY RETURN VOLUME
         for product, total in sorted(product_totals, key=lambda x: x[1], reverse=True)[:10]:
             top_issue = max(st.session_state.product_summary[product].items(), 
                           key=lambda x: x[1])
-            report += f"\n{product}\n"
-            report += f"  Total Returns: {total}\n"
-            report += f"  Top Issue: {top_issue[0]} ({top_issue[1]} returns)\n"
+            report += f"\n{product}"
+            report += f"\n  Total Returns: {total}"
+            report += f"\n  Top Issue: {top_issue[0]} ({top_issue[1]} returns)\n"
     
     report += f"""
 RECOMMENDATIONS
 ==============
-1. Focus quality improvements on top 3 categories
-2. Investigate products with highest return rates
-3. Implement corrective actions for recurring issues
-4. Monitor improvement metrics after interventions
+1. Focus quality improvements on identified root causes
+2. Prioritize HIGH severity action items immediately  
+3. Review high-risk products for potential design changes
+4. Implement incoming inspection for components with high failure rates
+5. Consider MDR (Medical Device Reporting) for safety-critical issues
+6. Track improvement metrics after implementing corrective actions
+
+QUALITY IMPROVEMENT FOCUS AREAS
+==============================
+Based on pattern analysis, prioritize:
 """
+    
+    if st.session_state.quality_insights:
+        # Add top 3 root causes as focus areas
+        for root_cause, data in list(sorted(
+            insights['root_cause_distribution'].items(), 
+            key=lambda x: x[1]['count'], 
+            reverse=True
+        ))[:3]:
+            report += f"- {root_cause}: Address in {len(data['products'])} products\n"
+    else:
+        report += "- Run analysis to identify quality patterns\n"
     
     return report
 
@@ -560,7 +882,7 @@ def main():
             AI-Powered Medical Device Quality Management Tool
         </p>
         <p style="font-size: 1em; color: var(--accent);">
-            Using GPT-4 AI for accurate return categorization
+            🆕 Now with Quality Pattern Recognition & Root Cause Analysis
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -594,8 +916,18 @@ def main():
                 status = analyzer.get_api_status()
                 if status['available']:
                     st.success("✅ AI Ready")
+                    st.caption("Using GPT-4 (AI-first categorization)")
                 else:
-                    st.warning("⚠️ API key not configured")
+                    st.error("❌ API key not configured")
+                    st.info("""
+                    To use AI categorization:
+                    1. Get an OpenAI API key
+                    2. Add to Streamlit secrets:
+                       - Key: `openai_api_key`
+                       - Value: Your API key
+                    """)
+        else:
+            st.error("❌ AI module missing")
     
     # Main content
     # Show required format
@@ -610,6 +942,18 @@ def main():
         - Medical device specific terminology
         - Complex multi-issue returns
         - Nuanced language and implications
+        """)
+        
+        st.markdown("### 🔍 NEW: Quality Pattern Recognition")
+        st.success("""
+        **Automatic Root Cause Analysis** identifies:
+        - Material failures (velcro, straps, fabric)
+        - Component failures (pumps, valves, motors)
+        - Design flaws vs manufacturing defects
+        - Safety-critical issues requiring immediate attention
+        - Specific failure patterns by product
+        
+        Get **actionable quality insights** with prioritized recommendations!
         """)
         
         st.markdown("### 📊 Supported File Types:")
@@ -747,8 +1091,26 @@ def main():
                         data=quality_report,
                         file_name=f"quality_analysis_{timestamp}.txt",
                         mime="text/plain",
-                        use_container_width=True
+                        use_container_width=True,
+                        help="Comprehensive quality report with severity analysis"
                     )
+                
+                # Show export info
+                st.info(f"""
+                **📋 Enhanced Export Contents:**
+                - ✅ All original columns with Category in column K
+                - ✅ Summary sheet with category breakdown
+                - 🆕 **Root Cause Analysis** sheet (quality patterns identified)
+                - 🆕 **Quality Actions** sheet (prioritized recommendations)  
+                - 🆕 **High Risk Products** sheet (products needing immediate attention)
+                - ✅ Quality categories highlighted in red for easy identification
+                
+                **🔍 New Quality Insights Include:**
+                - Pattern recognition (material vs component vs design issues)
+                - Safety-critical issue flagging
+                - Actionable recommendations by root cause
+                - Risk assessment by product
+                """)
 
 if __name__ == "__main__":
     main()
