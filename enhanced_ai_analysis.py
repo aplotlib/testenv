@@ -1,13 +1,13 @@
 """
-Enhanced AI Analysis Module - Dual AI with Extreme Mode
-Version 12.0 - OpenAI + Claude with Batch Processing
+Enhanced AI Analysis Module - With Cost Tracking & Chat Support
+Version 13.0 - OpenAI + Claude with Cost Estimation
 
 Key Features:
 - Dual AI support (OpenAI GPT-4 + Claude Sonnet)
-- Extreme mode for difficult categorizations (2000+ tokens)
-- Batch processing with checkpoints for stability
+- Real-time cost tracking and estimation
+- Chat support for Q&A about results
+- Token usage optimization
 - Quality pattern recognition
-- Consensus-based categorization
 """
 
 import logging
@@ -18,7 +18,7 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple, Union
 from enum import Enum
 import time
-import pickle
+from dataclasses import dataclass
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -34,32 +34,46 @@ def safe_import(module_name):
 
 # Check for dependencies
 requests, has_requests = safe_import('requests')
-anthropic, has_anthropic = safe_import('anthropic')
 
 # API Configuration
-API_TIMEOUT = 60  # Increased for extreme mode
+API_TIMEOUT = 45
 MAX_RETRIES = 3
-BATCH_SIZE = 50  # Smaller batches for stability
+BATCH_SIZE = 50
 
 # Token configurations by mode
 TOKEN_LIMITS = {
-    'standard': 300,
-    'enhanced': 800,
-    'extreme': 2500  # Increased for very detailed analysis
+    'standard': 150,     # Reduced for cost savings
+    'enhanced': 300,     # Moderate
+    'extreme': 800,      # High accuracy
+    'chat': 500          # For chat responses
 }
 
-# Model configurations
+# Model configurations with latest pricing (as of 2024)
 MODELS = {
     'openai': {
         'standard': 'gpt-3.5-turbo',
         'enhanced': 'gpt-4',
-        'extreme': 'gpt-4'  # Always use GPT-4 for extreme mode
+        'extreme': 'gpt-4',
+        'chat': 'gpt-3.5-turbo'
     },
     'claude': {
         'standard': 'claude-3-haiku-20240307',
         'enhanced': 'claude-3-sonnet-20240229',
-        'extreme': 'claude-3-sonnet-20240229'
+        'extreme': 'claude-3-sonnet-20240229',
+        'chat': 'claude-3-haiku-20240307'
     }
+}
+
+# Updated pricing per 1K tokens (in USD)
+PRICING = {
+    # OpenAI
+    'gpt-3.5-turbo': {'input': 0.0005, 'output': 0.0015},
+    'gpt-4': {'input': 0.03, 'output': 0.06},
+    'gpt-4-turbo': {'input': 0.01, 'output': 0.03},
+    # Claude (Anthropic)
+    'claude-3-haiku-20240307': {'input': 0.00025, 'output': 0.00125},
+    'claude-3-sonnet-20240229': {'input': 0.003, 'output': 0.015},
+    'claude-3-opus-20240229': {'input': 0.015, 'output': 0.075}
 }
 
 # Medical Device Return Categories
@@ -111,92 +125,122 @@ FBA_REASON_MAP = {
     'ARRIVED_LATE': 'Shipping/Fulfillment Issues'
 }
 
-# Quality patterns for root cause analysis
+# Quality patterns
 QUALITY_PATTERNS = {
     'Material Failure': [
-        'velcro', 'strap', 'fabric', 'material', 'stitching', 'seam', 'tear', 'rip', 'worn', 
-        'fraying', 'deteriorate', 'degraded', 'cloth', 'leather', 'vinyl', 'plastic cracked'
+        'velcro', 'strap', 'fabric', 'material', 'stitching', 'seam', 'tear', 'rip', 'worn'
     ],
     'Component Failure': [
-        'button', 'buckle', 'wheel', 'handle', 'pump', 'valve', 'motor', 'battery', 'suction',
-        'mechanism', 'joint', 'hinge', 'lock', 'latch', 'connector', 'tubing', 'cord'
+        'button', 'buckle', 'wheel', 'handle', 'pump', 'valve', 'motor', 'battery'
     ],
     'Design Flaw': [
-        'too heavy', 'hard to use', 'difficult to adjust', 'poor design', 'awkward', 'cumbersome',
-        'not intuitive', 'poorly designed', 'bad ergonomics', 'uncomfortable shape', 'wrong angle'
+        'too heavy', 'hard to use', 'difficult to adjust', 'poor design', 'awkward'
     ],
     'Manufacturing Defect': [
-        'broken on arrival', 'defective', 'missing parts', 'not assembled correctly', 'crooked',
-        'uneven', 'loose screws', 'poor assembly', 'manufacturing error', 'quality control'
+        'broken on arrival', 'defective', 'missing parts', 'not assembled correctly'
     ],
     'Durability Issue': [
-        'broke after', 'lasted only', 'stopped working', 'fell apart', 'wore out', 'degraded',
-        'short lifespan', 'not durable', 'cheaply made', 'fragile', 'flimsy construction'
+        'broke after', 'lasted only', 'stopped working', 'fell apart', 'wore out'
     ],
     'Safety Concern': [
-        'unsafe', 'dangerous', 'injury', 'hurt', 'accident', 'risk', 'hazard', 'sharp edge',
-        'cut', 'pinch', 'trap', 'unstable', 'tip over', 'collapse', 'malfunction danger'
+        'unsafe', 'dangerous', 'injury', 'hurt', 'accident', 'risk', 'hazard'
     ]
 }
 
-# Severity keywords for medical devices
+# Severity keywords
 SEVERITY_KEYWORDS = {
     'critical': [
-        'injury', 'injured', 'hospital', 'emergency', 'doctor', 'dangerous', 'unsafe', 
-        'hazard', 'accident', 'wound', 'bleeding', 'pain severe', 'medical attention',
-        'urgent care', 'health risk', 'safety issue', 'burn', 'cut', 'bruise', 'fall',
-        'allergic reaction', 'infection', 'hospitalized', 'ambulance', 'poison', 'toxic'
+        'injury', 'injured', 'hospital', 'emergency', 'doctor', 'dangerous', 'unsafe'
     ],
     'major': [
-        'defective', 'broken', 'malfunction', 'unusable', 'failed', 'stopped working',
-        "doesn't work", 'not working', 'poor quality', 'fell apart', 'unreliable',
-        'safety concern', 'risk', 'worried', 'concerned about safety', 'completely broken'
+        'defective', 'broken', 'malfunction', 'unusable', 'failed', 'stopped working'
     ],
     'minor': [
-        'uncomfortable', 'difficult', 'confusing', 'disappointed', 'not ideal',
-        'could be better', 'minor issue', 'small problem', 'slight', 'somewhat'
+        'uncomfortable', 'difficult', 'confusing', 'disappointed', 'not ideal'
     ]
 }
+
+@dataclass
+class CostEstimate:
+    """Cost estimation data class"""
+    provider: str
+    model: str
+    input_tokens: int
+    output_tokens: int
+    input_cost: float
+    output_cost: float
+    total_cost: float
+    
+    def to_dict(self):
+        return {
+            'provider': self.provider,
+            'model': self.model,
+            'input_tokens': self.input_tokens,
+            'output_tokens': self.output_tokens,
+            'input_cost': self.input_cost,
+            'output_cost': self.output_cost,
+            'total_cost': self.total_cost
+        }
 
 class AIProvider(Enum):
     OPENAI = "openai"
     CLAUDE = "claude"
     BOTH = "both"
 
+def estimate_tokens(text: str) -> int:
+    """Estimate token count (rough approximation)"""
+    # Rough estimate: 1 token ≈ 4 characters or 0.75 words
+    return max(len(text) // 4, len(text.split()) * 4 // 3)
+
+def calculate_cost(model: str, input_tokens: int, output_tokens: int) -> CostEstimate:
+    """Calculate cost for API usage"""
+    if model not in PRICING:
+        logger.warning(f"Model {model} not in pricing table")
+        return CostEstimate("unknown", model, input_tokens, output_tokens, 0, 0, 0)
+    
+    pricing = PRICING[model]
+    input_cost = (input_tokens / 1000) * pricing['input']
+    output_cost = (output_tokens / 1000) * pricing['output']
+    total_cost = input_cost + output_cost
+    
+    provider = 'openai' if 'gpt' in model else 'claude'
+    
+    return CostEstimate(
+        provider=provider,
+        model=model,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        input_cost=input_cost,
+        output_cost=output_cost,
+        total_cost=total_cost
+    )
+
 def detect_language(text: str) -> str:
     """Simple language detection"""
-    spanish_indicators = ['ñ', 'á', 'é', 'í', 'ó', 'ú', ' es ', ' la ', ' el ', ' los ', ' las ', ' de ', ' que ', ' y ']
+    spanish_indicators = ['ñ', 'á', 'é', 'í', 'ó', 'ú', ' es ', ' la ', ' el ']
     spanish_count = sum(1 for indicator in spanish_indicators if indicator in text.lower())
     return 'es' if spanish_count >= 3 else 'en'
 
-def translate_text(text: str, source_lang: str = 'auto', target_lang: str = 'en') -> str:
-    """Placeholder for translation - implement if needed"""
-    return text
-
 def calculate_confidence(complaint: str, category: str, language: str = 'en', consensus: bool = False) -> float:
     """Calculate confidence score for categorization"""
-    confidence = 0.5  # Base confidence
+    confidence = 0.5
     
-    # Boost for consensus
     if consensus:
         confidence = 0.95
     else:
         confidence = 0.85
     
-    # Adjust based on complaint length
     word_count = len(complaint.split())
     if word_count > 20:
         confidence += 0.05
     elif word_count < 5:
         confidence -= 0.1
     
-    # Adjust for category specificity
     if category != 'Other/Miscellaneous':
         confidence += 0.05
     else:
         confidence -= 0.1
     
-    # Adjust for non-English
     if language != 'en':
         confidence -= 0.05
     
@@ -206,37 +250,28 @@ def detect_severity(complaint: str, category: str) -> str:
     """Detect severity level of complaint"""
     complaint_lower = complaint.lower()
     
-    # Check for critical keywords first
     for keyword in SEVERITY_KEYWORDS['critical']:
         if keyword in complaint_lower:
             return 'critical'
     
-    # Check if medical/health category
     if category == 'Medical/Health Concerns':
         return 'critical'
     
-    # Check for major keywords
     for keyword in SEVERITY_KEYWORDS['major']:
         if keyword in complaint_lower:
             return 'major'
     
-    # Check if quality defect
     if category in ['Product Defects/Quality', 'Performance/Effectiveness']:
         return 'major'
     
-    # Check for minor keywords
     for keyword in SEVERITY_KEYWORDS['minor']:
         if keyword in complaint_lower:
             return 'minor'
     
     return 'none'
 
-def is_duplicate(complaint1: str, complaint2: str, threshold: float = 0.85) -> bool:
-    """Placeholder - no duplicate detection as requested"""
-    return False
-
 def extract_quality_patterns(complaint: str, category: str) -> Dict[str, Any]:
-    """Extract specific quality patterns from complaints"""
+    """Extract quality patterns from complaints"""
     patterns_found = []
     complaint_lower = complaint.lower()
     
@@ -262,7 +297,6 @@ def extract_quality_patterns(complaint: str, category: str) -> Dict[str, Any]:
     
     root_cause = None
     if patterns_found:
-        # Sort by position and take the first one
         patterns_found.sort(key=lambda x: x['position'])
         root_cause = patterns_found[0]['pattern']
     
@@ -274,213 +308,174 @@ def extract_quality_patterns(complaint: str, category: str) -> Dict[str, Any]:
         'is_safety_critical': is_safety_critical
     }
 
-def get_quality_recommendation(root_cause: str, frequency: int, products: List[str]) -> str:
-    """Generate specific quality recommendations based on root cause"""
-    product_list = ', '.join(products[:3]) + (f' (+{len(products)-3} more)' if len(products) > 3 else '')
+class CostTracker:
+    """Track API costs across sessions"""
     
-    recommendations = {
-        'Material Failure': f"IMMEDIATE ACTION: Conduct material testing and supplier audit for {product_list}. {frequency} failures indicate potential batch/supplier issue requiring vendor corrective action.",
+    def __init__(self):
+        self.session_costs = []
+        self.total_input_tokens = 0
+        self.total_output_tokens = 0
+        self.total_cost = 0.0
+        self.api_calls = 0
+        self.start_time = datetime.now()
+    
+    def add_cost(self, cost_estimate: CostEstimate):
+        """Add cost to tracking"""
+        self.session_costs.append(cost_estimate)
+        self.total_input_tokens += cost_estimate.input_tokens
+        self.total_output_tokens += cost_estimate.output_tokens
+        self.total_cost += cost_estimate.total_cost
+        self.api_calls += 1
+    
+    def get_summary(self) -> Dict[str, Any]:
+        """Get cost summary"""
+        duration = (datetime.now() - self.start_time).total_seconds() / 60  # minutes
         
-        'Component Failure': f"ENGINEERING REVIEW: Component design verification required for {product_list}. Implement incoming inspection protocols. {frequency} failures suggest design tolerance or supplier quality issue.",
+        return {
+            'total_cost': round(self.total_cost, 4),
+            'api_calls': self.api_calls,
+            'total_tokens': self.total_input_tokens + self.total_output_tokens,
+            'input_tokens': self.total_input_tokens,
+            'output_tokens': self.total_output_tokens,
+            'average_cost_per_call': round(self.total_cost / max(1, self.api_calls), 4),
+            'duration_minutes': round(duration, 1),
+            'breakdown_by_provider': self._get_provider_breakdown()
+        }
+    
+    def _get_provider_breakdown(self) -> Dict[str, Dict]:
+        """Get cost breakdown by provider"""
+        breakdown = {'openai': {'calls': 0, 'cost': 0}, 'claude': {'calls': 0, 'cost': 0}}
         
-        'Design Flaw': f"DESIGN CONTROL: Initiate formal design review per ISO 13485 for {product_list}. Consider usability study and risk analysis update. {frequency} complaints indicate user interface improvement needed.",
+        for cost in self.session_costs:
+            provider = cost.provider
+            if provider in breakdown:
+                breakdown[provider]['calls'] += 1
+                breakdown[provider]['cost'] += cost.total_cost
         
-        'Manufacturing Defect': f"PRODUCTION CONTROL: Investigation of manufacturing processes required. Review last {frequency} production lots for {product_list}. Implement enhanced process monitoring and operator training.",
+        return breakdown
+    
+    def estimate_remaining_cost(self, remaining_items: int) -> float:
+        """Estimate cost for remaining items"""
+        if self.api_calls == 0:
+            return 0.0
         
-        'Durability Issue': f"VERIFICATION & VALIDATION: Conduct accelerated life testing per relevant standards. Review warranty data trends. {frequency} durability failures may require material upgrade or design reinforcement.",
-        
-        'Safety Concern': f"URGENT - RISK MANAGEMENT: Immediate risk assessment per ISO 14971 required. {frequency} safety complaints for {product_list} may trigger post-market surveillance action or field safety notice evaluation."
-    }
-    
-    return recommendations.get(root_cause, f"Investigate {frequency} occurrences of {root_cause} pattern affecting {product_list}.")
-
-class BatchProcessor:
-    """Handle batch processing with checkpoints for large datasets"""
-    
-    def __init__(self, batch_size: int = BATCH_SIZE):
-        self.batch_size = batch_size
-        self.checkpoint_dir = "checkpoints"
-        self._ensure_checkpoint_dir()
-    
-    def _ensure_checkpoint_dir(self):
-        """Ensure checkpoint directory exists"""
-        try:
-            if not os.path.exists(self.checkpoint_dir):
-                os.makedirs(self.checkpoint_dir)
-        except Exception as e:
-            logger.warning(f"Could not create checkpoint directory: {e}")
-    
-    def save_checkpoint(self, data: Dict, checkpoint_file: str):
-        """Save processing checkpoint"""
-        try:
-            filepath = os.path.join(self.checkpoint_dir, checkpoint_file)
-            with open(filepath, 'wb') as f:
-                pickle.dump(data, f)
-            logger.info(f"Saved checkpoint: {len(data.get('processed', []))} items")
-        except Exception as e:
-            logger.error(f"Failed to save checkpoint: {e}")
-    
-    def load_checkpoint(self, checkpoint_file: str) -> Optional[Dict]:
-        """Load processing checkpoint"""
-        try:
-            filepath = os.path.join(self.checkpoint_dir, checkpoint_file)
-            if os.path.exists(filepath):
-                with open(filepath, 'rb') as f:
-                    data = pickle.load(f)
-                logger.info(f"Loaded checkpoint: {len(data.get('processed', []))} items")
-                return data
-        except Exception as e:
-            logger.error(f"Failed to load checkpoint: {e}")
-        return None
-    
-    def get_checkpoint_file(self, prefix: str = "categorization") -> str:
-        """Generate checkpoint filename with timestamp"""
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        return f"{prefix}_checkpoint_{timestamp}.pkl"
-    
-    def process_in_batches(self, items: List, processor_func, checkpoint_interval: int = 5):
-        """Process items in batches with periodic checkpoints"""
-        total_items = len(items)
-        processed_items = []
-        checkpoint_file = self.get_checkpoint_file()
-        batch_count = 0
-        
-        for i in range(0, total_items, self.batch_size):
-            batch = items[i:i + self.batch_size]
-            batch_results = []
-            
-            # Process batch
-            for item in batch:
-                try:
-                    result = processor_func(item)
-                    batch_results.append(result)
-                except Exception as e:
-                    logger.error(f"Error processing item: {e}")
-                    batch_results.append(None)
-            
-            processed_items.extend(batch_results)
-            batch_count += 1
-            
-            # Save checkpoint periodically
-            if batch_count % checkpoint_interval == 0:
-                checkpoint_data = {
-                    'processed': processed_items,
-                    'total_items': total_items,
-                    'batch_count': batch_count,
-                    'timestamp': datetime.now().isoformat()
-                }
-                self.save_checkpoint(checkpoint_data, checkpoint_file)
-        
-        return processed_items
+        avg_cost = self.total_cost / self.api_calls
+        return round(avg_cost * remaining_items, 2)
 
 class EnhancedAIAnalyzer:
-    """Main AI analyzer with dual AI support and extreme mode"""
+    """Main AI analyzer with cost tracking and chat support"""
     
     def __init__(self, provider: AIProvider = AIProvider.BOTH):
         self.provider = provider
         self.openai_key = self._get_api_key('openai')
         self.claude_key = self._get_api_key('claude')
         
-        # Initialize API clients
+        # Initialize tracking
+        self.cost_tracker = CostTracker()
+        
+        # Initialize API availability
         self.openai_configured = bool(self.openai_key and has_requests)
-        self.claude_configured = bool(self.claude_key and has_anthropic)
+        self.claude_configured = bool(self.claude_key and has_requests)
         
-        if self.claude_configured:
-            try:
-                self.claude_client = anthropic.Anthropic(api_key=self.claude_key)
-            except Exception as e:
-                logger.error(f"Failed to initialize Claude client: {e}")
-                self.claude_configured = False
-                self.claude_client = None
-        else:
-            self.claude_client = None
+        # Chat context
+        self.chat_context = []
         
-        # Usage tracking
-        self.usage_stats = {
-            'total_calls': 0,
-            'openai_calls': 0,
-            'claude_calls': 0,
-            'consensus_achieved': 0,
-            'fallback_used': 0
-        }
-        
-        logger.info(f"AI Analyzer initialized - OpenAI: {self.openai_configured}, Claude: {self.claude_configured}, Provider: {provider.value}")
+        logger.info(f"AI Analyzer initialized - OpenAI: {self.openai_configured}, Claude: {self.claude_configured}")
     
     def _get_api_key(self, provider: str) -> Optional[str]:
-        """Get API key from multiple sources with comprehensive search"""
+        """Get API key from multiple sources"""
         # Try Streamlit secrets first
         try:
             import streamlit as st
             if hasattr(st, 'secrets'):
                 if provider == 'openai':
-                    for key_name in ["openai_api_key", "OPENAI_API_KEY", "openai", "api_key"]:
+                    for key_name in ["OPENAI_API_KEY", "openai_api_key", "openai"]:
                         if key_name in st.secrets:
                             key_value = str(st.secrets[key_name]).strip()
-                            if key_value.startswith('sk-'):
-                                logger.info(f"Found OpenAI key in Streamlit secrets ({key_name})")
+                            if key_value and (provider == 'openai' and key_value.startswith('sk-')):
+                                logger.info(f"Found {provider} key in Streamlit secrets")
                                 return key_value
                 elif provider == 'claude':
-                    for key_name in ["anthropic_api_key", "ANTHROPIC_API_KEY", "claude_api_key", "claude"]:
+                    for key_name in ["ANTHROPIC_API_KEY", "anthropic_api_key", "claude_api_key", "claude"]:
                         if key_name in st.secrets:
                             key_value = str(st.secrets[key_name]).strip()
-                            if key_value.startswith('sk-ant-'):
-                                logger.info(f"Found Claude key in Streamlit secrets ({key_name})")
+                            if key_value and (provider == 'claude' and 'ant' in key_value):
+                                logger.info(f"Found {provider} key in Streamlit secrets")
                                 return key_value
         except Exception as e:
             logger.debug(f"Streamlit secrets not available: {e}")
         
         # Try environment variables
-        if provider == 'openai':
-            for env_name in ["OPENAI_API_KEY", "OPENAI_API", "API_KEY"]:
-                api_key = os.environ.get(env_name, '').strip()
-                if api_key and api_key.startswith('sk-'):
-                    logger.info(f"Found OpenAI key in environment ({env_name})")
-                    return api_key
-        elif provider == 'claude':
-            for env_name in ["ANTHROPIC_API_KEY", "CLAUDE_API_KEY"]:
-                api_key = os.environ.get(env_name, '').strip()
-                if api_key and api_key.startswith('sk-ant-'):
-                    logger.info(f"Found Claude key in environment ({env_name})")
-                    return api_key
+        env_vars = {
+            'openai': ["OPENAI_API_KEY", "OPENAI_API"],
+            'claude': ["ANTHROPIC_API_KEY", "CLAUDE_API_KEY"]
+        }
         
-        logger.warning(f"No valid {provider} API key found")
+        for env_name in env_vars.get(provider, []):
+            api_key = os.environ.get(env_name, '').strip()
+            if api_key:
+                logger.info(f"Found {provider} key in environment")
+                return api_key
+        
+        logger.warning(f"No {provider} API key found")
         return None
     
     def get_api_status(self) -> Dict[str, Any]:
-        """Get comprehensive API availability status"""
+        """Get API status with cost summary"""
         status = {
             'available': self.openai_configured or self.claude_configured,
             'openai_configured': self.openai_configured,
             'claude_configured': self.claude_configured,
             'dual_ai_available': self.openai_configured and self.claude_configured,
             'provider': self.provider.value,
-            'extreme_mode_available': self.openai_configured or self.claude_configured,
-            'message': '',
-            'capabilities': []
+            'cost_summary': self.cost_tracker.get_summary(),
+            'message': ''
         }
         
         if status['dual_ai_available']:
-            status['message'] = 'Dual AI ready: OpenAI + Claude consensus mode available'
-            status['capabilities'] = ['Consensus categorization', 'Extreme mode', 'Quality pattern recognition']
+            status['message'] = 'Both OpenAI and Claude APIs are configured'
         elif self.openai_configured:
-            status['message'] = 'OpenAI ready (Claude not configured)'
-            status['capabilities'] = ['OpenAI categorization', 'Extreme mode', 'Quality patterns']
+            status['message'] = 'OpenAI API is configured (Claude not available)'
         elif self.claude_configured:
-            status['message'] = 'Claude ready (OpenAI not configured)'
-            status['capabilities'] = ['Claude categorization', 'Extreme mode', 'Quality patterns']
+            status['message'] = 'Claude API is configured (OpenAI not available)'
         else:
-            status['message'] = 'No APIs configured - unable to process'
-            status['available'] = False
+            status['message'] = 'No APIs configured'
         
         return status
     
-    def _call_openai(self, prompt: str, system_prompt: str, mode: str = 'standard') -> Optional[str]:
-        """Call OpenAI API with comprehensive error handling"""
+    def estimate_analysis_cost(self, num_items: int, mode: str = 'standard') -> Dict[str, float]:
+        """Estimate cost before running analysis"""
+        # Average tokens per complaint analysis
+        avg_input_tokens = 200 + (50 if mode == 'enhanced' else 0) + (100 if mode == 'extreme' else 0)
+        avg_output_tokens = TOKEN_LIMITS[mode] // 2  # Assume half of limit used
+        
+        estimates = {}
+        
+        if self.openai_configured:
+            model = MODELS['openai'][mode]
+            cost = calculate_cost(model, avg_input_tokens * num_items, avg_output_tokens * num_items)
+            estimates['openai'] = round(cost.total_cost, 2)
+        
+        if self.claude_configured:
+            model = MODELS['claude'][mode]
+            cost = calculate_cost(model, avg_input_tokens * num_items, avg_output_tokens * num_items)
+            estimates['claude'] = round(cost.total_cost, 2)
+        
+        if self.provider == AIProvider.BOTH and len(estimates) == 2:
+            estimates['both'] = round(estimates['openai'] + estimates['claude'], 2)
+        
+        return estimates
+    
+    def _call_openai(self, prompt: str, system_prompt: str, mode: str = 'standard') -> Tuple[Optional[str], Optional[CostEstimate]]:
+        """Call OpenAI API with cost tracking"""
         if not self.openai_configured:
-            return None
+            return None, None
         
         model = MODELS['openai'][mode]
         max_tokens = TOKEN_LIMITS[mode]
+        
+        # Estimate input tokens
+        input_tokens = estimate_tokens(system_prompt + prompt)
         
         headers = {
             "Content-Type": "application/json",
@@ -494,10 +489,7 @@ class EnhancedAIAnalyzer:
                 {"role": "user", "content": prompt}
             ],
             "temperature": 0.1,
-            "max_tokens": max_tokens,
-            "top_p": 0.95,
-            "frequency_penalty": 0.0,
-            "presence_penalty": 0.0
+            "max_tokens": max_tokens
         }
         
         for attempt in range(MAX_RETRIES):
@@ -512,550 +504,306 @@ class EnhancedAIAnalyzer:
                 if response.status_code == 200:
                     result = response.json()
                     content = result["choices"][0]["message"]["content"].strip()
-                    self.usage_stats['openai_calls'] += 1
-                    self.usage_stats['total_calls'] += 1
-                    return content
                     
+                    # Get actual token usage
+                    usage = result.get("usage", {})
+                    actual_input = usage.get("prompt_tokens", input_tokens)
+                    actual_output = usage.get("completion_tokens", len(content.split()))
+                    
+                    # Calculate cost
+                    cost = calculate_cost(model, actual_input, actual_output)
+                    self.cost_tracker.add_cost(cost)
+                    
+                    return content, cost
+                
                 elif response.status_code == 429:
-                    # Rate limit - wait and retry
                     wait_time = min(2 ** attempt * 2, 30)
                     logger.warning(f"OpenAI rate limited, waiting {wait_time}s")
                     time.sleep(wait_time)
                     continue
-                    
-                else:
-                    logger.error(f"OpenAI API error {response.status_code}: {response.text}")
-                    if attempt == MAX_RETRIES - 1:
-                        return None
-                    time.sleep(2 ** attempt)
-                    
-            except requests.exceptions.Timeout:
-                logger.warning(f"OpenAI timeout on attempt {attempt + 1}")
-                if attempt == MAX_RETRIES - 1:
-                    return None
-                time.sleep(2 ** attempt)
                 
+                else:
+                    logger.error(f"OpenAI API error {response.status_code}")
+                    return None, None
+                    
             except Exception as e:
                 logger.error(f"OpenAI call error: {e}")
                 if attempt == MAX_RETRIES - 1:
-                    return None
+                    return None, None
                 time.sleep(2 ** attempt)
         
-        return None
+        return None, None
     
-    def _call_claude(self, prompt: str, system_prompt: str, mode: str = 'standard') -> Optional[str]:
-        """Call Claude API with comprehensive error handling"""
-        if not self.claude_configured or not self.claude_client:
-            return None
+    def _call_claude(self, prompt: str, system_prompt: str, mode: str = 'standard') -> Tuple[Optional[str], Optional[CostEstimate]]:
+        """Call Claude API with cost tracking"""
+        if not self.claude_configured:
+            return None, None
         
         model = MODELS['claude'][mode]
         max_tokens = TOKEN_LIMITS[mode]
         
+        # Estimate input tokens
+        input_tokens = estimate_tokens(system_prompt + prompt)
+        
+        headers = {
+            "Content-Type": "application/json",
+            "x-api-key": self.claude_key,
+            "anthropic-version": "2023-06-01"
+        }
+        
+        payload = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "temperature": 0.1,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": prompt}]
+        }
+        
         for attempt in range(MAX_RETRIES):
             try:
-                response = self.claude_client.messages.create(
-                    model=model,
-                    max_tokens=max_tokens,
-                    temperature=0.1,
-                    system=system_prompt,
-                    messages=[{"role": "user", "content": prompt}]
+                response = requests.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers=headers,
+                    json=payload,
+                    timeout=API_TIMEOUT
                 )
                 
-                content = response.content[0].text.strip()
-                self.usage_stats['claude_calls'] += 1
-                self.usage_stats['total_calls'] += 1
-                return content
+                if response.status_code == 200:
+                    result = response.json()
+                    content = result["content"][0]["text"].strip()
+                    
+                    # Get actual token usage
+                    usage = result.get("usage", {})
+                    actual_input = usage.get("input_tokens", input_tokens)
+                    actual_output = usage.get("output_tokens", len(content.split()))
+                    
+                    # Calculate cost
+                    cost = calculate_cost(model, actual_input, actual_output)
+                    self.cost_tracker.add_cost(cost)
+                    
+                    return content, cost
                 
+                else:
+                    logger.error(f"Claude API error {response.status_code}: {response.text}")
+                    return None, None
+                    
             except Exception as e:
-                logger.error(f"Claude call error (attempt {attempt + 1}): {e}")
+                logger.error(f"Claude call error: {e}")
                 if attempt == MAX_RETRIES - 1:
-                    return None
+                    return None, None
                 time.sleep(2 ** attempt)
         
-        return None
+        return None, None
     
     def categorize_return(self, complaint: str, fba_reason: str = None, mode: str = 'standard') -> Tuple[str, float, str, str]:
-        """
-        Main categorization method with dual AI consensus
-        
-        Returns:
-            Tuple[category, confidence, severity, language]
-        """
+        """Categorize return with cost tracking"""
         if not complaint or not complaint.strip():
             return 'Other/Miscellaneous', 0.1, 'none', 'en'
+        
+        # Quick FBA mapping
+        if fba_reason and fba_reason in FBA_REASON_MAP:
+            category = FBA_REASON_MAP[fba_reason]
+            return category, 0.95, detect_severity(complaint, category), 'en'
         
         # Detect language
         language = detect_language(complaint)
         
-        # Check FBA mapping first for quick categorization
-        if fba_reason and fba_reason in FBA_REASON_MAP:
-            category = FBA_REASON_MAP[fba_reason]
-            severity = detect_severity(complaint, category)
-            confidence = calculate_confidence(complaint, category, language)
-            logger.info(f"FBA mapping used: {fba_reason} -> {category}")
-            return category, confidence, severity, language
-        
-        # Determine processing mode based on complaint complexity
-        if mode == 'standard' and len(complaint.split()) > 50:
-            mode = 'enhanced'  # Auto-upgrade for complex complaints
-        
         # Build prompts
-        system_prompt = self._build_system_prompt(mode)
-        user_prompt = self._build_user_prompt(complaint, fba_reason, mode)
+        system_prompt = """You are a medical device quality expert. Categorize this return into exactly one category from the provided list. Respond with ONLY the category name."""
         
-        # Get responses from available AIs
+        categories_list = '\n'.join(f'- {cat}' for cat in MEDICAL_DEVICE_CATEGORIES)
+        
+        user_prompt = f"""Complaint: "{complaint}"
+
+Categories:
+{categories_list}
+
+Choose the most appropriate category."""
+        
+        # Get AI responses
         openai_result = None
         claude_result = None
         
         if self.provider in [AIProvider.OPENAI, AIProvider.BOTH] and self.openai_configured:
-            openai_result = self._call_openai(user_prompt, system_prompt, mode)
-            if openai_result:
-                openai_result = self._clean_category_response(openai_result)
+            openai_response, _ = self._call_openai(user_prompt, system_prompt, mode)
+            if openai_response:
+                openai_result = self._clean_category_response(openai_response)
         
         if self.provider in [AIProvider.CLAUDE, AIProvider.BOTH] and self.claude_configured:
-            claude_result = self._call_claude(user_prompt, system_prompt, mode)
-            if claude_result:
-                claude_result = self._clean_category_response(claude_result)
+            claude_response, _ = self._call_claude(user_prompt, system_prompt, mode)
+            if claude_response:
+                claude_result = self._clean_category_response(claude_response)
         
-        # Determine final category with consensus logic
-        category, confidence = self._determine_consensus(openai_result, claude_result, complaint, language)
-        severity = detect_severity(complaint, category)
-        
-        # Log result for debugging
+        # Determine final category
         if openai_result and claude_result:
-            consensus = openai_result == claude_result
-            if consensus:
-                self.usage_stats['consensus_achieved'] += 1
-            logger.info(f"Dual AI: OpenAI='{openai_result}', Claude='{claude_result}', Consensus={consensus}, Final='{category}'")
+            if openai_result == claude_result:
+                category = openai_result
+                confidence = 0.95
+            else:
+                category = openai_result if openai_result != 'Other/Miscellaneous' else claude_result
+                confidence = 0.8
+        elif openai_result:
+            category = openai_result
+            confidence = 0.85
+        elif claude_result:
+            category = claude_result
+            confidence = 0.85
+        else:
+            category = 'Other/Miscellaneous'
+            confidence = 0.3
+        
+        severity = detect_severity(complaint, category)
         
         return category, confidence, severity, language
     
-    def _build_system_prompt(self, mode: str) -> str:
-        """Build system prompt based on processing mode"""
-        base_prompt = """You are a medical device quality expert specializing in categorizing product returns.
-
-CRITICAL INSTRUCTIONS:
-1. You MUST respond with EXACTLY one category name from the provided list
-2. Copy the category name EXACTLY as written (including capitalization and punctuation)
-3. Do not add quotes, explanations, or any other text
-4. Choose the MOST SPECIFIC category that fits the primary complaint"""
-        
-        if mode == 'extreme':
-            base_prompt += """
-
-EXTREME ANALYSIS MODE:
-- Perform deep linguistic analysis of the complaint
-- Consider multiple interpretations and contexts
-- Analyze sentiment, intent, and underlying issues
-- Apply medical device regulatory knowledge
-- Consider patient safety implications
-- Use advanced reasoning to handle ambiguous cases"""
-        
-        return base_prompt
-    
-    def _build_user_prompt(self, complaint: str, fba_reason: str, mode: str) -> str:
-        """Build user prompt based on processing mode"""
-        
-        categories_list = '\n'.join(f'- {cat}' for cat in MEDICAL_DEVICE_CATEGORIES)
-        
-        if mode == 'extreme':
-            prompt = f"""MEDICAL DEVICE RETURN ANALYSIS - EXTREME MODE
-
-COMPLAINT TEXT: "{complaint}"
-"""
-            if fba_reason:
-                prompt += f"AMAZON FBA REASON CODE: {fba_reason}\n"
-            
-            prompt += f"""
-AVAILABLE CATEGORIES:
-{categories_list}
-
-COMPREHENSIVE ANALYSIS FRAMEWORK:
-
-1. LINGUISTIC ANALYSIS:
-   - Parse the complaint for explicit and implicit meanings
-   - Identify primary vs. secondary issues mentioned
-   - Analyze emotional context and severity indicators
-
-2. MEDICAL DEVICE CONTEXT:
-   - Consider the medical/therapeutic purpose
-   - Evaluate patient safety implications
-   - Assess impact on intended use
-
-3. ROOT CAUSE IDENTIFICATION:
-   - Distinguish between product, user, or external factors
-   - Identify whether issue is design, manufacturing, or usage-related
-   - Consider regulatory classification implications
-
-4. CATEGORY MAPPING DECISION TREE:
-   - If physical dimensions mentioned → Size/Fit Issues
-   - If discomfort during use → Comfort Issues
-   - If broken/defective/malfunction → Product Defects/Quality
-   - If doesn't achieve therapeutic goal → Performance/Effectiveness
-   - If product moves/slides/unstable → Stability/Positioning Issues
-   - If incompatible with other equipment → Equipment Compatibility
-   - If design criticism or material issues → Design/Material Issues
-   - If wrong item or misunderstood → Wrong Product/Misunderstanding
-   - If missing parts/instructions → Missing Components
-   - If customer error or changed mind → Customer Error/Changed Mind
-   - If shipping/delivery problems → Shipping/Fulfillment Issues
-   - If setup/usage difficulties → Assembly/Usage Difficulty
-   - If health/safety/medical concerns → Medical/Health Concerns
-   - If price/value related → Price/Value
-   - If none clearly fit → Other/Miscellaneous
-
-5. CONFIDENCE VALIDATION:
-   - Verify the selected category against complaint details
-   - Ensure no better-fitting category exists
-   - Consider edge cases and overlapping categories
-
-Based on this comprehensive analysis, respond with the EXACT category name that best fits the primary complaint."""
-        
-        else:
-            # Standard or enhanced mode
-            prompt = f"""Categorize this medical device return complaint.
-
-COMPLAINT: "{complaint}"
-"""
-            if fba_reason:
-                prompt += f"FBA REASON: {fba_reason}\n"
-            
-            prompt += f"""
-CATEGORIES:
-{categories_list}
-
-Instructions:
-- Choose the category that best matches the PRIMARY reason for return
-- If multiple issues exist, focus on the most significant one
-- For medical devices, consider safety and intended use
-- Respond with ONLY the exact category name"""
-        
-        return prompt
-    
     def _clean_category_response(self, response: str) -> str:
-        """Clean and validate AI response to extract valid category"""
+        """Clean AI response to extract category"""
+        response = response.strip().strip('"').strip("'")
+        
+        # Try exact match
+        for valid_cat in MEDICAL_DEVICE_CATEGORIES:
+            if response == valid_cat or response.lower() == valid_cat.lower():
+                return valid_cat
+        
+        # Try partial match
+        for valid_cat in MEDICAL_DEVICE_CATEGORIES:
+            if valid_cat.lower() in response.lower() or response.lower() in valid_cat.lower():
+                return valid_cat
+        
+        return 'Other/Miscellaneous'
+    
+    def chat(self, user_message: str, context: Dict[str, Any] = None) -> Tuple[str, float]:
+        """Chat about analysis results with cost tracking"""
+        system_prompt = """You are a helpful assistant specializing in medical device quality management. 
+        Answer questions about return categorization results, quality insights, and provide actionable recommendations.
+        Be concise but thorough."""
+        
+        # Add context if available
+        if context:
+            context_str = f"\n\nContext:\n- Total returns analyzed: {context.get('total_returns', 0)}\n"
+            if context.get('quality_rate'):
+                context_str += f"- Quality issue rate: {context['quality_rate']:.1f}%\n"
+            if context.get('top_categories'):
+                context_str += f"- Top return categories: {', '.join(context['top_categories'][:3])}\n"
+            
+            system_prompt += context_str
+        
+        # Get response
+        response, cost = self._call_openai(user_message, system_prompt, 'chat')
+        
+        if not response and self.claude_configured:
+            response, cost = self._call_claude(user_message, system_prompt, 'chat')
+        
         if not response:
-            return 'Other/Miscellaneous'
+            return "I apologize, but I'm unable to process your request at the moment.", 0.0
         
-        # Remove common prefixes and suffixes
-        response = response.strip()
-        response = re.sub(r'^(Category:|The category is:?|Answer:|Response:)\s*', '', response, flags=re.IGNORECASE)
-        response = re.sub(r'^["\'-]+|["\'-]+$', '', response)  # Remove quotes
-        response = response.strip()
-        
-        # Try exact match first
-        for valid_cat in MEDICAL_DEVICE_CATEGORIES:
-            if response == valid_cat:
-                return valid_cat
-        
-        # Try case-insensitive match
-        response_lower = response.lower()
-        for valid_cat in MEDICAL_DEVICE_CATEGORIES:
-            if response_lower == valid_cat.lower():
-                return valid_cat
-        
-        # Try partial matching
-        for valid_cat in MEDICAL_DEVICE_CATEGORIES:
-            # Check if the valid category is contained in the response
-            if valid_cat.lower() in response_lower:
-                return valid_cat
-            # Check if the response is contained in the valid category
-            if response_lower in valid_cat.lower():
-                return valid_cat
-        
-        # Try fuzzy matching for common variations
-        category_variations = {
-            'size': 'Size/Fit Issues',
-            'comfort': 'Comfort Issues',
-            'quality': 'Product Defects/Quality',
-            'defect': 'Product Defects/Quality',
-            'performance': 'Performance/Effectiveness',
-            'stability': 'Stability/Positioning Issues',
-            'compatibility': 'Equipment Compatibility',
-            'design': 'Design/Material Issues',
-            'wrong': 'Wrong Product/Misunderstanding',
-            'missing': 'Missing Components',
-            'customer': 'Customer Error/Changed Mind',
-            'shipping': 'Shipping/Fulfillment Issues',
-            'assembly': 'Assembly/Usage Difficulty',
-            'medical': 'Medical/Health Concerns',
-            'price': 'Price/Value'
-        }
-        
-        for keyword, category in category_variations.items():
-            if keyword in response_lower:
-                return category
-        
-        logger.warning(f"Could not match AI response to valid category: '{response}'")
-        return 'Other/Miscellaneous'
+        return response, cost.total_cost if cost else 0.0
     
-    def _determine_consensus(self, openai_result: Optional[str], claude_result: Optional[str], 
-                           complaint: str, language: str) -> Tuple[str, float]:
-        """Determine final category based on AI consensus"""
-        
-        if openai_result and claude_result:
-            # Both AIs responded
-            if openai_result == claude_result:
-                # Perfect consensus
-                confidence = calculate_confidence(complaint, openai_result, language, consensus=True)
-                return openai_result, confidence
-            else:
-                # Disagreement - use logic to resolve
-                logger.info(f"AI disagreement: OpenAI='{openai_result}', Claude='{claude_result}'")
-                
-                # Prefer non-"Other" categories
-                if openai_result != 'Other/Miscellaneous' and claude_result == 'Other/Miscellaneous':
-                    category = openai_result
-                elif claude_result != 'Other/Miscellaneous' and openai_result == 'Other/Miscellaneous':
-                    category = claude_result
-                else:
-                    # Both are specific categories - prefer OpenAI (can be customized)
-                    category = openai_result
-                
-                confidence = calculate_confidence(complaint, category, language, consensus=False) * 0.8  # Reduced confidence
-                return category, confidence
-        
-        elif openai_result:
-            # Only OpenAI responded
-            confidence = calculate_confidence(complaint, openai_result, language)
-            return openai_result, confidence
-        
-        elif claude_result:
-            # Only Claude responded
-            confidence = calculate_confidence(complaint, claude_result, language)
-            return claude_result, confidence
-        
-        else:
-            # No AI responses - use fallback
-            self.usage_stats['fallback_used'] += 1
-            logger.warning(f"No AI responses, using fallback for: '{complaint[:50]}...'")
-            return self._fallback_categorize(complaint), 0.3
+    def get_cost_summary(self) -> Dict[str, Any]:
+        """Get detailed cost summary"""
+        return self.cost_tracker.get_summary()
     
-    def _fallback_categorize(self, complaint: str) -> str:
-        """Simple keyword-based fallback categorization"""
-        complaint_lower = complaint.lower()
-        
-        # Simple keyword mapping
-        keyword_map = {
-            'size': 'Size/Fit Issues',
-            'small': 'Size/Fit Issues', 
-            'large': 'Size/Fit Issues',
-            'fit': 'Size/Fit Issues',
-            'comfort': 'Comfort Issues',
-            'uncomfortable': 'Comfort Issues',
-            'pain': 'Comfort Issues',
-            'broken': 'Product Defects/Quality',
-            'defective': 'Product Defects/Quality',
-            'quality': 'Product Defects/Quality',
-            'work': 'Performance/Effectiveness',
-            'wrong': 'Wrong Product/Misunderstanding',
-            'mistake': 'Customer Error/Changed Mind',
-            'shipping': 'Shipping/Fulfillment Issues'
-        }
-        
-        for keyword, category in keyword_map.items():
-            if keyword in complaint_lower:
-                return category
-        
-        return 'Other/Miscellaneous'
-    
-    def get_usage_stats(self) -> Dict[str, Any]:
-        """Get usage statistics"""
-        total_calls = self.usage_stats['total_calls']
-        return {
-            'total_calls': total_calls,
-            'openai_calls': self.usage_stats['openai_calls'],
-            'claude_calls': self.usage_stats['claude_calls'],
-            'consensus_rate': (self.usage_stats['consensus_achieved'] / max(1, total_calls)) * 100,
-            'fallback_rate': (self.usage_stats['fallback_used'] / max(1, total_calls)) * 100,
-            'dual_ai_enabled': self.openai_configured and self.claude_configured
-        }
+    def estimate_remaining_cost(self, remaining_items: int) -> float:
+        """Estimate cost for remaining items"""
+        return self.cost_tracker.estimate_remaining_cost(remaining_items)
 
 def generate_quality_insights(df, reason_summary: Dict, product_summary: Dict) -> Dict[str, Any]:
-    """Generate comprehensive quality insights from categorized data"""
+    """Generate quality insights with cost awareness"""
     
-    insights = {
-        'risk_assessment': {},
-        'root_cause_distribution': {},
-        'action_items': [],
-        'product_analysis': {},
-        'safety_alerts': []
-    }
-    
-    quality_categories = [
-        'Product Defects/Quality',
-        'Performance/Effectiveness',
-        'Design/Material Issues',
-        'Stability/Positioning Issues',
-        'Medical/Health Concerns'
-    ]
-    
-    # Filter to quality-related complaints
-    quality_complaints = df[df['Category'].isin(quality_categories)]
     total_returns = len(df)
-    quality_returns = len(quality_complaints)
+    quality_issues = {cat: count for cat, count in reason_summary.items() 
+                     if cat in ['Product Defects/Quality', 'Performance/Effectiveness',
+                               'Design/Material Issues', 'Stability/Positioning Issues',
+                               'Medical/Health Concerns']}
     
-    # Root cause analysis
-    root_causes = {}
-    safety_critical_count = 0
-    
-    for idx, row in quality_complaints.iterrows():
-        complaint = str(row.get('Complaint', ''))
-        category = row.get('Category', '')
-        product = str(row.get('Product Identifier Tag', 'Unknown Product'))
-        
-        # Extract quality patterns
-        pattern_data = extract_quality_patterns(complaint, category)
-        
-        if pattern_data['root_cause']:
-            root_cause = pattern_data['root_cause']
-            
-            if root_cause not in root_causes:
-                root_causes[root_cause] = {
-                    'count': 0,
-                    'products': set(),
-                    'examples': [],
-                    'safety_critical': 0
-                }
-            
-            root_causes[root_cause]['count'] += 1
-            root_causes[root_cause]['products'].add(product)
-            
-            if len(root_causes[root_cause]['examples']) < 3:
-                root_causes[root_cause]['examples'].append(complaint[:100])
-            
-            if pattern_data['is_safety_critical']:
-                root_causes[root_cause]['safety_critical'] += 1
-                safety_critical_count += 1
-                
-                # Add to safety alerts
-                insights['safety_alerts'].append({
-                    'product': product,
-                    'complaint': complaint[:200],
-                    'root_cause': root_cause,
-                    'severity': 'CRITICAL'
-                })
-    
-    # Convert sets to lists for JSON serialization
-    for root_cause, data in root_causes.items():
-        data['products'] = list(data['products'])
-    
-    insights['root_cause_distribution'] = root_causes
-    
-    # Generate action items based on root causes
-    for root_cause, data in root_causes.items():
-        if data['count'] >= 3:  # Only create action items for patterns with multiple occurrences
-            severity = 'HIGH' if root_cause in ['Safety Concern', 'Component Failure', 'Material Failure'] else 'MEDIUM'
-            
-            if data['safety_critical'] > 0:
-                severity = 'HIGH'
-            
-            action = {
-                'severity': severity,
-                'issue': root_cause,
-                'frequency': data['count'],
-                'affected_products': data['products'][:5],
-                'safety_critical': data['safety_critical'],
-                'recommendation': get_quality_recommendation(root_cause, data['count'], data['products']),
-                'examples': data['examples']
-            }
-            insights['action_items'].append(action)
-    
-    # Sort action items by priority
-    insights['action_items'].sort(
-        key=lambda x: (x['severity'] == 'HIGH', x['safety_critical'], x['frequency']), 
-        reverse=True
-    )
+    total_quality = sum(quality_issues.values())
+    quality_rate = (total_quality / total_returns * 100) if total_returns > 0 else 0
     
     # Risk assessment
-    quality_rate = (quality_returns / total_returns * 100) if total_returns > 0 else 0
-    
-    if safety_critical_count > 10 or quality_rate > 25:
-        risk_level = 'HIGH'
-    elif safety_critical_count > 5 or quality_rate > 15:
-        risk_level = 'MEDIUM'
+    if quality_rate > 30:
+        risk_level = "HIGH"
+    elif quality_rate > 15:
+        risk_level = "MEDIUM"
     else:
-        risk_level = 'LOW'
+        risk_level = "LOW"
     
-    # Product-specific analysis
-    high_risk_products = []
-    for product, categories in product_summary.items():
-        quality_issues = sum(count for cat, count in categories.items() if cat in quality_categories)
-        total_issues = sum(categories.values())
-        
-        if quality_issues >= 5:  # Products with significant quality issues
-            # Get safety critical count for this product
-            product_items = df[df['Product Identifier Tag'] == product]
-            safety_count = 0
-            primary_root_cause = 'Unknown'
-            
-            for _, row in product_items.iterrows():
-                if row['Category'] in quality_categories:
-                    pattern = extract_quality_patterns(str(row.get('Complaint', '')), row['Category'])
-                    if pattern['is_safety_critical']:
-                        safety_count += 1
-                    if pattern['root_cause'] and primary_root_cause == 'Unknown':
-                        primary_root_cause = pattern['root_cause']
-            
-            risk_score = quality_issues + (safety_count * 5)  # Weight safety issues more heavily
-            
-            high_risk_products.append({
-                'product': product,
-                'total_issues': total_issues,
-                'quality_issues': quality_issues,
-                'safety_issues': safety_count,
-                'risk_score': risk_score,
-                'primary_root_cause': primary_root_cause,
-                'quality_rate': (quality_issues / total_issues * 100) if total_issues > 0 else 0
+    # Top issues
+    top_quality_issues = sorted(quality_issues.items(), key=lambda x: x[1], reverse=True)[:3]
+    
+    # Action items
+    action_items = []
+    for category, count in top_quality_issues:
+        if count > 0:
+            severity = "HIGH" if count > total_returns * 0.1 else "MEDIUM"
+            action_items.append({
+                'severity': severity,
+                'issue': category,
+                'frequency': count,
+                'percentage': round(count / total_returns * 100, 1),
+                'recommendation': f"Investigate root cause of {category.lower()} issues affecting {count} returns",
+                'estimated_impact': f"Could reduce returns by {count} units"
             })
     
-    # Sort by risk score
-    high_risk_products.sort(key=lambda x: x['risk_score'], reverse=True)
+    # Product analysis
+    top_risk_products = []
+    for product, issues in product_summary.items():
+        quality_count = sum(count for cat, count in issues.items() 
+                          if cat in quality_issues.keys())
+        if quality_count > 0:
+            top_risk_products.append({
+                'product': product,
+                'total_issues': sum(issues.values()),
+                'quality_issues': quality_count,
+                'quality_rate': round(quality_count / sum(issues.values()) * 100, 1),
+                'primary_issue': max(issues.items(), key=lambda x: x[1])[0]
+            })
     
-    insights['risk_assessment'] = {
-        'overall_risk_level': risk_level,
-        'quality_rate': quality_rate,
-        'safety_critical_count': safety_critical_count,
-        'total_returns': total_returns,
-        'quality_returns': quality_returns,
-        'top_risk_products': high_risk_products[:10]
+    top_risk_products.sort(key=lambda x: x['quality_issues'], reverse=True)
+    
+    return {
+        'risk_assessment': {
+            'overall_risk_level': risk_level,
+            'quality_rate': quality_rate,
+            'total_quality_issues': total_quality,
+            'top_risk_products': top_risk_products[:10]
+        },
+        'action_items': action_items,
+        'cost_benefit': {
+            'potential_return_reduction': total_quality,
+            'estimated_savings': f"${total_quality * 15:.2f}",  # Assuming $15 avg return cost
+            'roi_timeframe': '3-6 months'
+        }
     }
-    
-    return insights
 
-# Simplified API Client for backward compatibility
+# Simplified exports for backward compatibility
 class APIClient:
-    """Simplified API client maintaining compatibility with existing code"""
-    
+    """Backward compatible API client"""
     def __init__(self, provider: AIProvider = AIProvider.BOTH):
         self.analyzer = EnhancedAIAnalyzer(provider)
     
     def categorize_return(self, complaint: str, fba_reason: str = None, 
                          use_both: bool = True, max_tokens: int = 300) -> str:
-        """Simple categorization method for compatibility"""
-        mode = 'extreme' if max_tokens > 1000 else 'enhanced' if max_tokens > 500 else 'standard'
+        mode = 'extreme' if max_tokens > 500 else 'enhanced' if max_tokens > 200 else 'standard'
         category, _, _, _ = self.analyzer.categorize_return(complaint, fba_reason, mode)
         return category
     
     def get_usage_summary(self) -> Dict[str, Any]:
-        """Get usage summary"""
-        return self.analyzer.get_usage_stats()
+        return self.analyzer.get_cost_summary()
 
-# Export all necessary components
+# Export all components
 __all__ = [
     'EnhancedAIAnalyzer',
-    'APIClient', 
+    'APIClient',
     'AIProvider',
     'MEDICAL_DEVICE_CATEGORIES',
     'FBA_REASON_MAP',
     'detect_language',
-    'translate_text', 
     'calculate_confidence',
     'detect_severity',
-    'is_duplicate',
     'extract_quality_patterns',
     'generate_quality_insights',
-    'BatchProcessor',
-    'TOKEN_LIMITS',
-    'BATCH_SIZE'
+    'CostEstimate',
+    'CostTracker',
+    'estimate_tokens',
+    'calculate_cost'
 ]
