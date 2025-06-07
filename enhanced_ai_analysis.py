@@ -37,15 +37,15 @@ requests, has_requests = safe_import('requests')
 anthropic, has_anthropic = safe_import('anthropic')
 
 # API Configuration
-API_TIMEOUT = 45
+API_TIMEOUT = 60  # Increased for extreme mode
 MAX_RETRIES = 3
-BATCH_SIZE = 100  # Process in batches for stability
+BATCH_SIZE = 50  # Smaller batches for stability
 
 # Token configurations by mode
 TOKEN_LIMITS = {
     'standard': 300,
     'enhanced': 800,
-    'extreme': 2000  # For difficult cases
+    'extreme': 2500  # Increased for very detailed analysis
 }
 
 # Model configurations
@@ -81,24 +81,6 @@ MEDICAL_DEVICE_CATEGORIES = [
     'Other/Miscellaneous'
 ]
 
-# Category keywords for fallback
-CATEGORY_KEYWORDS = {
-    'Size/Fit Issues': ['small', 'large', 'big', 'loose', 'tight', 'size', 'fit', 'narrow', 'wide', 'short', 'tall', 'thin'],
-    'Comfort Issues': ['uncomfortable', 'comfort', 'hurts', 'painful', 'pain', 'pressure', 'sore', 'firm', 'hard', 'soft', 'stiff'],
-    'Product Defects/Quality': ['defective', 'broken', 'damaged', 'quality', 'malfunction', 'defect', 'ripped', 'torn', 'not working', 'does not work'],
-    'Performance/Effectiveness': ['ineffective', 'not work', 'useless', 'performance', 'not as expected', 'does not meet', 'poor support', 'not enough'],
-    'Stability/Positioning Issues': ['unstable', 'slides', 'moves', 'position', 'falls', 'stay in place', 'slippery', 'slides around'],
-    'Equipment Compatibility': ['not compatible', 'does not fit', 'fit toilet', 'fit wheelchair', 'walker', 'machine', 'device'],
-    'Design/Material Issues': ['heavy', 'bulky', 'material', 'design', 'flimsy', 'thick', 'thin', 'grip'],
-    'Wrong Product/Misunderstanding': ['wrong', 'different', 'not as described', 'expected', 'thought it was', 'not as advertised', 'misunderstanding'],
-    'Missing Components': ['missing', 'incomplete', 'no instructions', 'parts missing', 'pieces', 'accessories'],
-    'Customer Error/Changed Mind': ['mistake', 'changed mind', 'no longer', 'patient died', 'ordered wrong', 'bought by mistake', 'unauthorized'],
-    'Shipping/Fulfillment Issues': ['shipping', 'damaged arrival', 'late', 'package', 'never arrived', 'delivery'],
-    'Assembly/Usage Difficulty': ['difficult', 'hard to', 'confusing', 'complicated', 'assembly', 'instructions', 'setup'],
-    'Medical/Health Concerns': ['doctor', 'medical', 'health', 'allergic', 'injury', 'hospital', 'reaction'],
-    'Price/Value': ['price', 'expensive', 'value', 'cheaper', 'cost', 'money', 'better price']
-}
-
 # FBA reason code mapping
 FBA_REASON_MAP = {
     'NOT_COMPATIBLE': 'Equipment Compatibility',
@@ -131,12 +113,49 @@ FBA_REASON_MAP = {
 
 # Quality patterns for root cause analysis
 QUALITY_PATTERNS = {
-    'Material Failure': ['velcro', 'strap', 'fabric', 'material', 'stitching', 'tear', 'rip', 'worn', 'fraying'],
-    'Component Failure': ['button', 'buckle', 'wheel', 'handle', 'pump', 'valve', 'motor', 'battery', 'suction'],
-    'Design Flaw': ['too heavy', 'hard to use', 'difficult to adjust', 'poor design', 'awkward', 'cumbersome', 'not intuitive'],
-    'Manufacturing Defect': ['broken on arrival', 'defective', 'missing parts', 'not assembled correctly', 'crooked', 'uneven'],
-    'Durability Issue': ['broke after', 'lasted only', 'stopped working', 'fell apart', 'wore out', 'degraded'],
-    'Safety Concern': ['unsafe', 'dangerous', 'injury', 'hurt', 'accident', 'risk', 'hazard', 'sharp edge']
+    'Material Failure': [
+        'velcro', 'strap', 'fabric', 'material', 'stitching', 'seam', 'tear', 'rip', 'worn', 
+        'fraying', 'deteriorate', 'degraded', 'cloth', 'leather', 'vinyl', 'plastic cracked'
+    ],
+    'Component Failure': [
+        'button', 'buckle', 'wheel', 'handle', 'pump', 'valve', 'motor', 'battery', 'suction',
+        'mechanism', 'joint', 'hinge', 'lock', 'latch', 'connector', 'tubing', 'cord'
+    ],
+    'Design Flaw': [
+        'too heavy', 'hard to use', 'difficult to adjust', 'poor design', 'awkward', 'cumbersome',
+        'not intuitive', 'poorly designed', 'bad ergonomics', 'uncomfortable shape', 'wrong angle'
+    ],
+    'Manufacturing Defect': [
+        'broken on arrival', 'defective', 'missing parts', 'not assembled correctly', 'crooked',
+        'uneven', 'loose screws', 'poor assembly', 'manufacturing error', 'quality control'
+    ],
+    'Durability Issue': [
+        'broke after', 'lasted only', 'stopped working', 'fell apart', 'wore out', 'degraded',
+        'short lifespan', 'not durable', 'cheaply made', 'fragile', 'flimsy construction'
+    ],
+    'Safety Concern': [
+        'unsafe', 'dangerous', 'injury', 'hurt', 'accident', 'risk', 'hazard', 'sharp edge',
+        'cut', 'pinch', 'trap', 'unstable', 'tip over', 'collapse', 'malfunction danger'
+    ]
+}
+
+# Severity keywords for medical devices
+SEVERITY_KEYWORDS = {
+    'critical': [
+        'injury', 'injured', 'hospital', 'emergency', 'doctor', 'dangerous', 'unsafe', 
+        'hazard', 'accident', 'wound', 'bleeding', 'pain severe', 'medical attention',
+        'urgent care', 'health risk', 'safety issue', 'burn', 'cut', 'bruise', 'fall',
+        'allergic reaction', 'infection', 'hospitalized', 'ambulance', 'poison', 'toxic'
+    ],
+    'major': [
+        'defective', 'broken', 'malfunction', 'unusable', 'failed', 'stopped working',
+        "doesn't work", 'not working', 'poor quality', 'fell apart', 'unreliable',
+        'safety concern', 'risk', 'worried', 'concerned about safety', 'completely broken'
+    ],
+    'minor': [
+        'uncomfortable', 'difficult', 'confusing', 'disappointed', 'not ideal',
+        'could be better', 'minor issue', 'small problem', 'slight', 'somewhat'
+    ]
 }
 
 class AIProvider(Enum):
@@ -146,38 +165,74 @@ class AIProvider(Enum):
 
 def detect_language(text: str) -> str:
     """Simple language detection"""
-    spanish_indicators = ['ñ', 'á', 'é', 'í', 'ó', 'ú', ' es ', ' la ', ' el ', ' los ', ' las ']
+    spanish_indicators = ['ñ', 'á', 'é', 'í', 'ó', 'ú', ' es ', ' la ', ' el ', ' los ', ' las ', ' de ', ' que ', ' y ']
     spanish_count = sum(1 for indicator in spanish_indicators if indicator in text.lower())
-    return 'es' if spanish_count >= 2 else 'en'
+    return 'es' if spanish_count >= 3 else 'en'
 
 def translate_text(text: str, source_lang: str = 'auto', target_lang: str = 'en') -> str:
-    """Simple passthrough - implement translation if needed"""
+    """Placeholder for translation - implement if needed"""
     return text
 
-def calculate_confidence(complaint: str, category: str, consensus: bool = False) -> float:
+def calculate_confidence(complaint: str, category: str, language: str = 'en', consensus: bool = False) -> float:
     """Calculate confidence score for categorization"""
+    confidence = 0.5  # Base confidence
+    
+    # Boost for consensus
     if consensus:
-        return 0.95  # High confidence when both AIs agree
-    return 0.85  # Standard confidence
+        confidence = 0.95
+    else:
+        confidence = 0.85
+    
+    # Adjust based on complaint length
+    word_count = len(complaint.split())
+    if word_count > 20:
+        confidence += 0.05
+    elif word_count < 5:
+        confidence -= 0.1
+    
+    # Adjust for category specificity
+    if category != 'Other/Miscellaneous':
+        confidence += 0.05
+    else:
+        confidence -= 0.1
+    
+    # Adjust for non-English
+    if language != 'en':
+        confidence -= 0.05
+    
+    return max(0.1, min(1.0, confidence))
 
 def detect_severity(complaint: str, category: str) -> str:
     """Detect severity level of complaint"""
     complaint_lower = complaint.lower()
     
-    critical_keywords = ['injury', 'injured', 'hospital', 'emergency', 'doctor', 'dangerous', 
-                        'unsafe', 'accident', 'bleeding', 'burn', 'fall', 'allergic']
-    
-    for keyword in critical_keywords:
+    # Check for critical keywords first
+    for keyword in SEVERITY_KEYWORDS['critical']:
         if keyword in complaint_lower:
             return 'critical'
     
-    if category in ['Product Defects/Quality', 'Medical/Health Concerns']:
+    # Check if medical/health category
+    if category == 'Medical/Health Concerns':
+        return 'critical'
+    
+    # Check for major keywords
+    for keyword in SEVERITY_KEYWORDS['major']:
+        if keyword in complaint_lower:
+            return 'major'
+    
+    # Check if quality defect
+    if category in ['Product Defects/Quality', 'Performance/Effectiveness']:
         return 'major'
+    
+    # Check for minor keywords
+    for keyword in SEVERITY_KEYWORDS['minor']:
+        if keyword in complaint_lower:
+            return 'minor'
     
     return 'none'
 
-def is_duplicate(complaint1: str, complaint2: str) -> bool:
-    """No duplicate detection as requested"""
+def is_duplicate(complaint1: str, complaint2: str, threshold: float = 0.85) -> bool:
+    """Placeholder - no duplicate detection as requested"""
     return False
 
 def extract_quality_patterns(complaint: str, category: str) -> Dict[str, Any]:
@@ -194,7 +249,7 @@ def extract_quality_patterns(complaint: str, category: str) -> Dict[str, Any]:
     ]
     
     if category not in quality_categories:
-        return {'patterns': [], 'root_cause': None}
+        return {'patterns': [], 'root_cause': None, 'is_safety_critical': False}
     
     for pattern_name, keywords in QUALITY_PATTERNS.items():
         for keyword in keywords:
@@ -207,59 +262,116 @@ def extract_quality_patterns(complaint: str, category: str) -> Dict[str, Any]:
     
     root_cause = None
     if patterns_found:
+        # Sort by position and take the first one
         patterns_found.sort(key=lambda x: x['position'])
         root_cause = patterns_found[0]['pattern']
+    
+    is_safety_critical = any(p['pattern'] == 'Safety Concern' for p in patterns_found)
     
     return {
         'patterns': patterns_found,
         'root_cause': root_cause,
-        'is_safety_critical': any(p['pattern'] == 'Safety Concern' for p in patterns_found)
+        'is_safety_critical': is_safety_critical
     }
 
-def get_quality_recommendation(root_cause: str, frequency: int) -> str:
+def get_quality_recommendation(root_cause: str, frequency: int, products: List[str]) -> str:
     """Generate specific quality recommendations based on root cause"""
+    product_list = ', '.join(products[:3]) + (f' (+{len(products)-3} more)' if len(products) > 3 else '')
+    
     recommendations = {
-        'Material Failure': f"Conduct material testing on affected components. Consider supplier quality audit. {frequency} cases indicate potential batch issue.",
-        'Component Failure': f"Engineering review required for component design/specification. Implement incoming inspection for this component.",
-        'Design Flaw': f"Initiate design review with engineering team. Consider user study to improve ergonomics. Pattern appears in {frequency} returns.",
-        'Manufacturing Defect': f"Investigate production line QC procedures. Possible process control issue. Review last {frequency} production batches.",
-        'Durability Issue': f"Accelerated life testing recommended. Review warranty data. Consider material upgrade or design reinforcement.",
-        'Safety Concern': f"URGENT: Conduct risk assessment per ISO 14971. Review {frequency} safety-related complaints for potential recall evaluation."
+        'Material Failure': f"IMMEDIATE ACTION: Conduct material testing and supplier audit for {product_list}. {frequency} failures indicate potential batch/supplier issue requiring vendor corrective action.",
+        
+        'Component Failure': f"ENGINEERING REVIEW: Component design verification required for {product_list}. Implement incoming inspection protocols. {frequency} failures suggest design tolerance or supplier quality issue.",
+        
+        'Design Flaw': f"DESIGN CONTROL: Initiate formal design review per ISO 13485 for {product_list}. Consider usability study and risk analysis update. {frequency} complaints indicate user interface improvement needed.",
+        
+        'Manufacturing Defect': f"PRODUCTION CONTROL: Investigation of manufacturing processes required. Review last {frequency} production lots for {product_list}. Implement enhanced process monitoring and operator training.",
+        
+        'Durability Issue': f"VERIFICATION & VALIDATION: Conduct accelerated life testing per relevant standards. Review warranty data trends. {frequency} durability failures may require material upgrade or design reinforcement.",
+        
+        'Safety Concern': f"URGENT - RISK MANAGEMENT: Immediate risk assessment per ISO 14971 required. {frequency} safety complaints for {product_list} may trigger post-market surveillance action or field safety notice evaluation."
     }
     
-    return recommendations.get(root_cause, f"Investigate {frequency} occurrences of {root_cause} pattern.")
+    return recommendations.get(root_cause, f"Investigate {frequency} occurrences of {root_cause} pattern affecting {product_list}.")
 
 class BatchProcessor:
-    """Handle batch processing with checkpoints"""
+    """Handle batch processing with checkpoints for large datasets"""
     
-    @staticmethod
-    def save_checkpoint(data: Dict, checkpoint_file: str):
+    def __init__(self, batch_size: int = BATCH_SIZE):
+        self.batch_size = batch_size
+        self.checkpoint_dir = "checkpoints"
+        self._ensure_checkpoint_dir()
+    
+    def _ensure_checkpoint_dir(self):
+        """Ensure checkpoint directory exists"""
+        try:
+            if not os.path.exists(self.checkpoint_dir):
+                os.makedirs(self.checkpoint_dir)
+        except Exception as e:
+            logger.warning(f"Could not create checkpoint directory: {e}")
+    
+    def save_checkpoint(self, data: Dict, checkpoint_file: str):
         """Save processing checkpoint"""
         try:
-            with open(checkpoint_file, 'wb') as f:
+            filepath = os.path.join(self.checkpoint_dir, checkpoint_file)
+            with open(filepath, 'wb') as f:
                 pickle.dump(data, f)
-            logger.info(f"Saved checkpoint to {checkpoint_file}")
+            logger.info(f"Saved checkpoint: {len(data.get('processed', []))} items")
         except Exception as e:
             logger.error(f"Failed to save checkpoint: {e}")
     
-    @staticmethod
-    def load_checkpoint(checkpoint_file: str) -> Optional[Dict]:
+    def load_checkpoint(self, checkpoint_file: str) -> Optional[Dict]:
         """Load processing checkpoint"""
         try:
-            if os.path.exists(checkpoint_file):
-                with open(checkpoint_file, 'rb') as f:
+            filepath = os.path.join(self.checkpoint_dir, checkpoint_file)
+            if os.path.exists(filepath):
+                with open(filepath, 'rb') as f:
                     data = pickle.load(f)
-                logger.info(f"Loaded checkpoint from {checkpoint_file}")
+                logger.info(f"Loaded checkpoint: {len(data.get('processed', []))} items")
                 return data
         except Exception as e:
             logger.error(f"Failed to load checkpoint: {e}")
         return None
     
-    @staticmethod
-    def get_checkpoint_file() -> str:
-        """Generate checkpoint filename"""
+    def get_checkpoint_file(self, prefix: str = "categorization") -> str:
+        """Generate checkpoint filename with timestamp"""
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        return f"categorization_checkpoint_{timestamp}.pkl"
+        return f"{prefix}_checkpoint_{timestamp}.pkl"
+    
+    def process_in_batches(self, items: List, processor_func, checkpoint_interval: int = 5):
+        """Process items in batches with periodic checkpoints"""
+        total_items = len(items)
+        processed_items = []
+        checkpoint_file = self.get_checkpoint_file()
+        batch_count = 0
+        
+        for i in range(0, total_items, self.batch_size):
+            batch = items[i:i + self.batch_size]
+            batch_results = []
+            
+            # Process batch
+            for item in batch:
+                try:
+                    result = processor_func(item)
+                    batch_results.append(result)
+                except Exception as e:
+                    logger.error(f"Error processing item: {e}")
+                    batch_results.append(None)
+            
+            processed_items.extend(batch_results)
+            batch_count += 1
+            
+            # Save checkpoint periodically
+            if batch_count % checkpoint_interval == 0:
+                checkpoint_data = {
+                    'processed': processed_items,
+                    'total_items': total_items,
+                    'batch_count': batch_count,
+                    'timestamp': datetime.now().isoformat()
+                }
+                self.save_checkpoint(checkpoint_data, checkpoint_file)
+        
+        return processed_items
 
 class EnhancedAIAnalyzer:
     """Main AI analyzer with dual AI support and extreme mode"""
@@ -270,18 +382,32 @@ class EnhancedAIAnalyzer:
         self.claude_key = self._get_api_key('claude')
         
         # Initialize API clients
-        self.openai_configured = bool(self.openai_key)
-        self.claude_configured = bool(self.claude_key) and has_anthropic
+        self.openai_configured = bool(self.openai_key and has_requests)
+        self.claude_configured = bool(self.claude_key and has_anthropic)
         
         if self.claude_configured:
-            self.claude_client = anthropic.Anthropic(api_key=self.claude_key)
+            try:
+                self.claude_client = anthropic.Anthropic(api_key=self.claude_key)
+            except Exception as e:
+                logger.error(f"Failed to initialize Claude client: {e}")
+                self.claude_configured = False
+                self.claude_client = None
         else:
             self.claude_client = None
         
-        logger.info(f"AI Analyzer initialized - OpenAI: {self.openai_configured}, Claude: {self.claude_configured}")
+        # Usage tracking
+        self.usage_stats = {
+            'total_calls': 0,
+            'openai_calls': 0,
+            'claude_calls': 0,
+            'consensus_achieved': 0,
+            'fallback_used': 0
+        }
+        
+        logger.info(f"AI Analyzer initialized - OpenAI: {self.openai_configured}, Claude: {self.claude_configured}, Provider: {provider.value}")
     
     def _get_api_key(self, provider: str) -> Optional[str]:
-        """Get API key from multiple sources"""
+        """Get API key from multiple sources with comprehensive search"""
         # Try Streamlit secrets first
         try:
             import streamlit as st
@@ -289,56 +415,67 @@ class EnhancedAIAnalyzer:
                 if provider == 'openai':
                     for key_name in ["openai_api_key", "OPENAI_API_KEY", "openai", "api_key"]:
                         if key_name in st.secrets:
-                            logger.info(f"Found OpenAI key in Streamlit secrets")
-                            return str(st.secrets[key_name])
+                            key_value = str(st.secrets[key_name]).strip()
+                            if key_value.startswith('sk-'):
+                                logger.info(f"Found OpenAI key in Streamlit secrets ({key_name})")
+                                return key_value
                 elif provider == 'claude':
                     for key_name in ["anthropic_api_key", "ANTHROPIC_API_KEY", "claude_api_key", "claude"]:
                         if key_name in st.secrets:
-                            logger.info(f"Found Claude key in Streamlit secrets")
-                            return str(st.secrets[key_name])
+                            key_value = str(st.secrets[key_name]).strip()
+                            if key_value.startswith('sk-ant-'):
+                                logger.info(f"Found Claude key in Streamlit secrets ({key_name})")
+                                return key_value
         except Exception as e:
             logger.debug(f"Streamlit secrets not available: {e}")
         
         # Try environment variables
         if provider == 'openai':
             for env_name in ["OPENAI_API_KEY", "OPENAI_API", "API_KEY"]:
-                api_key = os.environ.get(env_name)
-                if api_key:
-                    logger.info(f"Found OpenAI key in environment")
+                api_key = os.environ.get(env_name, '').strip()
+                if api_key and api_key.startswith('sk-'):
+                    logger.info(f"Found OpenAI key in environment ({env_name})")
                     return api_key
         elif provider == 'claude':
             for env_name in ["ANTHROPIC_API_KEY", "CLAUDE_API_KEY"]:
-                api_key = os.environ.get(env_name)
-                if api_key:
-                    logger.info(f"Found Claude key in environment")
+                api_key = os.environ.get(env_name, '').strip()
+                if api_key and api_key.startswith('sk-ant-'):
+                    logger.info(f"Found Claude key in environment ({env_name})")
                     return api_key
         
-        logger.warning(f"No {provider} API key found")
+        logger.warning(f"No valid {provider} API key found")
         return None
     
     def get_api_status(self) -> Dict[str, Any]:
-        """Get API availability status"""
+        """Get comprehensive API availability status"""
         status = {
             'available': self.openai_configured or self.claude_configured,
             'openai_configured': self.openai_configured,
             'claude_configured': self.claude_configured,
             'dual_ai_available': self.openai_configured and self.claude_configured,
-            'message': ''
+            'provider': self.provider.value,
+            'extreme_mode_available': self.openai_configured or self.claude_configured,
+            'message': '',
+            'capabilities': []
         }
         
         if status['dual_ai_available']:
-            status['message'] = 'Both OpenAI and Claude APIs ready'
+            status['message'] = 'Dual AI ready: OpenAI + Claude consensus mode available'
+            status['capabilities'] = ['Consensus categorization', 'Extreme mode', 'Quality pattern recognition']
         elif self.openai_configured:
-            status['message'] = 'OpenAI API ready (Claude not configured)'
+            status['message'] = 'OpenAI ready (Claude not configured)'
+            status['capabilities'] = ['OpenAI categorization', 'Extreme mode', 'Quality patterns']
         elif self.claude_configured:
-            status['message'] = 'Claude API ready (OpenAI not configured)'
+            status['message'] = 'Claude ready (OpenAI not configured)'
+            status['capabilities'] = ['Claude categorization', 'Extreme mode', 'Quality patterns']
         else:
-            status['message'] = 'No APIs configured'
+            status['message'] = 'No APIs configured - unable to process'
+            status['available'] = False
         
         return status
     
     def _call_openai(self, prompt: str, system_prompt: str, mode: str = 'standard') -> Optional[str]:
-        """Call OpenAI API"""
+        """Call OpenAI API with comprehensive error handling"""
         if not self.openai_configured:
             return None
         
@@ -358,218 +495,391 @@ class EnhancedAIAnalyzer:
             ],
             "temperature": 0.1,
             "max_tokens": max_tokens,
-            "top_p": 0.95
+            "top_p": 0.95,
+            "frequency_penalty": 0.0,
+            "presence_penalty": 0.0
         }
         
-        try:
-            response = requests.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=API_TIMEOUT
-            )
-            
-            if response.status_code == 200:
-                result = response.json()
-                return result["choices"][0]["message"]["content"].strip()
-            else:
-                logger.error(f"OpenAI API error: {response.status_code}")
-                return None
+        for attempt in range(MAX_RETRIES):
+            try:
+                response = requests.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers=headers,
+                    json=payload,
+                    timeout=API_TIMEOUT
+                )
                 
-        except Exception as e:
-            logger.error(f"OpenAI call error: {e}")
-            return None
+                if response.status_code == 200:
+                    result = response.json()
+                    content = result["choices"][0]["message"]["content"].strip()
+                    self.usage_stats['openai_calls'] += 1
+                    self.usage_stats['total_calls'] += 1
+                    return content
+                    
+                elif response.status_code == 429:
+                    # Rate limit - wait and retry
+                    wait_time = min(2 ** attempt * 2, 30)
+                    logger.warning(f"OpenAI rate limited, waiting {wait_time}s")
+                    time.sleep(wait_time)
+                    continue
+                    
+                else:
+                    logger.error(f"OpenAI API error {response.status_code}: {response.text}")
+                    if attempt == MAX_RETRIES - 1:
+                        return None
+                    time.sleep(2 ** attempt)
+                    
+            except requests.exceptions.Timeout:
+                logger.warning(f"OpenAI timeout on attempt {attempt + 1}")
+                if attempt == MAX_RETRIES - 1:
+                    return None
+                time.sleep(2 ** attempt)
+                
+            except Exception as e:
+                logger.error(f"OpenAI call error: {e}")
+                if attempt == MAX_RETRIES - 1:
+                    return None
+                time.sleep(2 ** attempt)
+        
+        return None
     
     def _call_claude(self, prompt: str, system_prompt: str, mode: str = 'standard') -> Optional[str]:
-        """Call Claude API"""
+        """Call Claude API with comprehensive error handling"""
         if not self.claude_configured or not self.claude_client:
             return None
         
         model = MODELS['claude'][mode]
         max_tokens = TOKEN_LIMITS[mode]
         
-        try:
-            response = self.claude_client.messages.create(
-                model=model,
-                max_tokens=max_tokens,
-                temperature=0.1,
-                system=system_prompt,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            
-            return response.content[0].text.strip()
-            
-        except Exception as e:
-            logger.error(f"Claude call error: {e}")
-            return None
+        for attempt in range(MAX_RETRIES):
+            try:
+                response = self.claude_client.messages.create(
+                    model=model,
+                    max_tokens=max_tokens,
+                    temperature=0.1,
+                    system=system_prompt,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                
+                content = response.content[0].text.strip()
+                self.usage_stats['claude_calls'] += 1
+                self.usage_stats['total_calls'] += 1
+                return content
+                
+            except Exception as e:
+                logger.error(f"Claude call error (attempt {attempt + 1}): {e}")
+                if attempt == MAX_RETRIES - 1:
+                    return None
+                time.sleep(2 ** attempt)
+        
+        return None
     
     def categorize_return(self, complaint: str, fba_reason: str = None, mode: str = 'standard') -> Tuple[str, float, str, str]:
-        """Categorize using dual AI with consensus"""
+        """
+        Main categorization method with dual AI consensus
         
-        # Check FBA mapping first
+        Returns:
+            Tuple[category, confidence, severity, language]
+        """
+        if not complaint or not complaint.strip():
+            return 'Other/Miscellaneous', 0.1, 'none', 'en'
+        
+        # Detect language
+        language = detect_language(complaint)
+        
+        # Check FBA mapping first for quick categorization
         if fba_reason and fba_reason in FBA_REASON_MAP:
             category = FBA_REASON_MAP[fba_reason]
-            return category, 0.95, detect_severity(complaint, category), 'en'
+            severity = detect_severity(complaint, category)
+            confidence = calculate_confidence(complaint, category, language)
+            logger.info(f"FBA mapping used: {fba_reason} -> {category}")
+            return category, confidence, severity, language
+        
+        # Determine processing mode based on complaint complexity
+        if mode == 'standard' and len(complaint.split()) > 50:
+            mode = 'enhanced'  # Auto-upgrade for complex complaints
         
         # Build prompts
-        system_prompt = f"""You are a quality expert categorizing medical device returns. 
-
-You MUST respond with EXACTLY one of these categories (copy exactly as shown):
-{chr(10).join(f'"{cat}"' for cat in MEDICAL_DEVICE_CATEGORIES)}
-
-Do not add any other text, explanation, or punctuation. Just the category name."""
+        system_prompt = self._build_system_prompt(mode)
+        user_prompt = self._build_user_prompt(complaint, fba_reason, mode)
         
-        if mode == 'extreme':
-            # Extreme mode - very detailed prompt
-            prompt = f"""Carefully analyze this medical device return complaint using deep reasoning.
-
-COMPLAINT: "{complaint}"
-"""
-            if fba_reason:
-                prompt += f"\nFBA REASON CODE: {fba_reason}"
-            
-            prompt += f"""
-
-STEP-BY-STEP ANALYSIS REQUIRED:
-1. Identify ALL issues mentioned in the complaint
-2. Determine the PRIMARY reason for return
-3. Consider medical device context and safety implications
-4. Match to the most specific category possible
-
-DETAILED CATEGORY DEFINITIONS:
-- "Size/Fit Issues": Product physical dimensions don't match user's body/equipment (too small, large, tight, loose, narrow, wide)
-- "Comfort Issues": Product causes physical discomfort, pain, pressure points during normal use
-- "Product Defects/Quality": Manufacturing defects, broken components, quality control failures, damaged items
-- "Performance/Effectiveness": Product fails to perform its intended medical function or therapeutic benefit
-- "Stability/Positioning Issues": Product moves, slides, falls, or doesn't maintain proper position during use
-- "Equipment Compatibility": Doesn't properly interface with wheelchairs, walkers, beds, toilets, or other equipment
-- "Design/Material Issues": Inherent design problems, material choices that affect usability (weight, bulkiness, material quality)
-- "Wrong Product/Misunderstanding": Customer received or ordered incorrect item, product not as described/expected
-- "Missing Components": Package incomplete, missing parts, accessories, or instructions
-- "Customer Error/Changed Mind": Customer mistake, no longer needed, patient condition changed, unauthorized purchase
-- "Shipping/Fulfillment Issues": Delivery problems, packaging damage, late arrival
-- "Assembly/Usage Difficulty": Hard to set up, confusing instructions, difficult to operate
-- "Medical/Health Concerns": Allergic reactions, medical complications, doctor disapproval, safety issues
-- "Price/Value": Cost concerns, found cheaper alternative, not worth the price
-- "Other/Miscellaneous": ONLY if absolutely no other category fits
-
-IMPORTANT DISTINCTIONS:
-- If product is "too small/large" = Size/Fit Issues (NOT Design/Material)
-- If product "doesn't work" = Performance/Effectiveness (NOT Product Defects)
-- If "hard to use" = Assembly/Usage Difficulty (NOT Design/Material)
-- If "broken on arrival" = Product Defects/Quality (NOT Shipping)
-- If "uncomfortable" = Comfort Issues (NOT Size/Fit)
-
-Analyze the complaint thoroughly, then respond with the single best matching category name."""
-        
-        else:
-            # Standard mode prompt
-            prompt = f"""Categorize this medical device return complaint.
-
-Complaint: "{complaint}"
-"""
-            if fba_reason:
-                prompt += f"\nFBA Reason Code: {fba_reason}"
-            
-            prompt += f"""
-
-Choose exactly ONE category from:
-{chr(10).join(f'- {cat}' for cat in MEDICAL_DEVICE_CATEGORIES)}
-
-Respond with ONLY the category name."""
-        
-        # Get responses from both AIs if available
+        # Get responses from available AIs
         openai_result = None
         claude_result = None
         
         if self.provider in [AIProvider.OPENAI, AIProvider.BOTH] and self.openai_configured:
-            openai_result = self._call_openai(prompt, system_prompt, mode)
+            openai_result = self._call_openai(user_prompt, system_prompt, mode)
             if openai_result:
                 openai_result = self._clean_category_response(openai_result)
         
         if self.provider in [AIProvider.CLAUDE, AIProvider.BOTH] and self.claude_configured:
-            claude_result = self._call_claude(prompt, system_prompt, mode)
+            claude_result = self._call_claude(user_prompt, system_prompt, mode)
             if claude_result:
                 claude_result = self._clean_category_response(claude_result)
         
-        # Determine final category
+        # Determine final category with consensus logic
+        category, confidence = self._determine_consensus(openai_result, claude_result, complaint, language)
+        severity = detect_severity(complaint, category)
+        
+        # Log result for debugging
         if openai_result and claude_result:
-            # Both responded - check consensus
-            if openai_result == claude_result:
-                # Consensus!
-                severity = detect_severity(complaint, openai_result)
-                logger.info(f"AI consensus: '{complaint[:50]}...' -> {openai_result}")
-                return openai_result, 0.95, severity, 'en'
-            else:
-                # Disagreement - prefer non-Other category
-                logger.warning(f"AI disagreement - OpenAI: {openai_result}, Claude: {claude_result}")
-                if openai_result != 'Other/Miscellaneous':
-                    category = openai_result
-                elif claude_result != 'Other/Miscellaneous':
-                    category = claude_result
-                else:
-                    category = openai_result  # Default to OpenAI
-                
-                severity = detect_severity(complaint, category)
-                return category, 0.75, severity, 'en'
+            consensus = openai_result == claude_result
+            if consensus:
+                self.usage_stats['consensus_achieved'] += 1
+            logger.info(f"Dual AI: OpenAI='{openai_result}', Claude='{claude_result}', Consensus={consensus}, Final='{category}'")
         
-        elif openai_result:
-            # Only OpenAI responded
-            severity = detect_severity(complaint, openai_result)
-            return openai_result, 0.85, severity, 'en'
+        return category, confidence, severity, language
+    
+    def _build_system_prompt(self, mode: str) -> str:
+        """Build system prompt based on processing mode"""
+        base_prompt = """You are a medical device quality expert specializing in categorizing product returns.
+
+CRITICAL INSTRUCTIONS:
+1. You MUST respond with EXACTLY one category name from the provided list
+2. Copy the category name EXACTLY as written (including capitalization and punctuation)
+3. Do not add quotes, explanations, or any other text
+4. Choose the MOST SPECIFIC category that fits the primary complaint"""
         
-        elif claude_result:
-            # Only Claude responded
-            severity = detect_severity(complaint, claude_result)
-            return claude_result, 0.85, severity, 'en'
+        if mode == 'extreme':
+            base_prompt += """
+
+EXTREME ANALYSIS MODE:
+- Perform deep linguistic analysis of the complaint
+- Consider multiple interpretations and contexts
+- Analyze sentiment, intent, and underlying issues
+- Apply medical device regulatory knowledge
+- Consider patient safety implications
+- Use advanced reasoning to handle ambiguous cases"""
+        
+        return base_prompt
+    
+    def _build_user_prompt(self, complaint: str, fba_reason: str, mode: str) -> str:
+        """Build user prompt based on processing mode"""
+        
+        categories_list = '\n'.join(f'- {cat}' for cat in MEDICAL_DEVICE_CATEGORIES)
+        
+        if mode == 'extreme':
+            prompt = f"""MEDICAL DEVICE RETURN ANALYSIS - EXTREME MODE
+
+COMPLAINT TEXT: "{complaint}"
+"""
+            if fba_reason:
+                prompt += f"AMAZON FBA REASON CODE: {fba_reason}\n"
+            
+            prompt += f"""
+AVAILABLE CATEGORIES:
+{categories_list}
+
+COMPREHENSIVE ANALYSIS FRAMEWORK:
+
+1. LINGUISTIC ANALYSIS:
+   - Parse the complaint for explicit and implicit meanings
+   - Identify primary vs. secondary issues mentioned
+   - Analyze emotional context and severity indicators
+
+2. MEDICAL DEVICE CONTEXT:
+   - Consider the medical/therapeutic purpose
+   - Evaluate patient safety implications
+   - Assess impact on intended use
+
+3. ROOT CAUSE IDENTIFICATION:
+   - Distinguish between product, user, or external factors
+   - Identify whether issue is design, manufacturing, or usage-related
+   - Consider regulatory classification implications
+
+4. CATEGORY MAPPING DECISION TREE:
+   - If physical dimensions mentioned → Size/Fit Issues
+   - If discomfort during use → Comfort Issues
+   - If broken/defective/malfunction → Product Defects/Quality
+   - If doesn't achieve therapeutic goal → Performance/Effectiveness
+   - If product moves/slides/unstable → Stability/Positioning Issues
+   - If incompatible with other equipment → Equipment Compatibility
+   - If design criticism or material issues → Design/Material Issues
+   - If wrong item or misunderstood → Wrong Product/Misunderstanding
+   - If missing parts/instructions → Missing Components
+   - If customer error or changed mind → Customer Error/Changed Mind
+   - If shipping/delivery problems → Shipping/Fulfillment Issues
+   - If setup/usage difficulties → Assembly/Usage Difficulty
+   - If health/safety/medical concerns → Medical/Health Concerns
+   - If price/value related → Price/Value
+   - If none clearly fit → Other/Miscellaneous
+
+5. CONFIDENCE VALIDATION:
+   - Verify the selected category against complaint details
+   - Ensure no better-fitting category exists
+   - Consider edge cases and overlapping categories
+
+Based on this comprehensive analysis, respond with the EXACT category name that best fits the primary complaint."""
         
         else:
-            # No AI responses - fallback to keywords
-            logger.warning(f"No AI responses for: '{complaint[:50]}...'")
-            complaint_lower = complaint.lower()
-            for category, keywords in CATEGORY_KEYWORDS.items():
-                if any(keyword in complaint_lower for keyword in keywords):
-                    severity = detect_severity(complaint, category)
-                    return category, 0.7, severity, 'en'
+            # Standard or enhanced mode
+            prompt = f"""Categorize this medical device return complaint.
+
+COMPLAINT: "{complaint}"
+"""
+            if fba_reason:
+                prompt += f"FBA REASON: {fba_reason}\n"
             
-            return 'Other/Miscellaneous', 0.5, 'none', 'en'
+            prompt += f"""
+CATEGORIES:
+{categories_list}
+
+Instructions:
+- Choose the category that best matches the PRIMARY reason for return
+- If multiple issues exist, focus on the most significant one
+- For medical devices, consider safety and intended use
+- Respond with ONLY the exact category name"""
+        
+        return prompt
     
     def _clean_category_response(self, response: str) -> str:
-        """Clean and validate category response"""
-        # Remove quotes and whitespace
+        """Clean and validate AI response to extract valid category"""
+        if not response:
+            return 'Other/Miscellaneous'
+        
+        # Remove common prefixes and suffixes
         response = response.strip()
-        if response.startswith('"') and response.endswith('"'):
-            response = response[1:-1]
-        if response.startswith("'") and response.endswith("'"):
-            response = response[1:-1]
+        response = re.sub(r'^(Category:|The category is:?|Answer:|Response:)\s*', '', response, flags=re.IGNORECASE)
+        response = re.sub(r'^["\'-]+|["\'-]+$', '', response)  # Remove quotes
         response = response.strip()
         
-        # Find exact match
+        # Try exact match first
         for valid_cat in MEDICAL_DEVICE_CATEGORIES:
             if response == valid_cat:
                 return valid_cat
         
-        # Try case-insensitive
+        # Try case-insensitive match
+        response_lower = response.lower()
         for valid_cat in MEDICAL_DEVICE_CATEGORIES:
-            if response.lower() == valid_cat.lower():
+            if response_lower == valid_cat.lower():
                 return valid_cat
         
-        # Try partial match
+        # Try partial matching
         for valid_cat in MEDICAL_DEVICE_CATEGORIES:
-            if valid_cat in response or response in valid_cat:
+            # Check if the valid category is contained in the response
+            if valid_cat.lower() in response_lower:
+                return valid_cat
+            # Check if the response is contained in the valid category
+            if response_lower in valid_cat.lower():
                 return valid_cat
         
-        logger.warning(f"Could not match category: '{response}'")
+        # Try fuzzy matching for common variations
+        category_variations = {
+            'size': 'Size/Fit Issues',
+            'comfort': 'Comfort Issues',
+            'quality': 'Product Defects/Quality',
+            'defect': 'Product Defects/Quality',
+            'performance': 'Performance/Effectiveness',
+            'stability': 'Stability/Positioning Issues',
+            'compatibility': 'Equipment Compatibility',
+            'design': 'Design/Material Issues',
+            'wrong': 'Wrong Product/Misunderstanding',
+            'missing': 'Missing Components',
+            'customer': 'Customer Error/Changed Mind',
+            'shipping': 'Shipping/Fulfillment Issues',
+            'assembly': 'Assembly/Usage Difficulty',
+            'medical': 'Medical/Health Concerns',
+            'price': 'Price/Value'
+        }
+        
+        for keyword, category in category_variations.items():
+            if keyword in response_lower:
+                return category
+        
+        logger.warning(f"Could not match AI response to valid category: '{response}'")
         return 'Other/Miscellaneous'
+    
+    def _determine_consensus(self, openai_result: Optional[str], claude_result: Optional[str], 
+                           complaint: str, language: str) -> Tuple[str, float]:
+        """Determine final category based on AI consensus"""
+        
+        if openai_result and claude_result:
+            # Both AIs responded
+            if openai_result == claude_result:
+                # Perfect consensus
+                confidence = calculate_confidence(complaint, openai_result, language, consensus=True)
+                return openai_result, confidence
+            else:
+                # Disagreement - use logic to resolve
+                logger.info(f"AI disagreement: OpenAI='{openai_result}', Claude='{claude_result}'")
+                
+                # Prefer non-"Other" categories
+                if openai_result != 'Other/Miscellaneous' and claude_result == 'Other/Miscellaneous':
+                    category = openai_result
+                elif claude_result != 'Other/Miscellaneous' and openai_result == 'Other/Miscellaneous':
+                    category = claude_result
+                else:
+                    # Both are specific categories - prefer OpenAI (can be customized)
+                    category = openai_result
+                
+                confidence = calculate_confidence(complaint, category, language, consensus=False) * 0.8  # Reduced confidence
+                return category, confidence
+        
+        elif openai_result:
+            # Only OpenAI responded
+            confidence = calculate_confidence(complaint, openai_result, language)
+            return openai_result, confidence
+        
+        elif claude_result:
+            # Only Claude responded
+            confidence = calculate_confidence(complaint, claude_result, language)
+            return claude_result, confidence
+        
+        else:
+            # No AI responses - use fallback
+            self.usage_stats['fallback_used'] += 1
+            logger.warning(f"No AI responses, using fallback for: '{complaint[:50]}...'")
+            return self._fallback_categorize(complaint), 0.3
+    
+    def _fallback_categorize(self, complaint: str) -> str:
+        """Simple keyword-based fallback categorization"""
+        complaint_lower = complaint.lower()
+        
+        # Simple keyword mapping
+        keyword_map = {
+            'size': 'Size/Fit Issues',
+            'small': 'Size/Fit Issues', 
+            'large': 'Size/Fit Issues',
+            'fit': 'Size/Fit Issues',
+            'comfort': 'Comfort Issues',
+            'uncomfortable': 'Comfort Issues',
+            'pain': 'Comfort Issues',
+            'broken': 'Product Defects/Quality',
+            'defective': 'Product Defects/Quality',
+            'quality': 'Product Defects/Quality',
+            'work': 'Performance/Effectiveness',
+            'wrong': 'Wrong Product/Misunderstanding',
+            'mistake': 'Customer Error/Changed Mind',
+            'shipping': 'Shipping/Fulfillment Issues'
+        }
+        
+        for keyword, category in keyword_map.items():
+            if keyword in complaint_lower:
+                return category
+        
+        return 'Other/Miscellaneous'
+    
+    def get_usage_stats(self) -> Dict[str, Any]:
+        """Get usage statistics"""
+        total_calls = self.usage_stats['total_calls']
+        return {
+            'total_calls': total_calls,
+            'openai_calls': self.usage_stats['openai_calls'],
+            'claude_calls': self.usage_stats['claude_calls'],
+            'consensus_rate': (self.usage_stats['consensus_achieved'] / max(1, total_calls)) * 100,
+            'fallback_rate': (self.usage_stats['fallback_used'] / max(1, total_calls)) * 100,
+            'dual_ai_enabled': self.openai_configured and self.claude_configured
+        }
 
 def generate_quality_insights(df, reason_summary: Dict, product_summary: Dict) -> Dict[str, Any]:
-    """Generate actionable quality insights from categorized data"""
+    """Generate comprehensive quality insights from categorized data"""
+    
     insights = {
-        'critical_patterns': {},
-        'product_specific_issues': {},
+        'risk_assessment': {},
         'root_cause_distribution': {},
         'action_items': [],
-        'risk_assessment': {}
+        'product_analysis': {},
+        'safety_alerts': []
     }
     
     quality_categories = [
@@ -580,130 +890,166 @@ def generate_quality_insights(df, reason_summary: Dict, product_summary: Dict) -
         'Medical/Health Concerns'
     ]
     
+    # Filter to quality-related complaints
     quality_complaints = df[df['Category'].isin(quality_categories)]
+    total_returns = len(df)
+    quality_returns = len(quality_complaints)
+    
+    # Root cause analysis
+    root_causes = {}
+    safety_critical_count = 0
     
     for idx, row in quality_complaints.iterrows():
         complaint = str(row.get('Complaint', ''))
         category = row.get('Category', '')
-        product = str(row.get('Product Identifier Tag', 'Unknown'))
+        product = str(row.get('Product Identifier Tag', 'Unknown Product'))
         
+        # Extract quality patterns
         pattern_data = extract_quality_patterns(complaint, category)
         
         if pattern_data['root_cause']:
             root_cause = pattern_data['root_cause']
-            if root_cause not in insights['root_cause_distribution']:
-                insights['root_cause_distribution'][root_cause] = {
+            
+            if root_cause not in root_causes:
+                root_causes[root_cause] = {
                     'count': 0,
                     'products': set(),
-                    'examples': []
-                }
-            
-            insights['root_cause_distribution'][root_cause]['count'] += 1
-            insights['root_cause_distribution'][root_cause]['products'].add(product)
-            
-            if len(insights['root_cause_distribution'][root_cause]['examples']) < 3:
-                insights['root_cause_distribution'][root_cause]['examples'].append(complaint[:100])
-            
-            if product not in insights['product_specific_issues']:
-                insights['product_specific_issues'][product] = {
-                    'total_quality_issues': 0,
-                    'root_causes': {},
+                    'examples': [],
                     'safety_critical': 0
                 }
             
-            insights['product_specific_issues'][product]['total_quality_issues'] += 1
+            root_causes[root_cause]['count'] += 1
+            root_causes[root_cause]['products'].add(product)
             
-            if root_cause not in insights['product_specific_issues'][product]['root_causes']:
-                insights['product_specific_issues'][product]['root_causes'][root_cause] = 0
-            insights['product_specific_issues'][product]['root_causes'][root_cause] += 1
+            if len(root_causes[root_cause]['examples']) < 3:
+                root_causes[root_cause]['examples'].append(complaint[:100])
             
             if pattern_data['is_safety_critical']:
-                insights['product_specific_issues'][product]['safety_critical'] += 1
+                root_causes[root_cause]['safety_critical'] += 1
+                safety_critical_count += 1
+                
+                # Add to safety alerts
+                insights['safety_alerts'].append({
+                    'product': product,
+                    'complaint': complaint[:200],
+                    'root_cause': root_cause,
+                    'severity': 'CRITICAL'
+                })
     
-    # Convert sets to lists
-    for root_cause, data in insights['root_cause_distribution'].items():
+    # Convert sets to lists for JSON serialization
+    for root_cause, data in root_causes.items():
         data['products'] = list(data['products'])
     
-    # Generate action items
-    for root_cause, data in insights['root_cause_distribution'].items():
-        if data['count'] >= 5:
-            severity = 'HIGH' if root_cause in ['Safety Concern', 'Component Failure'] else 'MEDIUM'
+    insights['root_cause_distribution'] = root_causes
+    
+    # Generate action items based on root causes
+    for root_cause, data in root_causes.items():
+        if data['count'] >= 3:  # Only create action items for patterns with multiple occurrences
+            severity = 'HIGH' if root_cause in ['Safety Concern', 'Component Failure', 'Material Failure'] else 'MEDIUM'
+            
+            if data['safety_critical'] > 0:
+                severity = 'HIGH'
             
             action = {
                 'severity': severity,
                 'issue': root_cause,
                 'frequency': data['count'],
                 'affected_products': data['products'][:5],
-                'recommendation': get_quality_recommendation(root_cause, data['count']),
+                'safety_critical': data['safety_critical'],
+                'recommendation': get_quality_recommendation(root_cause, data['count'], data['products']),
                 'examples': data['examples']
             }
             insights['action_items'].append(action)
     
-    insights['action_items'].sort(key=lambda x: (x['severity'] == 'HIGH', x['frequency']), reverse=True)
+    # Sort action items by priority
+    insights['action_items'].sort(
+        key=lambda x: (x['severity'] == 'HIGH', x['safety_critical'], x['frequency']), 
+        reverse=True
+    )
     
     # Risk assessment
-    total_returns = len(df)
-    quality_returns = len(quality_complaints)
-    safety_issues = sum(1 for _, row in quality_complaints.iterrows() 
-                       if extract_quality_patterns(str(row.get('Complaint', '')), row.get('Category', ''))['is_safety_critical'])
+    quality_rate = (quality_returns / total_returns * 100) if total_returns > 0 else 0
     
-    insights['risk_assessment'] = {
-        'quality_rate': (quality_returns / total_returns * 100) if total_returns > 0 else 0,
-        'safety_critical_count': safety_issues,
-        'top_risk_products': [],
-        'overall_risk_level': 'LOW'
-    }
+    if safety_critical_count > 10 or quality_rate > 25:
+        risk_level = 'HIGH'
+    elif safety_critical_count > 5 or quality_rate > 15:
+        risk_level = 'MEDIUM'
+    else:
+        risk_level = 'LOW'
     
-    risk_products = []
-    for product, data in insights['product_specific_issues'].items():
-        if data['safety_critical'] > 0 or data['total_quality_issues'] >= 10:
-            risk_score = data['safety_critical'] * 10 + data['total_quality_issues']
-            risk_products.append({
+    # Product-specific analysis
+    high_risk_products = []
+    for product, categories in product_summary.items():
+        quality_issues = sum(count for cat, count in categories.items() if cat in quality_categories)
+        total_issues = sum(categories.values())
+        
+        if quality_issues >= 5:  # Products with significant quality issues
+            # Get safety critical count for this product
+            product_items = df[df['Product Identifier Tag'] == product]
+            safety_count = 0
+            primary_root_cause = 'Unknown'
+            
+            for _, row in product_items.iterrows():
+                if row['Category'] in quality_categories:
+                    pattern = extract_quality_patterns(str(row.get('Complaint', '')), row['Category'])
+                    if pattern['is_safety_critical']:
+                        safety_count += 1
+                    if pattern['root_cause'] and primary_root_cause == 'Unknown':
+                        primary_root_cause = pattern['root_cause']
+            
+            risk_score = quality_issues + (safety_count * 5)  # Weight safety issues more heavily
+            
+            high_risk_products.append({
                 'product': product,
+                'total_issues': total_issues,
+                'quality_issues': quality_issues,
+                'safety_issues': safety_count,
                 'risk_score': risk_score,
-                'safety_issues': data['safety_critical'],
-                'total_issues': data['total_quality_issues'],
-                'primary_root_cause': max(data['root_causes'].items(), key=lambda x: x[1])[0] if data['root_causes'] else 'Unknown'
+                'primary_root_cause': primary_root_cause,
+                'quality_rate': (quality_issues / total_issues * 100) if total_issues > 0 else 0
             })
     
-    risk_products.sort(key=lambda x: x['risk_score'], reverse=True)
-    insights['risk_assessment']['top_risk_products'] = risk_products[:10]
+    # Sort by risk score
+    high_risk_products.sort(key=lambda x: x['risk_score'], reverse=True)
     
-    if safety_issues > 5 or insights['risk_assessment']['quality_rate'] > 20:
-        insights['risk_assessment']['overall_risk_level'] = 'HIGH'
-    elif safety_issues > 2 or insights['risk_assessment']['quality_rate'] > 10:
-        insights['risk_assessment']['overall_risk_level'] = 'MEDIUM'
+    insights['risk_assessment'] = {
+        'overall_risk_level': risk_level,
+        'quality_rate': quality_rate,
+        'safety_critical_count': safety_critical_count,
+        'total_returns': total_returns,
+        'quality_returns': quality_returns,
+        'top_risk_products': high_risk_products[:10]
+    }
     
     return insights
 
-# Simplified API Client for app compatibility
+# Simplified API Client for backward compatibility
 class APIClient:
-    """Simplified API client for the app"""
+    """Simplified API client maintaining compatibility with existing code"""
     
-    def __init__(self):
-        self.analyzer = EnhancedAIAnalyzer()
+    def __init__(self, provider: AIProvider = AIProvider.BOTH):
+        self.analyzer = EnhancedAIAnalyzer(provider)
     
-    def categorize_return(self, complaint: str, fba_reason: str = None, mode: str = 'standard') -> str:
-        """Simple categorization method"""
+    def categorize_return(self, complaint: str, fba_reason: str = None, 
+                         use_both: bool = True, max_tokens: int = 300) -> str:
+        """Simple categorization method for compatibility"""
+        mode = 'extreme' if max_tokens > 1000 else 'enhanced' if max_tokens > 500 else 'standard'
         category, _, _, _ = self.analyzer.categorize_return(complaint, fba_reason, mode)
         return category
     
     def get_usage_summary(self) -> Dict[str, Any]:
         """Get usage summary"""
-        return {
-            'total_cost': 0.0,
-            'total_calls': 0
-        }
+        return self.analyzer.get_usage_stats()
 
 # Export all necessary components
 __all__ = [
     'EnhancedAIAnalyzer',
-    'APIClient',
+    'APIClient', 
     'AIProvider',
     'MEDICAL_DEVICE_CATEGORIES',
     'FBA_REASON_MAP',
     'detect_language',
-    'translate_text',
+    'translate_text', 
     'calculate_confidence',
     'detect_severity',
     'is_duplicate',
