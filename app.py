@@ -1,12 +1,13 @@
 """
-Vive Health Quality Complaint Categorizer - Fixed Version
+Vive Health Quality Complaint Categorizer - Enhanced UI with Cost Tracking
 AI-Powered Return Reason Classification Tool with PDF Support
-Version: 12.0 - Fixed structural issues and added PDF support
+Version: 13.0 - OpenAI Only with Cost Estimation & Modern UI
 
 Key Features:
+- Real-time cost estimation and tracking
+- Modern, animated UI with better visual feedback
 - PDF parsing for Amazon Seller Central returns
 - FBA Return Report (.txt) support
-- Dual AI categorization (OpenAI + Claude)
 - Quality insights and root cause analysis
 """
 
@@ -78,11 +79,11 @@ MEDICAL_DEVICE_CATEGORIES = [
 # App Configuration
 APP_CONFIG = {
     'title': 'Vive Health Medical Device Return Categorizer',
-    'version': '12.0',
+    'version': '13.0',
     'company': 'Vive Health'
 }
 
-# Colors
+# Enhanced Colors with gradients
 COLORS = {
     'primary': '#00D9FF',
     'secondary': '#FF006E',
@@ -93,7 +94,11 @@ COLORS = {
     'dark': '#0A0A0F',
     'light': '#1A1A2E',
     'text': '#E0E0E0',
-    'muted': '#666680'
+    'muted': '#666680',
+    'gradient1': 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    'gradient2': 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+    'gradient3': 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+    'cost': '#50C878'  # Emerald green for cost
 }
 
 # Quality-related categories
@@ -106,11 +111,17 @@ QUALITY_CATEGORIES = [
     'Medical/Health Concerns'
 ]
 
-def inject_custom_css():
-    """Inject custom CSS styling"""
+# OpenAI Pricing (per 1K tokens)
+OPENAI_PRICING = {
+    'gpt-3.5-turbo': {'input': 0.0005, 'output': 0.0015},
+    'gpt-4': {'input': 0.03, 'output': 0.06}
+}
+
+def inject_enhanced_css():
+    """Inject enhanced CSS with animations and modern styling"""
     st.markdown(f"""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@400;700&display=swap');
     
     :root {{
         --primary: {COLORS['primary']};
@@ -123,84 +134,320 @@ def inject_custom_css():
         --light: {COLORS['light']};
         --text: {COLORS['text']};
         --muted: {COLORS['muted']};
+        --cost: {COLORS['cost']};
     }}
     
+    * {{
+        transition: all 0.3s ease;
+    }}
+    
+    html, body, .stApp {{
+        background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 50%, #16213e 100%);
+        color: var(--text); 
+        font-family: 'Inter', sans-serif;
+    }}
+    
+    /* Animated background */
+    .stApp::before {{
+        content: "";
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-image: 
+            radial-gradient(circle at 20% 80%, rgba(0, 217, 255, 0.05) 0%, transparent 50%),
+            radial-gradient(circle at 80% 20%, rgba(255, 0, 110, 0.05) 0%, transparent 50%),
+            radial-gradient(circle at 40% 40%, rgba(255, 183, 0, 0.05) 0%, transparent 50%);
+        animation: pulse 10s ease-in-out infinite;
+        pointer-events: none;
+        z-index: 0;
+    }}
+    
+    @keyframes pulse {{
+        0%, 100% {{ opacity: 0.8; }}
+        50% {{ opacity: 1; }}
+    }}
+    
+    /* Enhanced header with animation */
     .main-header {{
-        background: linear-gradient(135deg, rgba(0, 217, 255, 0.1) 0%, rgba(255, 0, 110, 0.1) 100%);
-        border: 2px solid var(--primary);
-        border-radius: 15px;
-        padding: 2rem;
+        background: {COLORS['gradient3']};
+        padding: 3rem;
+        border-radius: 20px;
         text-align: center;
         margin-bottom: 2rem;
+        position: relative;
+        overflow: hidden;
+        box-shadow: 0 10px 40px rgba(0, 217, 255, 0.3);
+        animation: slideIn 0.8s ease-out;
+    }}
+    
+    @keyframes slideIn {{
+        from {{
+            transform: translateY(-50px);
+            opacity: 0;
+        }}
+        to {{
+            transform: translateY(0);
+            opacity: 1;
+        }}
+    }}
+    
+    .main-header::before {{
+        content: "";
+        position: absolute;
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background: linear-gradient(45deg, transparent, rgba(255,255,255,0.1), transparent);
+        animation: shine 3s infinite;
+    }}
+    
+    @keyframes shine {{
+        0% {{ transform: translateX(-100%) translateY(-100%) rotate(45deg); }}
+        100% {{ transform: translateX(100%) translateY(100%) rotate(45deg); }}
     }}
     
     .main-title {{
-        font-size: 2.5em;
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 3em;
         font-weight: 700;
-        background: linear-gradient(90deg, var(--primary) 0%, var(--secondary) 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
+        color: white;
+        text-shadow: 0 0 30px rgba(255, 255, 255, 0.5);
         margin: 0;
+        position: relative;
+        z-index: 1;
     }}
     
-    .format-box {{
-        background: rgba(26, 26, 46, 0.8);
-        border: 1px solid var(--accent);
-        border-radius: 10px;
-        padding: 1.5rem;
-        margin: 1rem 0;
-    }}
-    
-    .results-header {{
-        background: rgba(0, 245, 160, 0.1);
-        border: 2px solid var(--success);
+    /* Cost estimation box */
+    .cost-box {{
+        background: linear-gradient(135deg, rgba(80, 200, 120, 0.1) 0%, rgba(80, 200, 120, 0.2) 100%);
+        border: 2px solid var(--cost);
         border-radius: 15px;
         padding: 1.5rem;
-        margin: 2rem 0;
+        margin: 1rem 0;
+        box-shadow: 0 0 20px rgba(80, 200, 120, 0.3);
+        animation: fadeIn 0.5s ease-out;
     }}
     
-    .ai-status-box {{
-        background: rgba(0, 217, 255, 0.1);
-        border: 2px solid var(--primary);
-        border-radius: 10px;
-        padding: 1.5rem;
+    .cost-title {{
+        color: var(--cost);
+        font-size: 1.2em;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+    }}
+    
+    .cost-value {{
+        font-size: 2em;
+        font-weight: 700;
+        color: var(--cost);
+        text-shadow: 0 0 10px rgba(80, 200, 120, 0.5);
+    }}
+    
+    /* Enhanced boxes with hover effects */
+    .info-box {{
+        background: rgba(26, 26, 46, 0.8);
+        border: 1px solid var(--primary);
+        border-radius: 15px;
+        padding: 2rem;
         margin: 1rem 0;
+        position: relative;
+        overflow: hidden;
+        transition: all 0.3s ease;
+        backdrop-filter: blur(10px);
+    }}
+    
+    .info-box:hover {{
+        transform: translateY(-5px);
+        box-shadow: 0 10px 30px rgba(0, 217, 255, 0.4);
+        border-color: var(--accent);
+    }}
+    
+    .info-box::before {{
+        content: "";
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(0, 217, 255, 0.2), transparent);
+        transition: left 0.5s ease;
+    }}
+    
+    .info-box:hover::before {{
+        left: 100%;
+    }}
+    
+    /* Animated buttons */
+    .stButton > button {{
+        font-family: 'Inter', sans-serif;
+        font-weight: 600;
+        background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+        color: white;
+        border: none;
+        padding: 1rem 2rem;
+        border-radius: 10px;
+        box-shadow: 0 4px 15px rgba(0, 217, 255, 0.4);
+        position: relative;
+        overflow: hidden;
+        transition: all 0.3s ease;
+    }}
+    
+    .stButton > button:hover {{
+        transform: translateY(-2px);
+        box-shadow: 0 6px 25px rgba(0, 217, 255, 0.6);
+    }}
+    
+    .stButton > button::before {{
+        content: "";
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+        transition: left 0.3s ease;
+    }}
+    
+    .stButton > button:hover::before {{
+        left: 100%;
+    }}
+    
+    /* Progress indicator */
+    .stProgress > div > div {{
+        background: linear-gradient(90deg, var(--primary), var(--accent));
+        height: 10px;
+        border-radius: 5px;
+        box-shadow: 0 0 10px var(--primary);
+    }}
+    
+    /* Metric cards with animation */
+    .metric-card {{
+        background: rgba(26, 26, 46, 0.9);
+        border: 2px solid rgba(0, 217, 255, 0.3);
+        border-radius: 15px;
+        padding: 1.5rem;
         text-align: center;
+        transition: all 0.3s ease;
+        cursor: pointer;
+        position: relative;
+        overflow: hidden;
     }}
     
-    .error-box {{
-        background: rgba(255, 0, 84, 0.1);
-        border: 2px solid var(--danger);
+    .metric-card:hover {{
+        transform: translateY(-5px) scale(1.05);
+        border-color: var(--primary);
+        box-shadow: 0 10px 30px rgba(0, 217, 255, 0.4);
+    }}
+    
+    .metric-card h3 {{
+        font-size: 2.5em;
+        margin: 0.5rem 0;
+        background: linear-gradient(45deg, var(--primary), var(--accent));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }}
+    
+    /* File upload area */
+    .uploadedFile {{
+        background: rgba(0, 217, 255, 0.1);
+        border: 2px dashed var(--primary);
+        border-radius: 15px;
+        transition: all 0.3s ease;
+    }}
+    
+    .uploadedFile:hover {{
+        background: rgba(0, 217, 255, 0.2);
+        border-color: var(--accent);
+    }}
+    
+    /* Success/Error messages with animation */
+    .stSuccess, .stError, .stWarning, .stInfo {{
         border-radius: 10px;
-        padding: 1.5rem;
-        margin: 1rem 0;
-    }}
-    
-    .manual-override {{
-        background: rgba(255, 183, 0, 0.1);
-        border: 2px solid var(--accent);
-        border-radius: 10px;
-        padding: 1.5rem;
-        margin: 1rem 0;
-    }}
-    
-    .pdf-info-box {{
-        background: rgba(255, 183, 0, 0.1);
-        border: 2px solid var(--accent);
-        border-radius: 10px;
-        padding: 1.5rem;
-        margin: 1rem 0;
-    }}
-    
-    .stMetric {{
-        background: rgba(26, 26, 46, 0.6);
         padding: 1rem;
-        border-radius: 10px;
-        border: 1px solid rgba(0, 217, 255, 0.3);
+        animation: slideInRight 0.5s ease-out;
     }}
     
+    @keyframes slideInRight {{
+        from {{
+            transform: translateX(50px);
+            opacity: 0;
+        }}
+        to {{
+            transform: translateX(0);
+            opacity: 1;
+        }}
+    }}
+    
+    /* Tab styling */
+    .stTabs [data-baseweb="tab-list"] {{
+        background: rgba(26, 26, 46, 0.8);
+        border-radius: 10px;
+        padding: 0.5rem;
+    }}
+    
+    .stTabs [data-baseweb="tab"] {{
+        border-radius: 8px;
+        color: var(--text);
+        font-weight: 500;
+    }}
+    
+    .stTabs [aria-selected="true"] {{
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        color: white;
+    }}
+    
+    /* Dataframe styling */
+    .dataframe {{
+        background: rgba(26, 26, 46, 0.8);
+        border-radius: 10px;
+        overflow: hidden;
+    }}
+    
+    /* Loading spinner */
+    .stSpinner > div {{
+        border-color: var(--primary);
+    }}
+    
+    /* Fade in animation for elements */
+    @keyframes fadeIn {{
+        from {{
+            opacity: 0;
+            transform: translateY(20px);
+        }}
+        to {{
+            opacity: 1;
+            transform: translateY(0);
+        }}
+    }}
+    
+    .fade-in {{
+        animation: fadeIn 0.6s ease-out;
+    }}
+    
+    /* Hide Streamlit branding */
     #MainMenu, footer, header {{
         visibility: hidden;
+    }}
+    
+    /* Custom scrollbar */
+    ::-webkit-scrollbar {{
+        width: 10px;
+        height: 10px;
+    }}
+    
+    ::-webkit-scrollbar-track {{
+        background: var(--dark);
+    }}
+    
+    ::-webkit-scrollbar-thumb {{
+        background: var(--primary);
+        border-radius: 5px;
+    }}
+    
+    ::-webkit-scrollbar-thumb:hover {{
+        background: var(--accent);
     }}
     </style>
     """, unsafe_allow_html=True)
@@ -222,9 +469,13 @@ def initialize_session_state():
         'quality_insights': None,
         'ai_failed': False,
         'manual_mode': False,
-        'ai_provider': 'both',  # Default to both APIs
         'pdf_extracted_data': None,
-        'fba_return_data': None
+        'fba_return_data': None,
+        'total_cost': 0.0,
+        'cost_breakdown': {},
+        'estimated_cost': 0.0,
+        'model_choice': 'gpt-3.5-turbo',
+        'api_calls_made': 0
     }
     
     for key, value in defaults.items():
@@ -243,20 +494,81 @@ def check_api_keys():
                 if key in st.secrets:
                     keys_found['openai'] = str(st.secrets[key]).strip()
                     break
-            
-            # Check for Claude key
-            claude_keys = ['ANTHROPIC_API_KEY', 'anthropic_api_key', 'claude_api_key', 'claude']
-            for key in claude_keys:
-                if key in st.secrets:
-                    keys_found['claude'] = str(st.secrets[key]).strip()
-                    break
     except Exception as e:
         logger.warning(f"Error checking secrets: {e}")
     
     return keys_found
 
+def estimate_cost(num_complaints: int, model: str = 'gpt-3.5-turbo') -> float:
+    """Estimate cost for processing complaints"""
+    # Average tokens per complaint (input + output)
+    avg_tokens_per_complaint = 150  # Conservative estimate
+    
+    pricing = OPENAI_PRICING.get(model, OPENAI_PRICING['gpt-3.5-turbo'])
+    
+    # Calculate estimated cost
+    total_tokens = num_complaints * avg_tokens_per_complaint
+    input_cost = (total_tokens * 0.7 / 1000) * pricing['input']  # 70% input
+    output_cost = (total_tokens * 0.3 / 1000) * pricing['output']  # 30% output
+    
+    return input_cost + output_cost
+
+def display_cost_estimation(num_complaints: int):
+    """Display cost estimation UI"""
+    st.markdown("""
+    <div class="cost-box fade-in">
+        <div class="cost-title">💰 Estimated Processing Cost</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        model = st.selectbox(
+            "AI Model",
+            options=['gpt-3.5-turbo', 'gpt-4'],
+            key='model_selector',
+            help="GPT-3.5 is faster and cheaper, GPT-4 is more accurate"
+        )
+        st.session_state.model_choice = model
+    
+    with col2:
+        cost = estimate_cost(num_complaints, model)
+        st.session_state.estimated_cost = cost
+        
+        st.markdown(f"""
+        <div style="text-align: center;">
+            <div class="cost-value">${cost:.4f}</div>
+            <div style="color: var(--muted); font-size: 0.9em;">
+                for {num_complaints} complaints
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        per_complaint = cost / num_complaints if num_complaints > 0 else 0
+        st.markdown(f"""
+        <div style="text-align: center;">
+            <div style="font-size: 1.5em; color: var(--cost);">${per_complaint:.5f}</div>
+            <div style="color: var(--muted); font-size: 0.9em;">
+                per complaint
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Model comparison
+    with st.expander("💡 Model Comparison", expanded=False):
+        comparison_df = pd.DataFrame({
+            'Model': ['GPT-3.5 Turbo', 'GPT-4'],
+            'Speed': ['Fast ⚡', 'Slower 🐢'],
+            'Accuracy': ['Good (85-90%)', 'Excellent (95%+)'],
+            'Cost per 1K tokens': ['$0.002', '$0.09'],
+            'Best For': ['Most returns', 'Complex cases']
+        })
+        st.dataframe(comparison_df, hide_index=True, use_container_width=True)
+
 def get_ai_analyzer():
-    """Get or create AI analyzer with dual API support"""
+    """Get or create AI analyzer (OpenAI only)"""
     if st.session_state.ai_analyzer is None and AI_AVAILABLE:
         try:
             # Set up environment variables from secrets
@@ -264,19 +576,10 @@ def get_ai_analyzer():
             
             if 'openai' in keys:
                 os.environ['OPENAI_API_KEY'] = keys['openai']
-            if 'claude' in keys:
-                os.environ['ANTHROPIC_API_KEY'] = keys['claude']
             
-            # Create analyzer with preferred provider
-            if st.session_state.ai_provider == 'both':
-                provider = AIProvider.BOTH
-            elif st.session_state.ai_provider == 'openai':
-                provider = AIProvider.OPENAI
-            else:
-                provider = AIProvider.CLAUDE
-            
-            st.session_state.ai_analyzer = EnhancedAIAnalyzer(provider)
-            logger.info(f"Created AI analyzer with provider: {provider}")
+            # Create analyzer with OpenAI only
+            st.session_state.ai_analyzer = EnhancedAIAnalyzer(AIProvider.OPENAI)
+            logger.info("Created AI analyzer with OpenAI")
         except Exception as e:
             logger.error(f"Error creating AI analyzer: {e}")
             st.error(f"Error initializing AI: {str(e)}")
@@ -284,38 +587,116 @@ def get_ai_analyzer():
     return st.session_state.ai_analyzer
 
 def display_required_format():
-    """Display the required file format"""
+    """Display the required file format with enhanced UI"""
     st.markdown("""
-    <div class="format-box">
-        <h4 style="color: var(--primary);">📋 Supported File Formats</h4>
+    <div class="info-box fade-in">
+        <h4 style="color: var(--primary); margin-bottom: 1rem;">📋 Supported File Formats</h4>
         
-        <h5>1. PDF Files (Amazon Seller Central Returns)</h5>
-        <ul>
-            <li>Export from Manage Returns page as PDF</li>
-            <li>Tool extracts: Order ID, ASIN, SKU, Return Reason, Buyer Comment</li>
-            <li>Automatic categorization based on reason + comment</li>
-        </ul>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; margin-top: 1rem;">
+            
+            <div style="background: rgba(255, 183, 0, 0.1); padding: 1rem; border-radius: 10px; border: 1px solid var(--accent);">
+                <h5 style="color: var(--accent); margin: 0;">📄 PDF Files</h5>
+                <ul style="margin: 0.5rem 0 0 0; font-size: 0.9em;">
+                    <li>Amazon Seller Central Returns</li>
+                    <li>Auto-extracts all return data</li>
+                    <li>AI categorizes reason + comments</li>
+                </ul>
+            </div>
+            
+            <div style="background: rgba(0, 217, 255, 0.1); padding: 1rem; border-radius: 10px; border: 1px solid var(--primary);">
+                <h5 style="color: var(--primary); margin: 0;">📦 FBA Reports (.txt)</h5>
+                <ul style="margin: 0.5rem 0 0 0; font-size: 0.9em;">
+                    <li>Tab-delimited FBA returns</li>
+                    <li>Maps reason codes automatically</li>
+                    <li>Includes customer comments</li>
+                </ul>
+            </div>
+            
+            <div style="background: rgba(0, 245, 160, 0.1); padding: 1rem; border-radius: 10px; border: 1px solid var(--success);">
+                <h5 style="color: var(--success); margin: 0;">📊 CSV/Excel</h5>
+                <ul style="margin: 0.5rem 0 0 0; font-size: 0.9em;">
+                    <li><strong>Complaint</strong> column (Required)</li>
+                    <li><strong>Product/SKU</strong> (Recommended)</li>
+                    <li><strong>Date</strong> (Optional for filtering)</li>
+                </ul>
+            </div>
+        </div>
         
-        <h5>2. FBA Return Reports (.txt)</h5>
-        <ul>
-            <li>Tab-delimited file from FBA Returns Report</li>
-            <li>Contains: return-date, order-id, sku, asin, reason, customer-comments</li>
-            <li>Maps FBA reason codes to quality categories</li>
-        </ul>
-        
-        <h5>3. CSV/Excel Files</h5>
-        <ul>
-            <li><strong>Complaint</strong> - The return reason/comment text (Required)</li>
-            <li><strong>Product Identifier Tag</strong> - Product name/SKU (Recommended)</li>
-            <li><strong>Order #</strong> - Order number (Optional)</li>
-            <li><strong>Date</strong> - Return date (Optional)</li>
-        </ul>
-        
-        <p style="color: var(--accent); margin-top: 1rem;">
-            💡 The tool will automatically detect file type and extract relevant data
+        <p style="color: var(--accent); margin-top: 1.5rem; text-align: center; font-weight: 500;">
+            💡 AI automatically detects file type and processes accordingly
         </p>
     </div>
     """, unsafe_allow_html=True)
+
+def display_ai_status():
+    """Display AI status with cost tracking"""
+    if not AI_AVAILABLE:
+        st.markdown("""
+        <div class="info-box" style="border-color: var(--danger);">
+            <h3 style="color: var(--danger); margin: 0;">❌ AI Module Not Available</h3>
+            <p>The enhanced_ai_analysis.py module is required for this tool to function.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        return False
+    
+    # Check API keys
+    keys = check_api_keys()
+    
+    st.markdown("""
+    <div class="info-box fade-in">
+        <h3 style="color: var(--primary); margin-top: 0; text-align: center;">🤖 AI Configuration & Cost Tracking</h3>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Display API status and cost info
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if 'openai' in keys:
+            st.markdown("""
+            <div class="metric-card">
+                <div style="color: var(--success); font-size: 2em;">✅</div>
+                <h4 style="margin: 0.5rem 0;">OpenAI API</h4>
+                <p style="margin: 0; color: var(--muted);">Ready to process</p>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div class="metric-card" style="border-color: var(--danger);">
+                <div style="color: var(--danger); font-size: 2em;">❌</div>
+                <h4 style="margin: 0.5rem 0;">OpenAI API</h4>
+                <p style="margin: 0; color: var(--muted);">Key not found</p>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown(f"""
+        <div class="metric-card">
+            <h3>${st.session_state.total_cost:.4f}</h3>
+            <p>Total Cost Today</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown(f"""
+        <div class="metric-card">
+            <h3>{st.session_state.api_calls_made}</h3>
+            <p>API Calls Made</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    if not keys:
+        st.markdown("""
+        <div class="info-box" style="border-color: var(--danger); margin-top: 1rem;">
+            <h4 style="color: var(--danger); margin-top: 0;">⚠️ No API Key Found</h4>
+            <p>Add your OpenAI API key to Streamlit secrets:</p>
+            <pre style="background: rgba(0,0,0,0.3); padding: 1rem; border-radius: 5px;">
+openai_api_key = "sk-..."</pre>
+        </div>
+        """, unsafe_allow_html=True)
+        return False
+    
+    return True
 
 def parse_amazon_returns_pdf(pdf_content) -> pd.DataFrame:
     """Parse Amazon Seller Central Manage Returns PDF"""
@@ -326,19 +707,23 @@ def parse_amazon_returns_pdf(pdf_content) -> pd.DataFrame:
     try:
         returns_data = []
         
-        with pdfplumber.open(io.BytesIO(pdf_content)) as pdf:
-            for page_num, page in enumerate(pdf.pages):
-                text = page.extract_text()
+        with st.spinner("🔍 Extracting data from PDF..."):
+            with pdfplumber.open(io.BytesIO(pdf_content)) as pdf:
+                total_pages = len(pdf.pages)
+                progress_bar = st.progress(0)
                 
-                if not text:
-                    continue
-                
-                # Extract individual return entries
-                returns = extract_return_entries_from_text(text)
-                returns_data.extend(returns)
-                
-                # Show progress
-                st.caption(f"Processing page {page_num + 1}/{len(pdf.pages)}...")
+                for page_num, page in enumerate(pdf.pages):
+                    text = page.extract_text()
+                    
+                    if not text:
+                        continue
+                    
+                    # Extract individual return entries
+                    returns = extract_return_entries_from_text(text)
+                    returns_data.extend(returns)
+                    
+                    # Update progress
+                    progress_bar.progress((page_num + 1) / total_pages)
         
         if returns_data:
             df = pd.DataFrame(returns_data)
@@ -446,88 +831,6 @@ def parse_fba_return_report(file_content) -> pd.DataFrame:
         logger.error(f"Error parsing FBA report: {e}")
         return None
 
-def display_ai_status():
-    """Display AI status and configuration"""
-    if not AI_AVAILABLE:
-        st.markdown("""
-        <div class="error-box">
-            <h3 style="color: var(--danger); margin: 0;">❌ AI Module Not Available</h3>
-            <p>The enhanced_ai_analysis.py module is required for this tool to function.</p>
-            <p>Please ensure the AI module is in the same directory as this app.</p>
-        </div>
-        """, unsafe_allow_html=True)
-        return False
-    
-    # Check API keys
-    keys = check_api_keys()
-    
-    st.markdown("""
-    <div class="ai-status-box">
-        <h3 style="color: var(--primary); margin-top: 0;">🤖 AI Configuration</h3>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Display API status
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        if 'openai' in keys:
-            st.success("✅ OpenAI API")
-            st.caption("GPT-4 Ready")
-        else:
-            st.error("❌ OpenAI API")
-            st.caption("Key not found")
-    
-    with col2:
-        if 'claude' in keys:
-            st.success("✅ Claude API")
-            st.caption("Sonnet Ready")
-        else:
-            st.error("❌ Claude API")
-            st.caption("Key not found")
-    
-    with col3:
-        # AI Provider selection
-        provider_options = {
-            'both': '🔷 Both (Best)',
-            'openai': '🟢 OpenAI Only',
-            'claude': '🟠 Claude Only'
-        }
-        
-        st.session_state.ai_provider = st.selectbox(
-            "AI Provider",
-            options=list(provider_options.keys()),
-            format_func=lambda x: provider_options[x],
-            index=0
-        )
-    
-    # Check if we have at least one API key
-    if not keys:
-        st.markdown("""
-        <div class="error-box">
-            <h4 style="color: var(--danger); margin-top: 0;">⚠️ No API Keys Found</h4>
-            <p>Please add your API keys to Streamlit secrets:</p>
-            <ul>
-                <li><strong>openai_api_key</strong>: Your OpenAI API key</li>
-                <li><strong>anthropic_api_key</strong>: Your Claude API key</li>
-            </ul>
-            <p>You need at least one API key for the tool to work.</p>
-        </div>
-        """, unsafe_allow_html=True)
-        return False
-    
-    # Check if selected provider is available
-    if st.session_state.ai_provider == 'both' and len(keys) < 2:
-        st.warning("⚠️ Both APIs selected but only one key available. Will use available API.")
-    elif st.session_state.ai_provider == 'openai' and 'openai' not in keys:
-        st.error("❌ OpenAI selected but API key not found.")
-        return False
-    elif st.session_state.ai_provider == 'claude' and 'claude' not in keys:
-        st.error("❌ Claude selected but API key not found.")
-        return False
-    
-    return True
-
 def process_complaints_file(file_content, filename: str, date_filter=None) -> pd.DataFrame:
     """Process complaints file with date filtering"""
     try:
@@ -584,7 +887,7 @@ def process_complaints_file(file_content, filename: str, date_filter=None) -> pd
         return None
 
 def categorize_all_data_ai(df: pd.DataFrame) -> pd.DataFrame:
-    """Categorize all complaints using AI"""
+    """Categorize all complaints using AI with cost tracking"""
     
     analyzer = get_ai_analyzer()
     
@@ -604,6 +907,7 @@ def categorize_all_data_ai(df: pd.DataFrame) -> pd.DataFrame:
     
     progress_bar = st.progress(0)
     status_text = st.empty()
+    cost_text = st.empty()
     
     total_rows = len(df)
     category_counts = Counter()
@@ -611,6 +915,10 @@ def categorize_all_data_ai(df: pd.DataFrame) -> pd.DataFrame:
     severity_counts = Counter()
     successful_categorizations = 0
     failed_categorizations = 0
+    
+    # Cost tracking
+    session_cost = 0.0
+    tokens_used = 0
     
     for idx, row in df.iterrows():
         complaint = str(row['Complaint']).strip() if pd.notna(row['Complaint']) else ""
@@ -626,14 +934,12 @@ def categorize_all_data_ai(df: pd.DataFrame) -> pd.DataFrame:
         try:
             # Categorize using AI
             if hasattr(analyzer, 'categorize_return'):
-                category, confidence, severity, language = analyzer.categorize_return(complaint, fba_reason)
+                category, confidence, severity, language = analyzer.categorize_return(
+                    complaint, fba_reason, mode='standard' if st.session_state.model_choice == 'gpt-3.5-turbo' else 'enhanced'
+                )
             else:
-                # Fallback to basic API call
-                result = analyzer.api_client.categorize_return(complaint, fba_reason=fba_reason)
-                if isinstance(result, dict) and 'openai' in result:
-                    category = result['openai']
-                else:
-                    category = result
+                # Fallback
+                category = 'Other/Miscellaneous'
                 confidence, severity, language = 0.8, 'none', 'en'
             
             # Update dataframe
@@ -651,6 +957,16 @@ def categorize_all_data_ai(df: pd.DataFrame) -> pd.DataFrame:
                 product = str(row['Product Identifier Tag']).strip()
                 if product:
                     product_issues[product][category] += 1
+            
+            # Update cost (rough estimate)
+            estimated_tokens = len(complaint.split()) * 3  # Rough token estimate
+            tokens_used += estimated_tokens
+            
+            pricing = OPENAI_PRICING[st.session_state.model_choice]
+            call_cost = (estimated_tokens / 1000) * (pricing['input'] + pricing['output'])
+            session_cost += call_cost
+            
+            st.session_state.api_calls_made += 1
                     
         except Exception as e:
             logger.error(f"AI categorization failed for row {idx}: {e}")
@@ -660,7 +976,12 @@ def categorize_all_data_ai(df: pd.DataFrame) -> pd.DataFrame:
         # Update progress
         progress = (idx + 1) / total_rows
         progress_bar.progress(progress)
-        status_text.text(f"🤖 AI Processing: {idx + 1}/{total_rows} | Success: {successful_categorizations} | Failed: {failed_categorizations}")
+        status_text.text(f"🤖 Processing: {idx + 1}/{total_rows} | Success: {successful_categorizations} | Failed: {failed_categorizations}")
+        cost_text.text(f"💰 Session cost: ${session_cost:.4f} | Tokens: ~{tokens_used:,}")
+    
+    # Update total cost
+    st.session_state.total_cost += session_cost
+    st.session_state.cost_breakdown['categorization'] = session_cost
     
     # Calculate success rate
     success_rate = (successful_categorizations / total_rows * 100) if total_rows > 0 else 0
@@ -669,7 +990,8 @@ def categorize_all_data_ai(df: pd.DataFrame) -> pd.DataFrame:
         st.session_state.ai_failed = True
         raise Exception(f"Too many AI failures: {failed_categorizations}/{total_rows}")
     
-    status_text.text(f"✅ AI Complete! Categorized: {successful_categorizations}/{total_rows} ({success_rate:.1f}% success)")
+    status_text.text(f"✅ Complete! Categorized: {successful_categorizations}/{total_rows} ({success_rate:.1f}% success)")
+    cost_text.text(f"💰 Total cost for this batch: ${session_cost:.4f}")
     
     # Store summaries
     st.session_state.reason_summary = dict(category_counts)
@@ -686,71 +1008,6 @@ def categorize_all_data_ai(df: pd.DataFrame) -> pd.DataFrame:
     except Exception as e:
         logger.error(f"Error generating quality insights: {e}")
         st.session_state.quality_insights = None
-    
-    return df
-
-def categorize_manually(df: pd.DataFrame) -> pd.DataFrame:
-    """Manual categorization option when AI fails"""
-    
-    st.warning("🔧 **Manual Categorization Mode**")
-    st.info("AI categorization failed. You can manually categorize each complaint or assign default categories.")
-    
-    # Option 1: Assign all to "Other/Miscellaneous"
-    if st.button("📝 Set All to 'Other/Miscellaneous' (Quick Option)", use_container_width=True):
-        df['Category'] = 'Other/Miscellaneous'
-        
-        # Basic summaries
-        st.session_state.reason_summary = {'Other/Miscellaneous': len(df)}
-        st.session_state.product_summary = {}
-        st.session_state.severity_counts = {'none': len(df)}
-        st.session_state.quality_insights = None
-        
-        st.success("✅ All complaints categorized as 'Other/Miscellaneous'")
-        return df
-    
-    # Option 2: Manual categorization interface
-    st.markdown("---")
-    st.markdown("### 🔧 Manual Categorization Interface")
-    
-    # Show first few complaints for manual categorization
-    st.info("Categorize the first 10 complaints manually, then apply patterns to the rest:")
-    
-    manual_categories = {}
-    
-    for idx in range(min(10, len(df))):
-        row = df.iloc[idx]
-        complaint = str(row['Complaint'])[:100] + "..."
-        
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            st.text(complaint)
-        with col2:
-            category = st.selectbox(
-                "Category",
-                options=MEDICAL_DEVICE_CATEGORIES,
-                key=f"manual_cat_{idx}",
-                index=14  # Default to "Other/Miscellaneous"
-            )
-            manual_categories[idx] = category
-    
-    if st.button("📊 Apply Manual Categories", use_container_width=True):
-        # Apply manual categories to first 10
-        for idx, category in manual_categories.items():
-            df.at[idx, 'Category'] = category
-        
-        # Set remaining to "Other/Miscellaneous"
-        for idx in range(10, len(df)):
-            df.at[idx, 'Category'] = 'Other/Miscellaneous'
-        
-        # Generate basic summaries
-        category_counts = df['Category'].value_counts().to_dict()
-        st.session_state.reason_summary = category_counts
-        st.session_state.product_summary = {}
-        st.session_state.severity_counts = {'none': len(df)}
-        st.session_state.quality_insights = None
-        
-        st.success(f"✅ Manual categorization complete! {len(manual_categories)} manual, {len(df)-10} auto-assigned.")
-        return df
     
     return df
 
@@ -825,7 +1082,7 @@ def generate_quality_insights(df: pd.DataFrame, reason_summary: dict, product_su
     }
 
 def display_product_analysis(df: pd.DataFrame):
-    """Display product-specific analysis"""
+    """Display product-specific analysis with enhanced UI"""
     
     if st.session_state.product_summary:
         st.markdown("#### 📦 Product Analysis")
@@ -849,10 +1106,22 @@ def display_product_analysis(df: pd.DataFrame):
         # Sort by total returns
         product_data.sort(key=lambda x: x['Total Returns'], reverse=True)
         
-        # Display as dataframe
+        # Display as styled dataframe
         if product_data:
             product_df = pd.DataFrame(product_data[:20])
-            st.dataframe(product_df, use_container_width=True, hide_index=True)
+            
+            # Apply color coding to dataframe
+            def highlight_quality(row):
+                quality_pct = float(row['Quality %'].rstrip('%'))
+                if quality_pct > 50:
+                    return ['background-color: rgba(255, 0, 84, 0.2)'] * len(row)
+                elif quality_pct > 25:
+                    return ['background-color: rgba(255, 107, 53, 0.2)'] * len(row)
+                else:
+                    return [''] * len(row)
+            
+            styled_df = product_df.style.apply(highlight_quality, axis=1)
+            st.dataframe(styled_df, use_container_width=True, hide_index=True)
             
             if len(st.session_state.product_summary) > 20:
                 st.caption(f"Showing top 20 of {len(st.session_state.product_summary)} products.")
@@ -860,21 +1129,26 @@ def display_product_analysis(df: pd.DataFrame):
         st.info("No product information available. Ensure your file has a 'Product Identifier Tag' column.")
 
 def display_results(df: pd.DataFrame):
-    """Display categorization results"""
+    """Display categorization results with enhanced UI"""
     
     st.markdown("""
-    <div class="results-header">
-        <h2 style="color: var(--primary); text-align: center;">📊 CATEGORIZATION RESULTS</h2>
+    <div class="info-box fade-in" style="background: linear-gradient(135deg, rgba(0, 245, 160, 0.1), rgba(0, 245, 160, 0.2)); border-color: var(--success);">
+        <h2 style="color: var(--success); text-align: center; margin: 0;">📊 CATEGORIZATION RESULTS</h2>
     </div>
     """, unsafe_allow_html=True)
     
-    # Key metrics
+    # Key metrics with enhanced styling
     col1, col2, col3, col4 = st.columns(4)
     
     total_categorized = len(df[df['Category'].notna() & (df['Category'] != '')])
     
     with col1:
-        st.metric("Total Returns", len(df))
+        st.markdown(f"""
+        <div class="metric-card">
+            <h3>{len(df)}</h3>
+            <p>Total Returns</p>
+        </div>
+        """, unsafe_allow_html=True)
     
     with col2:
         quality_count = sum(
@@ -882,21 +1156,32 @@ def display_results(df: pd.DataFrame):
             if cat in QUALITY_CATEGORIES
         )
         quality_pct = (quality_count / total_categorized * 100) if total_categorized > 0 else 0
-        st.metric("Quality Issues", f"{quality_pct:.1f}%")
+        st.markdown(f"""
+        <div class="metric-card">
+            <h3>{quality_pct:.1f}%</h3>
+            <p>Quality Issues</p>
+        </div>
+        """, unsafe_allow_html=True)
     
     with col3:
         severity_critical = st.session_state.severity_counts.get('critical', 0)
-        st.metric("🚨 Critical", severity_critical)
+        st.markdown(f"""
+        <div class="metric-card" style="border-color: var(--danger);">
+            <h3 style="color: var(--danger);">{severity_critical}</h3>
+            <p>Critical Issues</p>
+        </div>
+        """, unsafe_allow_html=True)
     
     with col4:
-        unique_products = df['Product Identifier Tag'].nunique() if 'Product Identifier Tag' in df.columns else 0
-        st.metric("Products", unique_products)
+        st.markdown(f"""
+        <div class="metric-card" style="border-color: var(--cost);">
+            <h3 style="color: var(--cost);">${st.session_state.cost_breakdown.get('categorization', 0):.4f}</h3>
+            <p>Processing Cost</p>
+        </div>
+        """, unsafe_allow_html=True)
     
-    # Create tabs
-    if st.session_state.quality_insights:
-        tab_list = st.tabs(["📈 Categories", "🔍 Quality Insights", "📦 Products"])
-    else:
-        tab_list = st.tabs(["📈 Categories", "📦 Products"])
+    # Create tabs with better styling
+    tab_list = st.tabs(["📈 Categories", "🔍 Quality Insights", "📦 Products", "💰 Cost Analysis"])
     
     # Category distribution tab
     with tab_list[0]:
@@ -904,124 +1189,172 @@ def display_results(df: pd.DataFrame):
         
         with col1:
             st.markdown("#### Top Return Categories")
-            sorted_reasons = sorted(st.session_state.reason_summary.items(), 
-                                  key=lambda x: x[1], reverse=True)
             
-            for reason, count in sorted_reasons[:10]:
+            # Create visual bar chart
+            sorted_reasons = sorted(st.session_state.reason_summary.items(), 
+                                  key=lambda x: x[1], reverse=True)[:10]
+            
+            for reason, count in sorted_reasons:
                 percentage = (count / total_categorized) * 100 if total_categorized > 0 else 0
                 
-                # Color coding
+                # Color based on quality category
                 if reason in QUALITY_CATEGORIES:
-                    color = COLORS['danger']
+                    bar_color = COLORS['danger']
                     icon = "🔴"
                 else:
-                    color = COLORS['primary']
+                    bar_color = COLORS['primary']
                     icon = "🔵"
                 
                 st.markdown(f"""
-                <div style="margin: 0.5rem 0;">
-                    <div style="display: flex; justify-content: space-between;">
+                <div style="margin: 1rem 0;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;">
                         <span>{icon} {reason}</span>
-                        <span>{count} ({percentage:.1f}%)</span>
+                        <span style="font-weight: 600;">{count} ({percentage:.1f}%)</span>
+                    </div>
+                    <div style="background: rgba(255,255,255,0.1); border-radius: 5px; overflow: hidden; height: 20px;">
+                        <div style="background: {bar_color}; width: {percentage}%; height: 100%; 
+                                    box-shadow: 0 0 10px {bar_color}; transition: width 0.5s ease;">
+                        </div>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
         
         with col2:
-            # Quality vs Non-Quality breakdown
+            # Quality vs Non-Quality pie chart representation
             st.markdown("#### Quality vs Other Returns")
             quality_returns = sum(count for cat, count in st.session_state.reason_summary.items() 
                                 if cat in QUALITY_CATEGORIES)
             other_returns = total_categorized - quality_returns
             
+            # Visual representation
+            quality_pct = (quality_returns / total_categorized * 100) if total_categorized > 0 else 0
+            other_pct = 100 - quality_pct
+            
             st.markdown(f"""
-            <div style="background: rgba(255,0,84,0.1); padding: 1rem; border-radius: 10px; margin: 0.5rem 0;">
-                <h4 style="color: var(--danger); margin: 0;">Quality Issues: {quality_returns}</h4>
-                <p style="margin: 0.5rem 0 0 0;">{quality_returns/total_categorized*100:.1f}% of all returns</p>
-            </div>
-            <div style="background: rgba(0,217,255,0.1); padding: 1rem; border-radius: 10px; margin: 0.5rem 0;">
-                <h4 style="color: var(--primary); margin: 0;">Other Returns: {other_returns}</h4>
-                <p style="margin: 0.5rem 0 0 0;">{other_returns/total_categorized*100:.1f}% of all returns</p>
+            <div style="text-align: center; margin: 2rem 0;">
+                <div style="width: 200px; height: 200px; margin: 0 auto; position: relative;">
+                    <svg viewBox="0 0 100 100" style="transform: rotate(-90deg);">
+                        <circle cx="50" cy="50" r="40" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="20"/>
+                        <circle cx="50" cy="50" r="40" fill="none" stroke="{COLORS['danger']}" 
+                                stroke-width="20" stroke-dasharray="{quality_pct * 2.51} 251" stroke-linecap="round"/>
+                    </svg>
+                    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+                                font-size: 2em; font-weight: 700; color: {COLORS['danger']};">
+                        {quality_pct:.0f}%
+                    </div>
+                </div>
+                <div style="margin-top: 1rem;">
+                    <div style="color: {COLORS['danger']}; font-weight: 600;">
+                        Quality Issues: {quality_returns}
+                    </div>
+                    <div style="color: {COLORS['primary']}; margin-top: 0.5rem;">
+                        Other Returns: {other_returns}
+                    </div>
+                </div>
             </div>
             """, unsafe_allow_html=True)
     
-    # Quality insights tab (if available)
-    if st.session_state.quality_insights and len(tab_list) > 2:
-        with tab_list[1]:
+    # Quality insights tab
+    with tab_list[1]:
+        if st.session_state.quality_insights:
             insights = st.session_state.quality_insights
             
-            # Risk Assessment
+            # Risk Assessment with visual indicator
             risk_level = insights['risk_assessment']['overall_risk_level']
-            risk_color = {'HIGH': 'danger', 'MEDIUM': 'warning', 'LOW': 'success'}[risk_level]
+            risk_colors = {'HIGH': COLORS['danger'], 'MEDIUM': COLORS['warning'], 'LOW': COLORS['success']}
+            risk_color = risk_colors[risk_level]
             
             st.markdown(f"""
-            <div style="background: rgba(255,0,84,0.1); border: 2px solid var(--{risk_color}); 
-                      border-radius: 10px; padding: 1.5rem; margin-bottom: 1rem;">
-                <h3 style="color: var(--{risk_color}); margin: 0;">⚠️ Quality Risk Level: {risk_level}</h3>
-                <p style="margin: 0.5rem 0;">Quality Issue Rate: {insights['risk_assessment']['quality_rate']:.1f}%</p>
+            <div class="info-box" style="background: linear-gradient(135deg, rgba(255,0,84,0.1), rgba(255,0,84,0.2)); 
+                        border-color: {risk_color};">
+                <h3 style="color: {risk_color}; margin: 0; text-align: center;">
+                    ⚠️ Quality Risk Level: {risk_level}
+                </h3>
+                <p style="text-align: center; margin: 0.5rem 0 0 0;">
+                    Quality Issue Rate: {insights['risk_assessment']['quality_rate']:.1f}%
+                </p>
             </div>
             """, unsafe_allow_html=True)
             
-            # Action Items
+            # Action Items with cards
             if insights['action_items']:
-                st.markdown("### 🎯 Recommended Quality Actions")
+                st.markdown("### 🎯 Recommended Actions")
                 
-                for action in insights['action_items']:
-                    severity_color = 'danger' if action['severity'] == 'HIGH' else 'warning'
+                for i, action in enumerate(insights['action_items']):
+                    severity_color = COLORS['danger'] if action['severity'] == 'HIGH' else COLORS['warning']
                     
                     st.markdown(f"""
-                    <div style="background: rgba(255,107,53,0.1); border-left: 4px solid var(--{severity_color}); 
-                              padding: 1rem; margin: 0.5rem 0; border-radius: 5px;">
-                        <h4 style="color: var(--{severity_color}); margin: 0;">
-                            {action['severity']} Priority: {action['issue']} ({action['frequency']} cases)
+                    <div class="info-box fade-in" style="border-left: 4px solid {severity_color}; 
+                              animation-delay: {i * 0.1}s;">
+                        <h4 style="color: {severity_color}; margin: 0;">
+                            {action['severity']} Priority: {action['issue']}
                         </h4>
-                        <p style="margin: 0.5rem 0;"><strong>Action:</strong> {action['recommendation']}</p>
+                        <p style="margin: 0.5rem 0;">
+                            <strong>Frequency:</strong> {action['frequency']} cases<br>
+                            <strong>Action:</strong> {action['recommendation']}
+                        </p>
                     </div>
                     """, unsafe_allow_html=True)
-            
-            # High Risk Products
-            if insights['risk_assessment']['top_risk_products']:
-                st.markdown("### 🚨 High Risk Products")
-                
-                risk_data = []
-                for prod in insights['risk_assessment']['top_risk_products'][:10]:
-                    risk_data.append({
-                        'Product': prod['product'][:50] + "..." if len(prod['product']) > 50 else prod['product'],
-                        'Total Issues': prod['total_issues'],
-                        'Quality Issues': prod['quality_issues'],
-                        'Primary Issue': prod['primary_root_cause']
-                    })
-                
-                if risk_data:
-                    risk_df = pd.DataFrame(risk_data)
-                    st.dataframe(risk_df, use_container_width=True, hide_index=True)
     
     # Products tab
-    products_tab_index = 2 if len(tab_list) > 2 else 1
-    with tab_list[products_tab_index]:
+    with tab_list[2]:
         display_product_analysis(df)
     
-    # Show uncategorized items
-    other_items = df[df['Category'] == 'Other/Miscellaneous']
-    if len(other_items) > 0:
-        st.markdown("---")
-        st.markdown(f"### ⚠️ Review {len(other_items)} Uncategorized Items")
+    # Cost Analysis tab
+    with tab_list[3]:
+        st.markdown("### 💰 Cost Breakdown")
         
-        with st.expander("View uncategorized complaints"):
-            available_columns = ['Complaint']
-            if 'Product Identifier Tag' in df.columns:
-                available_columns.append('Product Identifier Tag')
-            if 'Order #' in df.columns:
-                available_columns.append('Order #')
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Cost metrics
+            st.markdown(f"""
+            <div class="cost-box">
+                <h4 style="margin: 0;">Processing Costs</h4>
+                <div style="margin-top: 1rem;">
+                    <div style="display: flex; justify-content: space-between; margin: 0.5rem 0;">
+                        <span>Categorization:</span>
+                        <span style="font-weight: 600;">${st.session_state.cost_breakdown.get('categorization', 0):.4f}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin: 0.5rem 0;">
+                        <span>Total API Calls:</span>
+                        <span style="font-weight: 600;">{st.session_state.api_calls_made}</span>
+                    </div>
+                    <hr style="border-color: var(--cost); opacity: 0.3;">
+                    <div style="display: flex; justify-content: space-between; margin: 0.5rem 0;">
+                        <span style="font-weight: 600;">Session Total:</span>
+                        <span class="cost-value">${st.session_state.total_cost:.4f}</span>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col2:
+            # Cost efficiency metrics
+            cost_per_return = st.session_state.total_cost / len(df) if len(df) > 0 else 0
             
-            st.dataframe(
-                other_items[available_columns].head(20),
-                use_container_width=True
-            )
-            st.caption("Showing first 20 items. Download full export to see all.")
+            st.markdown(f"""
+            <div class="info-box">
+                <h4 style="margin: 0;">Efficiency Metrics</h4>
+                <div style="margin-top: 1rem;">
+                    <div style="text-align: center;">
+                        <div style="font-size: 2em; color: var(--cost); font-weight: 700;">
+                            ${cost_per_return:.5f}
+                        </div>
+                        <div style="color: var(--muted);">per return</div>
+                    </div>
+                    <div style="margin-top: 1rem; text-align: center;">
+                        <div style="font-size: 1.2em; color: var(--primary);">
+                            {len(df) / (time.time() - st.session_state.get('start_time', time.time())):.1f}
+                        </div>
+                        <div style="color: var(--muted);">returns/second</div>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
 
 def export_data(df: pd.DataFrame) -> bytes:
-    """Export data with quality insights"""
+    """Export data with quality insights and cost information"""
     
     output = io.BytesIO()
     
@@ -1048,6 +1381,20 @@ def export_data(df: pd.DataFrame) -> bytes:
                 summary_df = pd.DataFrame(summary_data)
                 summary_df.to_excel(writer, sheet_name='Summary', index=False)
             
+            # Add cost analysis sheet
+            cost_data = {
+                'Metric': ['Total Returns', 'Total Cost', 'Cost per Return', 'Model Used', 'API Calls'],
+                'Value': [
+                    len(df),
+                    f"${st.session_state.total_cost:.4f}",
+                    f"${st.session_state.total_cost / len(df):.5f}" if len(df) > 0 else "$0",
+                    st.session_state.model_choice,
+                    st.session_state.api_calls_made
+                ]
+            }
+            cost_df = pd.DataFrame(cost_data)
+            cost_df.to_excel(writer, sheet_name='Cost Analysis', index=False)
+            
             # Add quality insights if available
             if st.session_state.quality_insights:
                 insights = st.session_state.quality_insights
@@ -1066,34 +1413,36 @@ def export_data(df: pd.DataFrame) -> bytes:
                     action_df = pd.DataFrame(action_data)
                     action_df.to_excel(writer, sheet_name='Quality Actions', index=False)
             
-            # Format workbook
+            # Format workbook with custom styling
             workbook = writer.book
-            worksheet = writer.sheets['Categorized Returns']
             
-            # Auto-adjust columns
-            for i, col in enumerate(df.columns):
-                max_len = max(
-                    len(str(col)) + 2,
-                    df[col].astype(str).str.len().max() + 2 if len(df) > 0 else 10
-                )
-                max_len = min(max_len, 50)
-                worksheet.set_column(i, i, max_len)
+            # Define formats
+            header_format = workbook.add_format({
+                'bold': True,
+                'bg_color': '#1A1A2E',
+                'font_color': '#00D9FF',
+                'border': 1
+            })
             
-            # Highlight quality categories
-            if 'Category' in df.columns:
-                cat_col_idx = df.columns.get_loc('Category')
-                quality_format = workbook.add_format({
-                    'bg_color': '#FFE6E6',
-                    'font_color': '#CC0000'
-                })
+            quality_format = workbook.add_format({
+                'bg_color': '#FFE6E6',
+                'font_color': '#CC0000'
+            })
+            
+            cost_format = workbook.add_format({
+                'bg_color': '#E6F5E6',
+                'font_color': '#006600',
+                'num_format': '$#,##0.0000'
+            })
+            
+            # Apply formatting
+            for sheet_name in writer.sheets:
+                worksheet = writer.sheets[sheet_name]
+                worksheet.set_row(0, 20, header_format)  # Header row
                 
-                for quality_cat in QUALITY_CATEGORIES:
-                    worksheet.conditional_format(1, cat_col_idx, len(df), cat_col_idx, {
-                        'type': 'cell',
-                        'criteria': '==',
-                        'value': f'"{quality_cat}"',
-                        'format': quality_format
-                    })
+                # Auto-adjust columns
+                for i, col in enumerate(df.columns if sheet_name == 'Categorized Returns' else range(5)):
+                    worksheet.set_column(i, i, 15)
     else:
         # CSV fallback
         df.to_csv(output, index=False)
@@ -1102,7 +1451,7 @@ def export_data(df: pd.DataFrame) -> bytes:
     return output.getvalue()
 
 def generate_quality_report(df: pd.DataFrame) -> str:
-    """Generate quality analysis report"""
+    """Generate quality analysis report with cost information"""
     
     total_returns = len(df)
     quality_issues = {cat: count for cat, count in st.session_state.reason_summary.items() 
@@ -1112,12 +1461,23 @@ def generate_quality_report(df: pd.DataFrame) -> str:
     
     report = f"""VIVE HEALTH QUALITY ANALYSIS REPORT
 Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Version: {APP_CONFIG['version']}
+
+═══════════════════════════════════════════════════════════════
 
 EXECUTIVE SUMMARY
 ================
 Total Returns Analyzed: {total_returns}
 Quality-Related Returns: {total_quality} ({quality_pct:.1f}%)
-AI Processing: {'Success' if not st.session_state.ai_failed else 'Failed (Manual mode used)'}
+Processing Status: {'Success' if not st.session_state.ai_failed else 'Failed (Manual mode used)'}
+
+COST ANALYSIS
+=============
+Total Processing Cost: ${st.session_state.total_cost:.4f}
+Cost per Return: ${st.session_state.total_cost / total_returns:.5f}
+Model Used: {st.session_state.model_choice}
+API Calls Made: {st.session_state.api_calls_made}
+Average Cost per Call: ${st.session_state.total_cost / st.session_state.api_calls_made:.5f}
 """
     
     if st.session_state.quality_insights:
@@ -1139,17 +1499,31 @@ RECOMMENDED ACTIONS (PRIORITIZED)
                 report += f"\n   Action: {action['recommendation']}\n"
     
     report += f"""
-RETURN CATEGORIES
-=================
+RETURN CATEGORIES BREAKDOWN
+===========================
 """
     
     for cat, count in sorted(st.session_state.reason_summary.items(), 
                            key=lambda x: x[1], reverse=True):
         pct = (count / total_returns * 100) if total_returns > 0 else 0
-        quality_flag = " [QUALITY]" if cat in QUALITY_CATEGORIES else ""
+        quality_flag = " ⚠️ [QUALITY ISSUE]" if cat in QUALITY_CATEGORIES else ""
         report += f"{cat}{quality_flag}: {count} ({pct:.1f}%)\n"
     
+    # Add top products if available
+    if st.session_state.product_summary:
+        report += f"""
+TOP PRODUCTS BY RETURNS
+=======================
+"""
+        product_totals = [(prod, sum(cats.values())) 
+                         for prod, cats in st.session_state.product_summary.items()]
+        
+        for product, total in sorted(product_totals, key=lambda x: x[1], reverse=True)[:10]:
+            report += f"{product}: {total} returns\n"
+    
     report += f"""
+═══════════════════════════════════════════════════════════════
+
 RECOMMENDATIONS
 ==============
 1. Focus quality improvements on top return categories
@@ -1157,25 +1531,40 @@ RECOMMENDATIONS
 3. Review products with highest return rates
 4. Implement corrective actions for recurring quality issues
 5. Monitor improvement metrics after implementing changes
+6. Consider cost-benefit of using GPT-4 for critical product lines
+
+COST OPTIMIZATION TIPS
+=====================
+- Use GPT-3.5 for routine categorization (current session: ${st.session_state.total_cost:.4f})
+- Reserve GPT-4 for complex or high-value products
+- Batch process returns during off-peak hours
+- Current efficiency: ${st.session_state.total_cost / total_returns:.5f} per return
+
+═══════════════════════════════════════════════════════════════
+Generated by Vive Health Return Categorizer v{APP_CONFIG['version']}
 """
     
     return report
 
 def main():
-    """Main application function"""
+    """Main application function with enhanced UI and cost tracking"""
     
     initialize_session_state()
-    inject_custom_css()
+    inject_enhanced_css()
     
-    # Header
+    # Track session start time for metrics
+    if 'start_time' not in st.session_state:
+        st.session_state.start_time = time.time()
+    
+    # Header with animation
     st.markdown("""
     <div class="main-header">
         <h1 class="main-title">VIVE HEALTH RETURN CATEGORIZER</h1>
-        <p style="font-size: 1.2em; color: var(--text); margin: 0.5rem 0;">
-            AI-Powered Medical Device Quality Management Tool
+        <p style="font-size: 1.2em; color: white; margin: 0.5rem 0; position: relative; z-index: 1;">
+            AI-Powered Medical Device Quality Management
         </p>
-        <p style="font-size: 1em; color: var(--accent);">
-            🤖 Dual AI Support | 📄 PDF Support | 📦 FBA Returns | 🎯 Quality Insights
+        <p style="font-size: 1em; color: white; opacity: 0.9; position: relative; z-index: 1;">
+            🤖 OpenAI Integration | 📄 PDF Support | 💰 Real-time Cost Tracking
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -1184,85 +1573,90 @@ def main():
     if not display_ai_status():
         st.stop()
     
-    # Sidebar for settings
+    # Sidebar with enhanced styling
     with st.sidebar:
-        st.markdown("### ⚙️ Settings")
+        st.markdown("""
+        <div class="info-box">
+            <h3 style="color: var(--primary); margin-top: 0;">⚙️ Settings</h3>
+        </div>
+        """, unsafe_allow_html=True)
         
         # Date filtering
         st.markdown("#### 📅 Date Filtering")
-        enable_date_filter = st.checkbox("Enable date filter")
+        enable_date_filter = st.checkbox("Enable date filter", help="Filter returns by date range")
         st.session_state.date_filter_enabled = enable_date_filter
         
         if enable_date_filter:
-            start_date = st.date_input("Start date", 
-                                      value=datetime.now() - timedelta(days=30))
-            st.session_state.date_range_start = start_date
+            col1, col2 = st.columns(2)
+            with col1:
+                start_date = st.date_input("Start", 
+                                          value=datetime.now() - timedelta(days=30))
+                st.session_state.date_range_start = start_date
             
-            end_date = st.date_input("End date", 
-                                    value=datetime.now())
-            st.session_state.date_range_end = end_date
+            with col2:
+                end_date = st.date_input("End", 
+                                        value=datetime.now())
+                st.session_state.date_range_end = end_date
         
-        # AI Status summary
         st.markdown("---")
-        st.markdown("#### 🤖 Current Status")
         
-        keys = check_api_keys()
-        if 'openai' in keys:
-            st.success("✅ OpenAI Ready")
-        if 'claude' in keys:
-            st.success("✅ Claude Ready")
+        # Cost summary in sidebar
+        st.markdown("#### 💰 Session Summary")
+        st.metric("Total Cost", f"${st.session_state.total_cost:.4f}")
+        st.metric("API Calls", st.session_state.api_calls_made)
         
-        st.info(f"Provider: {st.session_state.ai_provider.title()}")
+        if st.session_state.api_calls_made > 0:
+            avg_cost = st.session_state.total_cost / st.session_state.api_calls_made
+            st.metric("Avg Cost/Call", f"${avg_cost:.5f}")
         
-        # File type support
+        # File support status
         st.markdown("---")
-        st.markdown("#### 📁 Supported Files")
-        if PDF_AVAILABLE:
-            st.success("✅ PDF Support")
-        else:
-            st.warning("❌ PDF (install pdfplumber)")
-        st.success("✅ CSV/Excel")
-        st.success("✅ FBA .txt Reports")
+        st.markdown("#### 📁 File Support")
+        
+        support_items = [
+            ("PDF Files", PDF_AVAILABLE, "pdfplumber"),
+            ("Excel Files", EXCEL_AVAILABLE, "xlsxwriter"),
+            ("CSV Files", True, None),
+            ("FBA Reports", True, None)
+        ]
+        
+        for item, available, package in support_items:
+            if available:
+                st.success(f"✅ {item}")
+            else:
+                st.error(f"❌ {item}")
+                if package:
+                    st.caption(f"Install: pip install {package}")
     
     # Main content
-    with st.expander("📋 Required File Format & Instructions", expanded=False):
+    with st.expander("📋 File Formats & Instructions", expanded=False):
         display_required_format()
         
-        st.markdown("### 🤖 AI-Powered Categorization:")
-        st.info("""
-        This tool uses advanced AI to analyze each return complaint:
-        - Understands context and nuance
-        - Medical device specific terminology
-        - Handles complex multi-issue returns
-        - Dual AI consensus for maximum accuracy
-        - Maps FBA reason codes automatically
-        """)
-        
-        st.markdown("### 📄 PDF Support:")
-        if PDF_AVAILABLE:
-            st.success("""
-            **Amazon Seller Central PDF Processing:**
-            - Export returns from Manage Returns page as PDF
-            - Tool extracts all return data automatically
-            - AI categorizes based on reason + customer comments
-            """)
-        else:
-            st.warning("""
-            **PDF support not available.** Install pdfplumber:
-            ```
-            pip install pdfplumber
-            ```
-            """)
+        st.markdown("""
+        <div class="info-box" style="margin-top: 1rem;">
+            <h4 style="color: var(--primary); margin: 0;">🚀 Quick Start Guide</h4>
+            <ol style="margin: 1rem 0 0 0;">
+                <li>Upload your return files (PDF, CSV, Excel, or FBA .txt)</li>
+                <li>Review the cost estimate</li>
+                <li>Click "Categorize" to process with AI</li>
+                <li>Export results with quality insights</li>
+            </ol>
+        </div>
+        """, unsafe_allow_html=True)
     
-    # File upload section
+    # File upload section with enhanced styling
     st.markdown("---")
-    st.markdown("### 📁 Upload Files")
+    st.markdown("""
+    <div class="info-box fade-in">
+        <h3 style="color: var(--primary); text-align: center;">📁 Upload Return Files</h3>
+    </div>
+    """, unsafe_allow_html=True)
     
     if st.session_state.date_filter_enabled:
-        st.info(f"📅 Date filter: {st.session_state.date_range_start} to {st.session_state.date_range_end}")
+        st.info(f"📅 Date filter active: {st.session_state.date_range_start} to {st.session_state.date_range_end}")
     
     uploaded_files = st.file_uploader(
-        "Choose file(s) to categorize",
+        "Drop files here or click to browse",
         type=['xlsx', 'xls', 'csv', 'txt', 'pdf'],
         accept_multiple_files=True,
         help="Upload PDF from Amazon Seller Central, FBA return reports (.txt), or CSV/Excel files"
@@ -1271,7 +1665,7 @@ def main():
     if uploaded_files:
         all_data = []
         
-        # Show PDF info if PDF uploaded
+        # Show PDF warning if needed
         pdf_files = [f for f in uploaded_files if f.name.endswith('.pdf')]
         if pdf_files and not PDF_AVAILABLE:
             st.error("❌ PDF files detected but pdfplumber not installed. Please install: pip install pdfplumber")
@@ -1281,6 +1675,7 @@ def main():
         if st.session_state.date_filter_enabled:
             date_filter = (st.session_state.date_range_start, st.session_state.date_range_end)
         
+        # Process files with enhanced feedback
         with st.spinner("Loading files..."):
             for file in uploaded_files:
                 file_content = file.read()
@@ -1291,51 +1686,60 @@ def main():
                 if df is not None and not df.empty:
                     all_data.append(df)
                     
-                    # Show file type detected
+                    # Show file type with icon
                     if filename.endswith('.pdf'):
-                        st.success(f"✅ PDF Loaded: {filename} ({len(df)} returns extracted)")
+                        st.success(f"📄 PDF: {filename} ({len(df)} returns)")
                     elif filename.endswith('.txt') and 'FBA_Reason_Code' in df.columns:
-                        st.success(f"✅ FBA Report: {filename} ({len(df)} returns)")
+                        st.success(f"📦 FBA Report: {filename} ({len(df)} returns)")
                     else:
-                        st.success(f"✅ Loaded: {filename} ({len(df)} rows)")
+                        st.success(f"📊 {filename} ({len(df)} rows)")
         
         if all_data:
             # Combine all data
             combined_df = pd.concat(all_data, ignore_index=True) if len(all_data) > 1 else all_data[0]
             st.session_state.processed_data = combined_df
             
-            # Show summary
-            st.success(f"📊 **Total records ready: {len(combined_df)}**")
+            # Show summary with visual appeal
+            st.markdown(f"""
+            <div class="info-box fade-in" style="background: linear-gradient(135deg, rgba(0, 245, 160, 0.1), rgba(0, 245, 160, 0.2)); border-color: var(--success);">
+                <h3 style="color: var(--success); text-align: center; margin: 0;">
+                    ✅ {len(combined_df)} Returns Ready for Processing
+                </h3>
+                {f'<p style="text-align: center; margin: 0.5rem 0 0 0;">Combined from {len(all_data)} files</p>' if len(all_data) > 1 else ''}
+            </div>
+            """, unsafe_allow_html=True)
             
-            # Show data source breakdown
-            if len(all_data) > 1:
-                st.info(f"Combined data from {len(all_data)} files")
+            # Display cost estimation
+            display_cost_estimation(len(combined_df))
             
-            # Preview
-            if st.checkbox("Preview data"):
+            # Preview data
+            if st.checkbox("👁️ Preview data", help="Show first 10 rows"):
                 preview_cols = ['Complaint', 'Category']
                 if 'Product Identifier Tag' in combined_df.columns:
                     preview_cols.append('Product Identifier Tag')
                 if 'FBA_Reason_Code' in combined_df.columns:
                     preview_cols.append('FBA_Reason_Code')
                     
-                st.dataframe(combined_df[preview_cols].head(10))
+                st.dataframe(combined_df[preview_cols].head(10), use_container_width=True)
             
-            # Categorize button
+            # Categorize button with cost warning
             st.markdown("---")
             col1, col2, col3 = st.columns([1, 2, 1])
             
             with col2:
-                if st.button(
-                    f"🚀 CATEGORIZE {len(combined_df)} RETURNS WITH AI", 
-                    type="primary", 
-                    use_container_width=True
-                ):
-                    start_time = time.time()
+                button_label = f"🚀 CATEGORIZE {len(combined_df)} RETURNS (${st.session_state.estimated_cost:.4f})"
+                
+                if st.button(button_label, type="primary", use_container_width=True):
                     st.session_state.ai_failed = False
                     st.session_state.manual_mode = False
                     
-                    st.info(f"🤖 Using {st.session_state.ai_provider.upper()} AI for categorization...")
+                    st.markdown(f"""
+                    <div class="info-box fade-in">
+                        <p style="text-align: center; margin: 0;">
+                            🤖 Processing with {st.session_state.model_choice}...
+                        </p>
+                    </div>
+                    """, unsafe_allow_html=True)
                     
                     try:
                         with st.spinner(f"🤖 AI Processing {len(combined_df)} returns..."):
@@ -1343,53 +1747,41 @@ def main():
                             st.session_state.categorized_data = categorized_df
                             st.session_state.processing_complete = True
                         
-                        # Show completion time
-                        elapsed_time = time.time() - start_time
-                        st.success(f"✅ AI categorization complete in {elapsed_time:.1f} seconds!")
+                        # Show completion with animation
+                        elapsed_time = time.time() - st.session_state.start_time
+                        st.balloons()
+                        
+                        st.success(f"""
+                        ✅ AI categorization complete!
+                        - Time: {elapsed_time:.1f} seconds
+                        - Cost: ${st.session_state.cost_breakdown.get('categorization', 0):.4f}
+                        - Speed: {len(combined_df)/elapsed_time:.1f} returns/second
+                        """)
                         
                     except Exception as e:
                         st.error(f"❌ AI categorization failed: {str(e)}")
                         st.session_state.ai_failed = True
-                        
-                        # Offer manual categorization
-                        st.markdown("""
-                        <div class="manual-override">
-                            <h3 style="color: var(--accent); margin-top: 0;">🔧 Manual Override Available</h3>
-                            <p>AI categorization failed. Would you like to categorize manually?</p>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        
-                        if st.button("🔧 Switch to Manual Categorization", type="secondary"):
-                            st.session_state.manual_mode = True
-                            st.rerun()
             
-            # Manual categorization if AI failed and user chose manual mode
-            if st.session_state.ai_failed and st.session_state.manual_mode:
-                try:
-                    categorized_df = categorize_manually(combined_df)
-                    st.session_state.categorized_data = categorized_df
-                    st.session_state.processing_complete = True
-                except Exception as e:
-                    st.error(f"Manual categorization failed: {str(e)}")
-            
-            # Show results
+            # Show results if processing complete
             if st.session_state.processing_complete and st.session_state.categorized_data is not None:
                 
                 display_results(st.session_state.categorized_data)
                 
-                # Export section
+                # Export section with enhanced styling
                 st.markdown("---")
-                completion_msg = "✅ AI ANALYSIS COMPLETE!" if not st.session_state.ai_failed else "✅ MANUAL CATEGORIZATION COMPLETE!"
                 
-                st.markdown(f"""
-                <div style="background: rgba(0, 245, 160, 0.1); border: 2px solid var(--success); 
-                          border-radius: 15px; padding: 2rem; text-align: center;">
-                    <h3 style="color: var(--success);">{completion_msg}</h3>
-                    <p>Your data has been categorized and analyzed for quality insights.</p>
+                st.markdown("""
+                <div class="info-box fade-in" style="background: linear-gradient(135deg, rgba(80, 200, 120, 0.1), rgba(80, 200, 120, 0.2)); border-color: var(--cost);">
+                    <h3 style="color: var(--cost); text-align: center; margin: 0;">
+                        💾 Export Your Results
+                    </h3>
+                    <p style="text-align: center; margin: 0.5rem 0 0 0;">
+                        Download categorized data with quality insights and cost analysis
+                    </p>
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # Export options
+                # Export options with icons
                 col1, col2, col3 = st.columns(3)
                 
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1398,12 +1790,12 @@ def main():
                     excel_data = export_data(st.session_state.categorized_data)
                     
                     st.download_button(
-                        label="📥 DOWNLOAD EXCEL",
+                        label="📥 Excel Report",
                         data=excel_data,
                         file_name=f"categorized_returns_{timestamp}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True,
-                        help="Complete analysis with quality insights"
+                        help="Complete analysis with formatting"
                     )
                 
                 with col2:
@@ -1411,42 +1803,50 @@ def main():
                     csv_data = st.session_state.categorized_data.to_csv(index=False)
                     
                     st.download_button(
-                        label="📥 DOWNLOAD CSV",
+                        label="📄 CSV Data",
                         data=csv_data,
                         file_name=f"categorized_returns_{timestamp}.csv",
                         mime="text/csv",
-                        use_container_width=True
+                        use_container_width=True,
+                        help="Raw data for further analysis"
                     )
                 
                 with col3:
                     # Quality report
                     quality_report = generate_quality_report(st.session_state.categorized_data)
                     st.download_button(
-                        label="📥 QUALITY REPORT",
+                        label="📊 Quality Report",
                         data=quality_report,
                         file_name=f"quality_analysis_{timestamp}.txt",
                         mime="text/plain",
                         use_container_width=True,
-                        help="Detailed quality analysis with recommendations"
+                        help="Detailed analysis with recommendations"
                     )
                 
-                # Show export info
-                method_used = "AI-powered" if not st.session_state.ai_failed else "Manual"
-                
-                st.info(f"""
-                **📋 Export Contents ({method_used} categorization):**
-                - ✅ Original data with categorization
-                - ✅ Category summary with quality flagging
-                - ✅ Quality insights and action items
-                - ✅ Product-specific analysis
-                - ✅ Quality categories highlighted in Excel
-                
-                **🤖 Processing Details:**
-                - Method: {method_used}
-                - Provider: {st.session_state.ai_provider.upper() if not st.session_state.ai_failed else 'Manual'}
-                - Quality analysis: {'Enabled' if st.session_state.quality_insights else 'Basic'}
-                - Data sources: PDF, FBA Reports, CSV/Excel supported
-                """)
+                # Show final summary
+                st.markdown(f"""
+                <div class="info-box fade-in" style="margin-top: 2rem;">
+                    <h4 style="color: var(--primary); margin: 0;">📋 Processing Summary</h4>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 1rem;">
+                        <div style="text-align: center;">
+                            <div style="font-size: 2em; font-weight: 700; color: var(--primary);">{len(st.session_state.categorized_data)}</div>
+                            <div style="color: var(--muted);">Returns Processed</div>
+                        </div>
+                        <div style="text-align: center;">
+                            <div style="font-size: 2em; font-weight: 700; color: var(--cost);">${st.session_state.total_cost:.4f}</div>
+                            <div style="color: var(--muted);">Total Cost</div>
+                        </div>
+                        <div style="text-align: center;">
+                            <div style="font-size: 2em; font-weight: 700; color: var(--accent);">{st.session_state.model_choice}</div>
+                            <div style="color: var(--muted);">Model Used</div>
+                        </div>
+                        <div style="text-align: center;">
+                            <div style="font-size: 2em; font-weight: 700; color: var(--success);">{'✅' if st.session_state.quality_insights else '❌'}</div>
+                            <div style="color: var(--muted);">Quality Analysis</div>
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
