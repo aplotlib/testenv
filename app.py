@@ -1,13 +1,14 @@
 """
 Vive Health Quality Complaint Categorizer - Production Version
 AI-Powered Return Reason Classification with Column K Export
-Version: 16.0 - Handles Large Datasets & Preserves File Format
+Version: 16.1 - Auto-Download Feature Added
 
 Key Features:
 - Handles 2600+ rows efficiently
 - Exports with categories in Column K
 - Preserves original file structure
 - Google Sheets compatible
+- AUTO-DOWNLOAD on completion
 """
 
 import streamlit as st
@@ -56,7 +57,7 @@ except ImportError:
 # App Configuration
 APP_CONFIG = {
     'title': 'Vive Health Medical Device Return Categorizer',
-    'version': '16.0',
+    'version': '16.1',
     'company': 'Vive Health',
     'chunk_sizes': [100, 250, 500, 1000],  # Available chunk sizes
     'default_chunk': 500,
@@ -194,7 +195,10 @@ def initialize_session_state():
         'total_rows_processed': 0,
         'column_mapping': {},  # Track original column positions
         'show_product_analysis': False,
-        'processing_speed': 0.0
+        'processing_speed': 0.0,
+        'auto_download_triggered': False,  # Track if auto-download was triggered
+        'export_data': None,  # Store export data
+        'export_filename': None  # Store filename
     }
     
     for key, value in defaults.items():
@@ -729,6 +733,23 @@ def main():
     </div>
     """, unsafe_allow_html=True)
     
+    # Show completion notification if processing is done
+    if st.session_state.processing_complete and st.session_state.export_data:
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #00F5A0 0%, #00D9FF 50%, #00F5A0 100%); 
+                    padding: 1rem; border-radius: 10px; text-align: center; margin-bottom: 1rem;
+                    animation: pulse 2s infinite; box-shadow: 0 0 30px rgba(0, 245, 160, 0.5);">
+            <h2 style="color: white; margin: 0;">🎉 Analysis Complete! Scroll down to download your results 👇</h2>
+        </div>
+        <style>
+        @keyframes pulse {
+            0% { transform: scale(1); box-shadow: 0 0 30px rgba(0, 245, 160, 0.5); }
+            50% { transform: scale(1.02); box-shadow: 0 0 40px rgba(0, 245, 160, 0.7); }
+            100% { transform: scale(1); box-shadow: 0 0 30px rgba(0, 245, 160, 0.5); }
+        }
+        </style>
+        """, unsafe_allow_html=True)
+    
     # Check AI status
     if not AI_AVAILABLE:
         st.error("❌ AI Module not available. Please check enhanced_ai_analysis.py")
@@ -1011,6 +1032,12 @@ def main():
                             cost_summary = analyzer.get_cost_summary()
                             st.session_state.total_cost = cost_summary.get('total_cost', 0)
                             st.session_state.api_calls_made = cost_summary.get('api_calls', 0)
+                            
+                            # Prepare export data immediately after processing
+                            st.session_state.export_data = export_with_column_k(categorized_df)
+                            file_extension = '.xlsx' if EXCEL_AVAILABLE else '.csv'
+                            st.session_state.export_filename = f"categorized_returns_{datetime.now().strftime('%Y%m%d_%H%M%S')}{file_extension}"
+                            st.session_state.auto_download_triggered = False  # Reset flag for new download
                         
                         st.balloons()
                         
@@ -1030,6 +1057,9 @@ def main():
                             with st.expander(f"⚠️ {len(st.session_state.processing_errors)} Processing Warnings"):
                                 for error in st.session_state.processing_errors:
                                     st.warning(error)
+                        
+                        # Trigger page refresh to show download section
+                        st.rerun()
     
     # Results section
     if st.session_state.processing_complete and st.session_state.categorized_data is not None:
@@ -1041,45 +1071,123 @@ def main():
         # Export section
         st.markdown("### 💾 Export Your Results")
         
-        # Export info box
-        st.markdown("""
-        <div class="info-box" style="background: linear-gradient(135deg, rgba(0, 245, 160, 0.1), rgba(0, 245, 160, 0.2)); 
-                    border-color: var(--success); text-align: center; margin-bottom: 1rem;">
-            <h4 style="color: var(--success); margin: 0;">✅ Ready for Export</h4>
-            <p style="margin: 0.5rem 0 0 0;">
-                Your original file structure is preserved with AI categories added to Column K
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        col1, col2, col3 = st.columns([1, 2, 1])
-        
-        with col2:
-            export_data = export_with_column_k(st.session_state.categorized_data)
-            
+        # Check if we have export data ready
+        if st.session_state.export_data and st.session_state.export_filename:
             file_extension = '.xlsx' if EXCEL_AVAILABLE else '.csv'
             mime_type = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' if EXCEL_AVAILABLE else 'text/csv'
             
-            st.download_button(
-                label=f"📥 Download File with Categories in Column K {file_extension.upper()}",
-                data=export_data,
-                file_name=f"categorized_returns_{datetime.now().strftime('%Y%m%d_%H%M%S')}{file_extension}",
-                mime=mime_type,
-                use_container_width=True,
-                help="Download your file with AI categories in Column K - ready for Google Sheets"
-            )
-            
-            # Success message
-            st.markdown("""
-            <div style="text-align: center; margin-top: 1rem;">
-                <p style="color: var(--success); font-weight: 600;">
-                    ✅ File is Google Sheets compatible!
+            # Success box with prominent download
+            st.markdown(f"""
+            <div class="info-box" style="background: linear-gradient(135deg, rgba(0, 245, 160, 0.2), rgba(0, 245, 160, 0.3)); 
+                        border-color: var(--success); text-align: center; margin-bottom: 1rem; 
+                        border-width: 2px; box-shadow: 0 0 20px rgba(0, 245, 160, 0.4);">
+                <h3 style="color: var(--success); margin: 0;">✅ Analysis Complete - Download Ready!</h3>
+                <p style="margin: 0.5rem 0; font-size: 1.1em;">
+                    Your file is ready with AI categories in Column K
                 </p>
-                <p style="color: var(--muted); font-size: 0.9em;">
-                    Import directly - only Column K has been modified
+                <p style="margin: 0.3rem 0; color: var(--accent); font-weight: 600;">
+                    📄 Filename: {st.session_state.export_filename}
                 </p>
             </div>
             """, unsafe_allow_html=True)
+            
+            # Prominent download section
+            col1, col2, col3 = st.columns([1, 3, 1])
+            
+            with col2:
+                # Big download button with animation
+                st.markdown("""
+                <style>
+                @keyframes pulse {
+                    0% { transform: scale(1); }
+                    50% { transform: scale(1.05); }
+                    100% { transform: scale(1); }
+                }
+                .download-container button {
+                    animation: pulse 2s infinite;
+                    font-size: 1.2em !important;
+                    padding: 1rem 2rem !important;
+                    background: linear-gradient(135deg, #00F5A0 0%, #00D9FF 100%) !important;
+                }
+                </style>
+                <div class="download-container">
+                """, unsafe_allow_html=True)
+                
+                # Download button
+                downloaded = st.download_button(
+                    label=f"⬇️ DOWNLOAD YOUR RESULTS {file_extension.upper()}",
+                    data=st.session_state.export_data,
+                    file_name=st.session_state.export_filename,
+                    mime=mime_type,
+                    use_container_width=True,
+                    type="primary",
+                    key=f"download_{st.session_state.export_filename}"
+                )
+                
+                st.markdown("</div>", unsafe_allow_html=True)
+                
+                if downloaded:
+                    st.success("✅ File downloaded successfully!")
+                    st.session_state.auto_download_triggered = True
+                
+                # Additional info
+                st.markdown("""
+                <div style="text-align: center; margin-top: 1.5rem;">
+                    <p style="color: var(--success); font-weight: 600; font-size: 1.1em;">
+                        ✅ File is Google Sheets compatible!
+                    </p>
+                    <p style="color: var(--text); margin: 0.5rem 0;">
+                        Import directly - only Column K has been modified with AI categories
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Important notice
+                st.warning("""
+                ⚠️ **Important**: Download your results now to save your work! 
+                The file contains all your categorized data with AI classifications in Column K.
+                """)
+            
+            # Tips section
+            with st.expander("💡 Next Steps & Tips", expanded=True):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("""
+                    **What's in your file:**
+                    - ✅ All original data preserved
+                    - ✅ AI categories in Column K
+                    - ✅ Ready for analysis
+                    
+                    **Quality Analysis Tips:**
+                    - Filter by category in Column K
+                    - Pivot by SKU and category
+                    - Identify top quality issues
+                    """)
+                
+                with col2:
+                    st.markdown("""
+                    **Import to Google Sheets:**
+                    1. Open Google Sheets
+                    2. File → Import
+                    3. Upload your downloaded file
+                    4. Select "Replace spreadsheet"
+                    
+                    **For Excel:**
+                    - Open directly in Excel
+                    - Data is pre-formatted
+                    """)
+        
+        # Option to process another file
+        st.markdown("---")
+        if st.button("📁 Process Another File", type="secondary", use_container_width=True):
+            # Reset relevant session state
+            for key in ['original_data', 'processed_data', 'categorized_data', 
+                       'processing_complete', 'auto_download_triggered', 
+                       'export_data', 'export_filename']:
+                if key in st.session_state:
+                    st.session_state[key] = None if key != 'processing_complete' else False
+            st.rerun()
 
 if __name__ == "__main__":
     main()
