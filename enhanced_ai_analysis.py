@@ -15,8 +15,6 @@ import logging
 import os
 import json
 import re
-import asyncio
-import aiohttp
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple, Union
 from enum import Enum
