@@ -1,15 +1,14 @@
 """
 Enhanced AI Analysis Module - Dual AI with Speed Optimization
-Version 14.1 - OpenAI + Claude with Parallel Processing
+Version 15.0 - B2B Optimized
 
 Key Features:
 - Dual AI support with intelligent routing
-- Batch processing for speed (5-10x faster)
-- Claude Haiku for fast categorization
+- Batch processing for speed
+- Claude Haiku for fast categorization/summarization
 - GPT-3.5 for complex cases
-- Parallel API calls when using both
-- Smart fallback mechanisms
-- NEW: B2B Summarization capabilities
+- Parallel API calls
+- Dynamic Worker Scaling
 """
 
 import logging
@@ -40,32 +39,30 @@ def safe_import(module_name):
 requests, has_requests = safe_import('requests')
 
 # API Configuration
-API_TIMEOUT = 30  # Reduced from 45
-MAX_RETRIES = 2   # Reduced from 3
-BATCH_SIZE = 20   # Reduced for faster processing
-MAX_WORKERS = 5   # Parallel workers
+API_TIMEOUT = 45  # Increased for longer summaries
+MAX_RETRIES = 2
 
 # Token configurations by mode
 TOKEN_LIMITS = {
-    'standard': 100,     # Reduced for faster responses
+    'standard': 100,     
     'enhanced': 200,     
     'extreme': 400,      
     'chat': 500,
-    'summary': 150       # Limit for summaries
+    'summary': 300       # Increased for detailed reasons
 }
 
-# Model configurations - optimized for speed
+# Model configurations
 MODELS = {
     'openai': {
-        'standard': 'gpt-3.5-turbo',  # Fast
-        'enhanced': 'gpt-3.5-turbo',  # Changed from gpt-4 for speed
+        'standard': 'gpt-3.5-turbo',
+        'enhanced': 'gpt-3.5-turbo',
         'extreme': 'gpt-4',
         'chat': 'gpt-3.5-turbo',
         'summary': 'gpt-3.5-turbo'
     },
     'claude': {
-        'standard': 'claude-3-haiku-20240307',  # Fastest
-        'enhanced': 'claude-3-haiku-20240307',  # Keep fast
+        'standard': 'claude-3-haiku-20240307',
+        'enhanced': 'claude-3-haiku-20240307',
         'extreme': 'claude-3-sonnet-20240229',
         'chat': 'claude-3-haiku-20240307',
         'summary': 'claude-3-haiku-20240307'
@@ -103,9 +100,8 @@ MEDICAL_DEVICE_CATEGORIES = [
     'Other/Miscellaneous'
 ]
 
-# FBA reason code mapping - expanded
+# FBA reason code mapping
 FBA_REASON_MAP = {
-    # Original mappings
     'NOT_COMPATIBLE': 'Equipment Compatibility',
     'DAMAGED_BY_FC': 'Product Defects/Quality',
     'DAMAGED_BY_CARRIER': 'Shipping/Fulfillment Issues',
@@ -132,7 +128,6 @@ FBA_REASON_MAP = {
     'NOT_COMPATIBLE_WITH_DEVICE': 'Equipment Compatibility',
     'UNSATISFACTORY_PRODUCT': 'Performance/Effectiveness',
     'ARRIVED_LATE': 'Shipping/Fulfillment Issues',
-    # Additional mappings
     'TOO_SMALL': 'Size/Fit Issues',
     'TOO_LARGE': 'Size/Fit Issues',
     'UNCOMFORTABLE': 'Comfort Issues',
@@ -182,7 +177,7 @@ class AIProvider(Enum):
     OPENAI = "openai"
     CLAUDE = "claude"
     BOTH = "both"
-    FASTEST = "fastest"  # New option for speed
+    FASTEST = "fastest"
 
 @dataclass
 class CostEstimate:
@@ -334,8 +329,9 @@ class CostTracker:
 class EnhancedAIAnalyzer:
     """Main AI analyzer with dual AI support and speed optimization"""
     
-    def __init__(self, provider: AIProvider = AIProvider.FASTEST):
+    def __init__(self, provider: AIProvider = AIProvider.FASTEST, max_workers: int = 5):
         self.provider = provider
+        self.max_workers = max_workers
         self.openai_key = self._get_api_key('openai')
         self.claude_key = self._get_api_key('claude')
         
@@ -347,14 +343,14 @@ class EnhancedAIAnalyzer:
         self.claude_configured = bool(self.claude_key and has_requests)
         
         # Thread pool for parallel processing
-        self.executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
+        self.executor = ThreadPoolExecutor(max_workers=self.max_workers)
         
         # Session for connection pooling
         self.session = None
         if has_requests:
             self.session = requests.Session()
         
-        logger.info(f"AI Analyzer initialized - OpenAI: {self.openai_configured}, Claude: {self.claude_configured}, Mode: {provider.value}")
+        logger.info(f"AI Analyzer initialized - OpenAI: {self.openai_configured}, Claude: {self.claude_configured}, Mode: {provider.value}, Workers: {self.max_workers}")
     
     def _get_api_key(self, provider: str) -> Optional[str]:
         """Get API key from multiple sources"""
@@ -554,7 +550,8 @@ class EnhancedAIAnalyzer:
     
     def summarize_batch(self, items: List[Dict[str, str]]) -> List[Dict[str, str]]:
         """Summarize a batch of tickets for B2B reports"""
-        system_prompt = "You are a customer service analyst. Summarize the return/replacement reason in 1 brief sentence (max 10 words). Focus on the 'Why' (e.g., 'Product defective', 'Customer changed mind', 'Wrong item sent'). Do not use polite filler words."
+        # Updated prompt: No word limit, focus on accuracy
+        system_prompt = "You are a customer service analyst. Summarize the return/replacement reason. Provide an accurate, detailed description of the 'Why' (e.g., 'Product defective', 'Customer changed mind', 'Wrong item sent'). Do not arbitrarily limit length; use as many words as necessary to fully capture the issue."
         
         futures = []
         results = []
@@ -566,9 +563,9 @@ class EnhancedAIAnalyzer:
             use_claude = self.claude_configured and (self.provider == AIProvider.CLAUDE or self.provider == AIProvider.FASTEST or self.provider == AIProvider.BOTH)
             
             if use_claude:
-                future = self.executor.submit(self._call_claude, prompt, system_prompt, 'standard')
+                future = self.executor.submit(self._call_claude, prompt, system_prompt, 'summary')
             elif self.openai_configured:
-                future = self.executor.submit(self._call_openai, prompt, system_prompt, 'standard')
+                future = self.executor.submit(self._call_openai, prompt, system_prompt, 'summary')
             else:
                 future = None
                 
