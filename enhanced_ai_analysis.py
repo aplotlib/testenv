@@ -1,6 +1,6 @@
 """
 Enhanced AI Analysis Module - Dual AI with Speed Optimization
-Version 14.0 - OpenAI + Claude with Parallel Processing
+Version 14.1 - OpenAI + Claude with Parallel Processing
 
 Key Features:
 - Dual AI support with intelligent routing
@@ -9,6 +9,7 @@ Key Features:
 - GPT-3.5 for complex cases
 - Parallel API calls when using both
 - Smart fallback mechanisms
+- NEW: B2B Summarization capabilities
 """
 
 import logging
@@ -49,7 +50,8 @@ TOKEN_LIMITS = {
     'standard': 100,     # Reduced for faster responses
     'enhanced': 200,     
     'extreme': 400,      
-    'chat': 500          
+    'chat': 500,
+    'summary': 150       # Limit for summaries
 }
 
 # Model configurations - optimized for speed
@@ -58,13 +60,15 @@ MODELS = {
         'standard': 'gpt-3.5-turbo',  # Fast
         'enhanced': 'gpt-3.5-turbo',  # Changed from gpt-4 for speed
         'extreme': 'gpt-4',
-        'chat': 'gpt-3.5-turbo'
+        'chat': 'gpt-3.5-turbo',
+        'summary': 'gpt-3.5-turbo'
     },
     'claude': {
         'standard': 'claude-3-haiku-20240307',  # Fastest
         'enhanced': 'claude-3-haiku-20240307',  # Keep fast
         'extreme': 'claude-3-sonnet-20240229',
-        'chat': 'claude-3-haiku-20240307'
+        'chat': 'claude-3-haiku-20240307',
+        'summary': 'claude-3-haiku-20240307'
     }
 }
 
@@ -418,8 +422,8 @@ class EnhancedAIAnalyzer:
         if not self.openai_configured:
             return None, None
         
-        model = MODELS['openai'][mode]
-        max_tokens = TOKEN_LIMITS[mode]
+        model = MODELS['openai'].get(mode, MODELS['openai']['standard'])
+        max_tokens = TOKEN_LIMITS.get(mode, TOKEN_LIMITS['standard'])
         
         # Estimate input tokens
         input_tokens = estimate_tokens(system_prompt + prompt)
@@ -486,8 +490,8 @@ class EnhancedAIAnalyzer:
         if not self.claude_configured:
             return None, None
         
-        model = MODELS['claude'][mode]
-        max_tokens = TOKEN_LIMITS[mode]
+        model = MODELS['claude'].get(mode, MODELS['claude']['standard'])
+        max_tokens = TOKEN_LIMITS.get(mode, TOKEN_LIMITS['standard'])
         
         # Estimate input tokens
         input_tokens = estimate_tokens(system_prompt + prompt)
@@ -548,6 +552,46 @@ class EnhancedAIAnalyzer:
         
         return None, None
     
+    def summarize_batch(self, items: List[Dict[str, str]]) -> List[Dict[str, str]]:
+        """Summarize a batch of tickets for B2B reports"""
+        system_prompt = "You are a customer service analyst. Summarize the return/replacement reason in 1 brief sentence (max 10 words). Focus on the 'Why' (e.g., 'Product defective', 'Customer changed mind', 'Wrong item sent'). Do not use polite filler words."
+        
+        futures = []
+        results = []
+        
+        for item in items:
+            prompt = f"Subject: {item.get('subject', '')}\nDetails: {item.get('details', '')}\nSummary:"
+            
+            # Default to fastest or configured
+            use_claude = self.claude_configured and (self.provider == AIProvider.CLAUDE or self.provider == AIProvider.FASTEST or self.provider == AIProvider.BOTH)
+            
+            if use_claude:
+                future = self.executor.submit(self._call_claude, prompt, system_prompt, 'standard')
+            elif self.openai_configured:
+                future = self.executor.submit(self._call_openai, prompt, system_prompt, 'standard')
+            else:
+                future = None
+                
+            futures.append((future, item))
+            
+        # Collect results
+        for future, item in futures:
+            summary = "Summary Unavailable"
+            if future:
+                try:
+                    resp, _ = future.result(timeout=API_TIMEOUT)
+                    if resp:
+                        summary = resp
+                except Exception as e:
+                    logger.error(f"Summary error: {e}")
+            
+            # Return new dict with summary
+            result_item = item.copy()
+            result_item['summary'] = summary
+            results.append(result_item)
+            
+        return results
+
     def categorize_return(self, complaint: str, fba_reason: str = None, mode: str = 'standard') -> Tuple[str, float, str, str]:
         """Categorize return with speed optimization"""
         if not complaint or not complaint.strip():
