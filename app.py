@@ -44,7 +44,7 @@ except ImportError:
 # App Configuration
 APP_CONFIG = {
     'title': 'Vive Health Quality & B2B Report Generator',
-    'version': '17.1',
+    'version': '17.2',
     'company': 'Vive Health',
     'chunk_sizes': [100, 250, 500, 1000],
     'default_chunk': 500,
@@ -176,7 +176,7 @@ def initialize_session_state():
         'api_calls_made': 0,
         'processing_time': 0.0,
         'ai_provider': AIProvider.FASTEST,
-        'batch_size': 50,
+        'batch_size': 20,
         'chunk_size': APP_CONFIG['default_chunk'],
         'processing_errors': [],
         'total_rows_processed': 0,
@@ -192,7 +192,8 @@ def initialize_session_state():
         'b2b_processed_data': None,
         'b2b_processing_complete': False,
         'b2b_export_data': None,
-        'b2b_export_filename': None
+        'b2b_export_filename': None,
+        'b2b_perf_mode': 'Small (< 500 rows)'
     }
     
     for key, value in defaults.items():
@@ -221,9 +222,10 @@ def check_api_keys():
     
     return keys_found
 
-def get_ai_analyzer():
-    """Get or create AI analyzer"""
-    if st.session_state.ai_analyzer is None and AI_AVAILABLE:
+def get_ai_analyzer(max_workers=5):
+    """Get or create AI analyzer with specific workers"""
+    # Always re-initialize if workers change or not exists
+    if st.session_state.ai_analyzer is None or st.session_state.ai_analyzer.max_workers != max_workers:
         try:
             keys = check_api_keys()
             
@@ -232,8 +234,8 @@ def get_ai_analyzer():
             if 'claude' in keys:
                 os.environ['ANTHROPIC_API_KEY'] = keys['claude']
             
-            st.session_state.ai_analyzer = EnhancedAIAnalyzer(st.session_state.ai_provider)
-            logger.info(f"Created AI analyzer with provider: {st.session_state.ai_provider.value}")
+            st.session_state.ai_analyzer = EnhancedAIAnalyzer(st.session_state.ai_provider, max_workers=max_workers)
+            logger.info(f"Created AI analyzer with provider: {st.session_state.ai_provider.value}, Workers: {max_workers}")
         except Exception as e:
             logger.error(f"Error creating AI analyzer: {e}")
             st.error(f"Error initializing AI: {str(e)}")
@@ -795,7 +797,7 @@ def process_b2b_file(file_content, filename):
         st.error(f"Error reading file: {e}")
         return None
 
-def generate_b2b_report(df, analyzer):
+def generate_b2b_report(df, analyzer, batch_size):
     """Generate the B2B report with AI summaries and Cleaned SKUs"""
     
     # Columns to use for display/AI
@@ -815,7 +817,7 @@ def generate_b2b_report(df, analyzer):
         items_to_process.append({
             'index': idx,
             'subject': subject,
-            'details': strip_html(description)[:500], # Limit text for API speed
+            'details': strip_html(description)[:1000], # Increased text limit for better context
             'full_description': description,
             'sku': main_sku
         })
@@ -824,7 +826,6 @@ def generate_b2b_report(df, analyzer):
     progress_bar = st.progress(0)
     status_text = st.empty()
     
-    batch_size = st.session_state.batch_size
     total_items = len(items_to_process)
     processed_results = []
     
@@ -845,15 +846,15 @@ def generate_b2b_report(df, analyzer):
     status_text.empty()
     progress_bar.empty()
     
-    # Construct Final DataFrame
+    # Construct Final DataFrame - STRICTLY matching requested format
+    # Display Name, Description, SKU, Reason
     final_rows = []
     for item in processed_results:
         final_rows.append({
-            'Main SKU': item['sku'],
-            'Issue Subject': item['subject'],
-            'AI Summary': item['summary'],
-            'Full Description': item['full_description'],
-            'SKU Found': 'Yes' if item['sku'] != 'Unknown' else 'No'
+            'Display Name': item['subject'],
+            'Description': item['full_description'],
+            'SKU': item['sku'],
+            'Reason': item['summary']
         })
         
     return pd.DataFrame(final_rows)
@@ -956,12 +957,38 @@ def main():
                     border-radius: 8px; padding: 0.8rem; margin-bottom: 1rem;">
             <strong>📌 Goal:</strong> Convert raw Odoo Helpdesk export into a compliant B2B Report.
             <ul style="margin-bottom:0;">
-                <li><strong>SKU Logic:</strong> Auto-extracts Main SKU (e.g., <code>MOB1027</code>) from Subject/Description using "3 Caps + 4 Digits" rule.</li>
-                <li><strong>Filtering:</strong> Processes ALL tickets in upload (No pre-filtering).</li>
-                <li><strong>AI Summary:</strong> Generates 10-word "Reason" summaries for every ticket.</li>
+                <li><strong>Format:</strong> Matches standard B2B Report columns (Display Name, Description, SKU, Reason)</li>
+                <li><strong>SKU Logic:</strong> Auto-extracts Main SKU (e.g., <code>MOB1027</code>)</li>
+                <li><strong>AI Summary:</strong> Generates detailed Reason summaries for every ticket.</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
+        
+        # Performance / File Size Selection
+        st.markdown("#### ⚙️ Data Volume / Processing Speed")
+        perf_mode = st.select_slider(
+            "Select Dataset Size to optimize API performance:",
+            options=['Small (< 500 rows)', 'Medium (500-2,000 rows)', 'Large (2,000+ rows)'],
+            value=st.session_state.b2b_perf_mode,
+            key='perf_selector'
+        )
+        st.session_state.b2b_perf_mode = perf_mode
+        
+        # Map selection to performance settings
+        if perf_mode == 'Small (< 500 rows)':
+            batch_size = 10
+            max_workers = 3
+            st.caption("Settings: Conservative batching for max reliability.")
+        elif perf_mode == 'Medium (500-2,000 rows)':
+            batch_size = 25
+            max_workers = 6
+            st.caption("Settings: Balanced speed and concurrency.")
+        else: # Large
+            batch_size = 50
+            max_workers = 10
+            st.caption("Settings: Aggressive parallel processing for high volume.")
+
+        st.divider()
         
         b2b_file = st.file_uploader("Upload Odoo Export (CSV/Excel)", type=['csv', 'xlsx'], key="b2b_uploader")
         
@@ -974,11 +1001,12 @@ def main():
                 
                 # 2. Process Button
                 if st.button("⚡ Generate B2B Report", type="primary"):
-                    analyzer = get_ai_analyzer()
+                    # Update analyzer with new worker settings based on user choice
+                    analyzer = get_ai_analyzer(max_workers=max_workers)
                     
                     with st.spinner("Running AI Analysis & SKU Extraction..."):
                         # Run the B2B pipeline
-                        final_b2b = generate_b2b_report(b2b_df, analyzer)
+                        final_b2b = generate_b2b_report(b2b_df, analyzer, batch_size)
                         
                         # Save to session
                         st.session_state.b2b_processed_data = final_b2b
@@ -997,7 +1025,7 @@ def main():
                             header_fmt = workbook.add_format({'bold': True, 'bg_color': '#00D9FF', 'font_color': 'white'})
                             for col_num, value in enumerate(final_b2b.columns.values):
                                 worksheet.write(0, col_num, value, header_fmt)
-                                worksheet.set_column(col_num, col_num, 20)
+                                worksheet.set_column(col_num, col_num, 30) # Wider columns for description
 
                         st.session_state.b2b_export_data = output.getvalue()
                         st.session_state.b2b_export_filename = f"B2B_Report_{datetime.now().strftime('%Y-%m-%d')}.xlsx"
@@ -1015,19 +1043,15 @@ def main():
             with c1:
                 st.metric("Total Processed", len(df_res))
             with c2:
-                sku_found_count = len(df_res[df_res['Main SKU'] != 'Unknown'])
+                sku_found_count = len(df_res[df_res['SKU'] != 'Unknown'])
                 st.metric("SKUs Identified", f"{sku_found_count}", delta=f"{sku_found_count/len(df_res)*100:.1f}% coverage")
             with c3:
-                unique_skus = df_res[df_res['Main SKU'] != 'Unknown']['Main SKU'].nunique()
+                unique_skus = df_res[df_res['SKU'] != 'Unknown']['SKU'].nunique()
                 st.metric("Unique Products", unique_skus)
             
             # Preview Table
             st.markdown("#### Preview (Top 10)")
             st.dataframe(df_res.head(10), use_container_width=True)
-            
-            # Warnings if SKUs missing
-            if sku_found_count < len(df_res):
-                st.warning(f"⚠️ {len(df_res) - sku_found_count} tickets have 'Unknown' SKU. Please check the 'Full Description' column in the export.")
             
             col1, col2 = st.columns(2)
             with col1:
