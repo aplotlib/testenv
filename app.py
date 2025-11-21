@@ -1,16 +1,3 @@
-"""
-Vive Health Quality Complaint Categorizer - Production Version
-AI-Powered Return Reason Classification with Column K Export
-Version: 16.1 - Auto-Download Feature Added
-
-Key Features:
-- Handles 2600+ rows efficiently
-- Exports with categories in Column K
-- Preserves original file structure
-- Google Sheets compatible
-- AUTO-DOWNLOAD on completion
-"""
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -30,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 # Set page config with increased limits
 st.set_page_config(
-    page_title="Vive Health Return Categorizer",
+    page_title="Vive Health Quality & B2B Reports",
     page_icon="🏥",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -56,10 +43,10 @@ except ImportError:
 
 # App Configuration
 APP_CONFIG = {
-    'title': 'Vive Health Medical Device Return Categorizer',
-    'version': '16.1',
+    'title': 'Vive Health Quality & B2B Report Generator',
+    'version': '17.0',
     'company': 'Vive Health',
-    'chunk_sizes': [100, 250, 500, 1000],  # Available chunk sizes
+    'chunk_sizes': [100, 250, 500, 1000],
     'default_chunk': 500,
 }
 
@@ -80,7 +67,7 @@ COLORS = {
     'openai': '#00D9FF'
 }
 
-# Quality categories
+# Quality categories (For Tab 1)
 QUALITY_CATEGORIES = [
     'Product Defects/Quality',
     'Performance/Effectiveness',
@@ -198,7 +185,14 @@ def initialize_session_state():
         'processing_speed': 0.0,
         'auto_download_triggered': False,  # Track if auto-download was triggered
         'export_data': None,  # Store export data
-        'export_filename': None  # Store filename
+        'export_filename': None,  # Store filename
+        
+        # B2B Report specific state
+        'b2b_original_data': None,
+        'b2b_processed_data': None,
+        'b2b_processing_complete': False,
+        'b2b_export_data': None,
+        'b2b_export_filename': None
     }
     
     for key, value in defaults.items():
@@ -246,8 +240,12 @@ def get_ai_analyzer():
     
     return st.session_state.ai_analyzer
 
+# -------------------------
+# TAB 1: CATEGORIZER LOGIC
+# -------------------------
+
 def process_file_preserve_structure(file_content, filename):
-    """Process file while preserving original structure"""
+    """Process file while preserving original structure (For Categorizer)"""
     try:
         # Read file
         if filename.endswith('.csv'):
@@ -509,7 +507,7 @@ def export_with_column_k(df):
     return output.getvalue()
 
 def display_results_dashboard(df, column_mapping):
-    """Display enhanced results dashboard"""
+    """Display enhanced results dashboard (Tab 1)"""
     st.markdown("### 📊 Analysis Results")
     
     # Calculate metrics
@@ -715,6 +713,215 @@ def display_results_dashboard(df, column_mapping):
                 mime="text/csv"
             )
 
+# -------------------------
+# TAB 2: B2B REPORT LOGIC
+# -------------------------
+
+def clean_sku_variant(sku):
+    """
+    Clean SKU by removing variant info.
+    Logic: First 3 chars (Category) + Next 4 numbers (Product Number) -> Keep only this.
+    Example: MOB1027BLU -> MOB1027
+    """
+    if not sku or not isinstance(sku, str):
+        return ""
+    
+    sku = sku.strip()
+    
+    # Regex for Standard Vive SKU format: 3 Letters + 4 Digits (e.g., MOB1027)
+    match = re.match(r'^([A-Za-z]{3}\d{4})', sku)
+    if match:
+        return match.group(1)  # Return just the core part
+    
+    return sku  # Return original if it doesn't match pattern
+
+def extract_sku_from_row(row):
+    """
+    Attempt to find SKU in various columns with priority.
+    Priority: Main SKU/Display Name -> Display Name -> Description
+    """
+    # 1. Check explicit SKU column
+    cols_to_check = ['Main SKU/Display Name', 'SKU', 'Product', 'Main SKU']
+    for col in cols_to_check:
+        if col in row.index and pd.notna(row[col]) and str(row[col]).strip():
+            return str(row[col]).strip()
+    
+    # 2. Check Display Name (often formatted as 'Defective : SKU1234')
+    if 'Display Name' in row.index and pd.notna(row['Display Name']):
+        text = str(row['Display Name'])
+        # Look for patterns like "SKU:" or just common SKU format
+        match = re.search(r'([A-Za-z]{3}\d{4}[A-Za-z0-9]*)', text)
+        if match:
+            return match.group(1)
+            
+    # 3. Check Subject
+    if 'Subject' in row.index and pd.notna(row['Subject']):
+        text = str(row['Subject'])
+        match = re.search(r'([A-Za-z]{3}\d{4}[A-Za-z0-9]*)', text)
+        if match:
+            return match.group(1)
+            
+    # 4. Check Description (Harder, needs HTML parsing often)
+    if 'Description' in row.index and pd.notna(row['Description']):
+        text = str(row['Description'])
+        # Look for "SKU: XXXXX"
+        match = re.search(r'SKU:?\s*([A-Za-z]{3}\d{4}[A-Za-z0-9]*)', text, re.IGNORECASE)
+        if match:
+            return match.group(1)
+            
+    return ""
+
+def strip_html(text):
+    """Remove HTML tags from description for cleaner AI processing"""
+    if not text or not isinstance(text, str):
+        return ""
+    # Simple regex to remove tags
+    clean = re.compile('<.*?>')
+    return re.sub(clean, ' ', text).strip()
+
+def process_b2b_file(file_content, filename):
+    """Process raw Odoo export for B2B Report"""
+    try:
+        if filename.endswith('.csv'):
+            df = pd.read_csv(io.BytesIO(file_content), dtype=str)
+        elif filename.endswith(('.xlsx', '.xls')):
+            df = pd.read_excel(io.BytesIO(file_content), dtype=str)
+        else:
+            st.error("Unsupported file format")
+            return None
+
+        # FILTERING: Remove "Internal assistance"
+        # Check for "Type" column
+        initial_count = len(df)
+        
+        if 'Type' in df.columns:
+            # Filter out Internal assistance
+            df = df[df['Type'] != 'Internal assistance'].copy()
+            # Also keep only Return, Replacement, Refund if user wants? 
+            # User said: "include each ticket type, except internal assistance"
+        else:
+            # Fallback: Try to detect in Display Name or just warn
+            st.warning("⚠️ 'Type' column not found. Could not auto-filter 'Internal assistance' tickets. Please verify input file.")
+        
+        filtered_count = len(df)
+        logger.info(f"B2B Processing: {initial_count} -> {filtered_count} rows")
+        
+        return df
+        
+    except Exception as e:
+        st.error(f"Error reading file: {e}")
+        return None
+
+def generate_b2b_report(df, analyzer):
+    """Generate the B2B report with AI summaries and Cleaned SKUs"""
+    
+    results = []
+    total_rows = len(df)
+    
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    # Prepare prompts
+    system_prompt = "You are a customer service analyst. Summarize the return/replacement reason in 1 brief sentence (max 10 words). Focus on the 'Why'."
+    
+    processed_count = 0
+    
+    # We need to process row by row or batch
+    # Create batches for AI
+    batch_size = st.session_state.batch_size
+    
+    # Columns to use
+    display_col = 'Display Name' if 'Display Name' in df.columns else df.columns[0]
+    desc_col = 'Description' if 'Description' in df.columns else None
+    
+    # Process in batches
+    rows_to_process = []
+    for idx, row in df.iterrows():
+        # Extact Data
+        display_name = str(row.get(display_col, ''))
+        description = str(row.get(desc_col, '')) if desc_col else ""
+        
+        # Clean description (remove HTML)
+        clean_desc = strip_html(description)
+        
+        # Find and Clean SKU
+        raw_sku = extract_sku_from_row(row)
+        clean_sku = clean_sku_variant(raw_sku)
+        
+        rows_to_process.append({
+            'Display Name': display_name,
+            'Description': description, # Keep original HTML for report
+            'Clean_Desc': clean_desc,   # For AI
+            'SKU': clean_sku,
+            'Original_SKU': raw_sku
+        })
+
+    # AI Processing
+    final_data = []
+    
+    for i in range(0, len(rows_to_process), batch_size):
+        batch = rows_to_process[i:i+batch_size]
+        
+        # Prepare AI prompts for this batch
+        ai_prompts = []
+        for item in batch:
+            # Construct a text for AI to read
+            text_content = f"Ticket: {item['Display Name']}\nDetails: {item['Clean_Desc']}"
+            ai_prompts.append(text_content)
+        
+        # Call AI (We need a custom method or reuse categorize_batch but with different prompt?)
+        # Since categorize_batch is specific to Categories, we should use the raw _call_openai/_call_claude methods
+        # Or better, lets loop and call individually for now (simpler) or add a method to EnhancedAIAnalyzer
+        # To keep it simple without modifying the imported class too much, we will use a loop here 
+        # OR reuse categorize_return but ignore the category list and ask for summary?
+        # Actually, the user wants a summary.
+        
+        # Let's just do a simple loop with the analyzer's internal methods if accessible, 
+        # or just use the categorize_return and abuse the prompt? No, that's messy.
+        # We will add a simple loop here calling the LLM directly if possible. 
+        # Since we can't easily modify the class instance from here, let's use the public method categorize_return
+        # but we really want a SUMMARY.
+        # Hack: The user said "make a quick summary". 
+        # Let's try to use the existing categorize_return but interpret the result? 
+        # No, that gives a category.
+        
+        # We will add a helper function inside app.py that uses the analyzer's keys to call the API for summaries.
+        
+        for item in batch:
+            # Generate Summary
+            summary = "AI Summary Unavailable"
+            if analyzer:
+                # Custom prompt for summary
+                sys_p = "Summarize the issue in under 10 words."
+                user_p = f"Subject: {item['Display Name']}\nBody: {item['Clean_Desc']}\nSummary:"
+                
+                # We need to access the internal _call_ methods or use a public one.
+                # The class EnhancedAIAnalyzer has _call_openai. Python allows protected access.
+                try:
+                    if analyzer.provider == AIProvider.FASTEST or analyzer.provider == AIProvider.CLAUDE:
+                         resp, _ = analyzer._call_claude(user_p, sys_p, 'standard')
+                    else:
+                         resp, _ = analyzer._call_openai(user_p, sys_p, 'standard')
+                    
+                    if resp:
+                        summary = resp
+                except Exception as e:
+                    logger.error(f"AI Summary failed: {e}")
+            
+            # Add to final
+            final_data.append({
+                'Display Name': item['Display Name'],
+                'Description': item['Description'], # Original
+                'SKU': item['SKU'],
+                'Reason': summary
+            })
+            
+            processed_count += 1
+            progress_bar.progress(processed_count / total_rows)
+            status_text.text(f"Generating summaries: {processed_count}/{total_rows}")
+            
+    return pd.DataFrame(final_data)
+
 def main():
     """Main application function"""
     initialize_session_state()
@@ -723,32 +930,12 @@ def main():
     # Header
     st.markdown("""
     <div class="main-header">
-        <h1 class="main-title">VIVE HEALTH RETURN CATEGORIZER</h1>
+        <h1 class="main-title">VIVE HEALTH QUALITY SUITE</h1>
         <p style="color: white; margin: 0.5rem 0; font-size: 1.1em;">
-            AI-Powered Medical Device Return Analysis
-        </p>
-        <p style="color: white; opacity: 0.9; font-size: 0.9em;">
-            ✅ Handles 2600+ rows | 📊 Column K Export | 🔄 Google Sheets Compatible
+            AI-Powered Returns Analysis & Reporting
         </p>
     </div>
     """, unsafe_allow_html=True)
-    
-    # Show completion notification if processing is done
-    if st.session_state.processing_complete and st.session_state.export_data:
-        st.markdown("""
-        <div style="background: linear-gradient(135deg, #00F5A0 0%, #00D9FF 50%, #00F5A0 100%); 
-                    padding: 1rem; border-radius: 10px; text-align: center; margin-bottom: 1rem;
-                    animation: pulse 2s infinite; box-shadow: 0 0 30px rgba(0, 245, 160, 0.5);">
-            <h2 style="color: white; margin: 0;">🎉 Analysis Complete! Scroll down to download your results 👇</h2>
-        </div>
-        <style>
-        @keyframes pulse {
-            0% { transform: scale(1); box-shadow: 0 0 30px rgba(0, 245, 160, 0.5); }
-            50% { transform: scale(1.02); box-shadow: 0 0 40px rgba(0, 245, 160, 0.7); }
-            100% { transform: scale(1); box-shadow: 0 0 30px rgba(0, 245, 160, 0.5); }
-        }
-        </style>
-        """, unsafe_allow_html=True)
     
     # Check AI status
     if not AI_AVAILABLE:
@@ -758,436 +945,140 @@ def main():
     keys = check_api_keys()
     if not keys:
         st.error("❌ No API keys found. Please add API keys to Streamlit secrets.")
-        with st.expander("How to add API keys"):
-            st.markdown("""
-            Add to `.streamlit/secrets.toml`:
-            ```
-            openai_api_key = "sk-..."
-            claude_api_key = "sk-ant-..."
-            ```
-            """)
         st.stop()
-    
-    # Show available APIs
-    available_apis = []
-    if 'openai' in keys:
-        available_apis.append("OpenAI ✅")
-    if 'claude' in keys:
-        available_apis.append("Claude ✅")
-    
-    st.info(f"🤖 Available AI: {' | '.join(available_apis)}")
-    
-    # Sidebar
+
+    # Sidebar Configuration
     with st.sidebar:
         st.markdown("### ⚙️ Configuration")
-        
-        # AI Provider
-        provider = st.selectbox(
-            "🤖 AI Provider",
-            options=list(AI_PROVIDER_OPTIONS.keys()),
-            help="Choose AI model for categorization"
-        )
+        provider = st.selectbox("🤖 AI Provider", options=list(AI_PROVIDER_OPTIONS.keys()))
         st.session_state.ai_provider = AI_PROVIDER_OPTIONS[provider]
         
         st.markdown("---")
-        st.markdown("### 🚀 Performance Settings")
+        st.caption(f"Version {APP_CONFIG['version']}")
+
+    # TABS
+    tab1, tab2 = st.tabs(["📊 Return Categorizer", "📑 B2B Report Generator"])
+
+    # -------------------------
+    # TAB 1: Original Categorizer
+    # -------------------------
+    with tab1:
+        st.markdown("### 📁 Return Categorization (Column I → K)")
+        st.markdown("""
+        <div style="background: rgba(255, 183, 0, 0.1); border: 1px solid var(--accent); 
+                    border-radius: 8px; padding: 0.8rem; margin-bottom: 1rem;">
+            <strong>📌 Goal:</strong> Categorize complaints into standardized Quality Categories.
+        </div>
+        """, unsafe_allow_html=True)
+
+        uploaded_file = st.file_uploader("Upload Return Data (Excel/CSV)", type=['csv', 'xlsx', 'xls', 'txt'], key="tab1_uploader")
         
-        # Chunk size for large files
-        st.session_state.chunk_size = st.select_slider(
-            "Processing Chunk Size",
-            options=APP_CONFIG['chunk_sizes'],
-            value=st.session_state.chunk_size,
-            format_func=lambda x: f"{x:,} rows",
-            help="Process data in chunks to handle large files efficiently"
-        )
-        
-        # API Batch size
-        st.session_state.batch_size = st.slider(
-            "API Batch Size",
-            min_value=10,
-            max_value=100,
-            value=50,
-            help="Number of items per API call (affects speed and stability)"
-        )
-        
-        # Show estimated performance
-        est_speed = st.session_state.batch_size * 2
-        st.caption(f"⚡ Estimated: ~{est_speed} returns/second")
-        
-        st.markdown("---")
-        st.markdown("### 📊 Display Options")
-        
-        # Product analysis toggle
-        st.session_state.show_product_analysis = st.checkbox(
-            "Show Product/SKU Analysis",
-            value=st.session_state.show_product_analysis,
-            help="Display detailed breakdown by product SKU"
-        )
-        
-        # Session stats
-        st.markdown("---")
-        st.markdown("### 📈 Session Statistics")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Total Cost", f"${st.session_state.total_cost:.4f}")
-            st.metric("API Calls", f"{st.session_state.api_calls_made:,}")
-        
-        with col2:
-            if st.session_state.total_rows_processed > 0:
-                st.metric("Total Processed", f"{st.session_state.total_rows_processed:,}")
-            if st.session_state.processing_speed > 0:
-                st.metric("Avg Speed", f"{st.session_state.processing_speed:.1f}/sec")
-        
-        # Info section
-        st.markdown("---")
-        with st.expander("ℹ️ Quick Tips"):
-            st.markdown("""
-            **For best results:**
-            - Use chunk size 500 for 1000-3000 rows
-            - Use chunk size 1000 for 3000+ rows
-            - Smaller API batch = more stable
-            - Larger API batch = faster
-            """)
-    
-    # Main content
-    st.markdown("### 📁 Upload Return Data File")
-    
-    # Current structure notice
-    st.markdown("""
-    <div style="background: rgba(255, 183, 0, 0.1); border: 1px solid var(--accent); 
-                border-radius: 8px; padding: 1rem; margin-bottom: 1rem; text-align: center;">
-        <strong style="color: var(--accent);">📌 Current Setup:</strong> 
-        Complaints from Column I → AI Categories to Column K
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Instructions
-    with st.expander("📖 File Format & Instructions", expanded=True):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("""
-            **Required File Structure:**
-            - **Column I**: Complaint/Investigation Text *(required)*
-            - **Column B**: Product Identifier/SKU *(optional)*
-            - **Column K**: Will receive AI categories *(auto-created)*
+        if uploaded_file:
+            with st.spinner(f"Reading {uploaded_file.name}..."):
+                file_content = uploaded_file.read()
+                df, column_mapping = process_file_preserve_structure(file_content, uploaded_file.name)
             
-            **Supported Formats:**
-            - Excel files (.xlsx, .xls)
-            - CSV files (.csv)
-            - FBA Return Reports (.txt)
-            """)
-        
-        with col2:
-            st.markdown("""
-            **Key Features:**
-            - ✅ Preserves your exact file format
-            - ✅ Only modifies Column K
-            - ✅ Handles 2600+ rows efficiently
-            - ✅ Google Sheets compatible export
-            - ✅ 100% AI categorization accuracy
-            - ✅ Real-time progress tracking
-            """)
-        
-        st.info("💡 **Your file structure:** Complaints in Column I → Categories added to Column K")
-    
-    # File upload
-    uploaded_file = st.file_uploader(
-        "Choose file",
-        type=['csv', 'xlsx', 'xls', 'txt'],
-        help="Upload file with complaints in column B"
-    )
-    
-    if uploaded_file:
-        # Read and process file
-        with st.spinner(f"Reading {uploaded_file.name}..."):
-            file_content = uploaded_file.read()
-            df, column_mapping = process_file_preserve_structure(file_content, uploaded_file.name)
-        
-        if df is not None and column_mapping:
-            st.session_state.original_data = df.copy()
-            
-            # Show file info with accurate column positions
-            complaint_col = column_mapping.get('complaint')
-            sku_col = column_mapping.get('sku')
-            valid_complaints = df[df[complaint_col].notna() & 
-                                (df[complaint_col].str.strip() != '')].shape[0]
-            
-            # Success message with clear information
-            st.success(f"""
-            ✅ **File loaded successfully!**
-            """)
-            
-            # Show detected structure
-            st.info(f"""
-            📋 **Detected Structure:**
-            - Complaints found in: **Column I** ({complaint_col})
-            - Product SKUs in: **Column B** ({sku_col if sku_col else 'Not found'})
-            - Categories will go in: **Column K**
-            """)
-            
-            # File details in columns
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.metric("Total Rows", f"{len(df):,}")
-            with col2:
-                st.metric("Valid Complaints", f"{valid_complaints:,}")
-            with col3:
-                st.metric("Complaint Column", "I")
-            with col4:
-                st.metric("Category Column", "K")
-            
-            # Data preview
-            with st.expander("📋 Preview Data", expanded=False):
-                # Show relevant columns including Column I (complaint)
-                preview_cols = []
+            if df is not None and column_mapping:
+                # Show file info
+                valid_complaints = df[df[column_mapping['complaint']].notna() & (df[column_mapping['complaint']].str.strip() != '')].shape[0]
+                st.info(f"Found {valid_complaints:,} complaints to categorize.")
                 
-                # Always try to show the complaint column (Column I)
-                if complaint_col in df.columns:
-                    preview_cols.append(complaint_col)
-                
-                # Show SKU column (Column B) if available
-                if column_mapping.get('sku') and column_mapping['sku'] in df.columns:
-                    preview_cols.append(column_mapping['sku'])
-                
-                # Show category column (Column K)
-                if column_mapping.get('category') in df.columns:
-                    preview_cols.append(column_mapping['category'])
-                
-                # If we have the columns, show them, otherwise show first few columns
-                if preview_cols:
-                    # Add column headers for clarity
-                    preview_df = df[preview_cols].head(10).copy()
-                    
-                    # Add column position labels
-                    col_labels = []
-                    for col in preview_cols:
-                        col_idx = df.columns.tolist().index(col)
-                        col_letter = chr(65 + col_idx)  # Convert to letter (A, B, C...)
-                        col_labels.append(f"Column {col_letter}: {col}")
-                    
-                    st.markdown("**Column Preview:**")
-                    for label in col_labels:
-                        st.caption(label)
-                    
-                    st.dataframe(preview_df, use_container_width=True)
-                else:
-                    st.dataframe(df.head(10))
-            
-            # Cost estimation box
-            est_cost_per_item = 0.002  # Average cost per categorization
-            est_total_cost = valid_complaints * est_cost_per_item
-            
-            st.markdown(f"""
-            <div class="info-box" style="background: linear-gradient(135deg, rgba(80, 200, 120, 0.1), rgba(80, 200, 120, 0.2)); 
-                        border-color: var(--cost); text-align: center;">
-                <h4 style="color: var(--cost); margin: 0;">💰 Estimated Processing Cost</h4>
-                <div style="font-size: 2em; font-weight: 700; color: var(--cost); margin: 0.5rem 0;">
-                    ${est_total_cost:.2f}
-                </div>
-                <div style="color: var(--muted);">
-                    for {valid_complaints:,} returns at ~${est_cost_per_item:.3f} each
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # Process button
-            st.markdown("---")
-            col1, col2, col3 = st.columns([1, 2, 1])
-            with col2:
-                process_button = st.button(
-                    f"🚀 Categorize {valid_complaints:,} Returns", 
-                    type="primary", 
-                    use_container_width=True,
-                    help="Start AI categorization process"
-                )
-                
-                if process_button:
+                if st.button("🚀 Start Categorization", type="primary"):
                     analyzer = get_ai_analyzer()
-                    
-                    if analyzer:
-                        start_time = time.time()
-                        st.session_state.processing_errors = []
+                    with st.spinner("Categorizing..."):
+                        categorized_df = process_in_chunks(df, analyzer, column_mapping)
+                        st.session_state.categorized_data = categorized_df
+                        st.session_state.processing_complete = True
+                        generate_statistics(categorized_df, column_mapping)
                         
-                        # Process data
-                        with st.spinner("Processing returns..."):
-                            categorized_df = process_in_chunks(
-                                df, 
-                                analyzer, 
-                                column_mapping,
-                                chunk_size=st.session_state.chunk_size
-                            )
-                            
-                            st.session_state.categorized_data = categorized_df
-                            st.session_state.processing_time = time.time() - start_time
-                            st.session_state.processing_complete = True
-                            st.session_state.total_rows_processed += valid_complaints
-                            
-                            # Generate statistics
-                            generate_statistics(categorized_df, column_mapping)
-                            
-                            # Update costs
-                            cost_summary = analyzer.get_cost_summary()
-                            st.session_state.total_cost = cost_summary.get('total_cost', 0)
-                            st.session_state.api_calls_made = cost_summary.get('api_calls', 0)
-                            
-                            # Prepare export data immediately after processing
-                            st.session_state.export_data = export_with_column_k(categorized_df)
-                            file_extension = '.xlsx' if EXCEL_AVAILABLE else '.csv'
-                            st.session_state.export_filename = f"categorized_returns_{datetime.now().strftime('%Y%m%d_%H%M%S')}{file_extension}"
-                            st.session_state.auto_download_triggered = False  # Reset flag for new download
-                        
-                        st.balloons()
-                        
-                        # Success summary
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("✅ Processed", f"{st.session_state.total_rows_processed:,} returns")
-                        with col2:
-                            st.metric("⏱️ Time", f"{st.session_state.processing_time:.1f}s")
-                        with col3:
-                            st.metric("💰 Cost", f"${st.session_state.total_cost:.4f}")
-                        
-                        st.success("Processing complete! See results below.")
-                        
-                        # Show any errors
-                        if st.session_state.processing_errors:
-                            with st.expander(f"⚠️ {len(st.session_state.processing_errors)} Processing Warnings"):
-                                for error in st.session_state.processing_errors:
-                                    st.warning(error)
-                        
-                        # Trigger page refresh to show download section
+                        # Export
+                        st.session_state.export_data = export_with_column_k(categorized_df)
+                        st.session_state.export_filename = f"categorized_{datetime.now().strftime('%Y%m%d')}.xlsx"
                         st.rerun()
-    
-    # Results section
-    if st.session_state.processing_complete and st.session_state.categorized_data is not None:
-        st.markdown("---")
         
-        # Display results
-        display_results_dashboard(st.session_state.categorized_data, st.session_state.column_mapping)
-        
-        # Export section
-        st.markdown("### 💾 Export Your Results")
-        
-        # Check if we have export data ready
-        if st.session_state.export_data and st.session_state.export_filename:
-            file_extension = '.xlsx' if EXCEL_AVAILABLE else '.csv'
-            mime_type = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' if EXCEL_AVAILABLE else 'text/csv'
+        # Results Display (Tab 1)
+        if st.session_state.processing_complete and st.session_state.categorized_data is not None:
+            display_results_dashboard(st.session_state.categorized_data, st.session_state.column_mapping)
             
-            # Success box with prominent download
-            st.markdown(f"""
-            <div class="info-box" style="background: linear-gradient(135deg, rgba(0, 245, 160, 0.2), rgba(0, 245, 160, 0.3)); 
-                        border-color: var(--success); text-align: center; margin-bottom: 1rem; 
-                        border-width: 2px; box-shadow: 0 0 20px rgba(0, 245, 160, 0.4);">
-                <h3 style="color: var(--success); margin: 0;">✅ Analysis Complete - Download Ready!</h3>
-                <p style="margin: 0.5rem 0; font-size: 1.1em;">
-                    Your file is ready with AI categories in Column K
-                </p>
-                <p style="margin: 0.3rem 0; color: var(--accent); font-weight: 600;">
-                    📄 Filename: {st.session_state.export_filename}
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # Prominent download section
-            col1, col2, col3 = st.columns([1, 3, 1])
-            
-            with col2:
-                # Big download button with animation
-                st.markdown("""
-                <style>
-                @keyframes pulse {
-                    0% { transform: scale(1); }
-                    50% { transform: scale(1.05); }
-                    100% { transform: scale(1); }
-                }
-                .download-container button {
-                    animation: pulse 2s infinite;
-                    font-size: 1.2em !important;
-                    padding: 1rem 2rem !important;
-                    background: linear-gradient(135deg, #00F5A0 0%, #00D9FF 100%) !important;
-                }
-                </style>
-                <div class="download-container">
-                """, unsafe_allow_html=True)
-                
-                # Download button
-                downloaded = st.download_button(
-                    label=f"⬇️ DOWNLOAD YOUR RESULTS {file_extension.upper()}",
+            if st.session_state.export_data:
+                st.download_button(
+                    label="⬇️ Download Categorized File",
                     data=st.session_state.export_data,
                     file_name=st.session_state.export_filename,
-                    mime=mime_type,
-                    use_container_width=True,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     type="primary",
-                    key=f"download_{st.session_state.export_filename}"
+                    use_container_width=True
                 )
-                
-                st.markdown("</div>", unsafe_allow_html=True)
-                
-                if downloaded:
-                    st.success("✅ File downloaded successfully!")
-                    st.session_state.auto_download_triggered = True
-                
-                # Additional info
-                st.markdown("""
-                <div style="text-align: center; margin-top: 1.5rem;">
-                    <p style="color: var(--success); font-weight: 600; font-size: 1.1em;">
-                        ✅ File is Google Sheets compatible!
-                    </p>
-                    <p style="color: var(--text); margin: 0.5rem 0;">
-                        Import directly - only Column K has been modified with AI categories
-                    </p>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                # Important notice
-                st.warning("""
-                ⚠️ **Important**: Download your results now to save your work! 
-                The file contains all your categorized data with AI classifications in Column K.
-                """)
-            
-            # Tips section
-            with st.expander("💡 Next Steps & Tips", expanded=True):
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.markdown("""
-                    **What's in your file:**
-                    - ✅ All original data preserved
-                    - ✅ AI categories in Column K
-                    - ✅ Ready for analysis
-                    
-                    **Quality Analysis Tips:**
-                    - Filter by category in Column K
-                    - Pivot by SKU and category
-                    - Identify top quality issues
-                    """)
-                
-                with col2:
-                    st.markdown("""
-                    **Import to Google Sheets:**
-                    1. Open Google Sheets
-                    2. File → Import
-                    3. Upload your downloaded file
-                    4. Select "Replace spreadsheet"
-                    
-                    **For Excel:**
-                    - Open directly in Excel
-                    - Data is pre-formatted
-                    """)
+
+    # -------------------------
+    # TAB 2: B2B Report Generator
+    # -------------------------
+    with tab2:
+        st.markdown("### 📑 B2B Report Automation")
+        st.markdown("""
+        <div style="background: rgba(0, 217, 255, 0.1); border: 1px solid var(--primary); 
+                    border-radius: 8px; padding: 0.8rem; margin-bottom: 1rem;">
+            <strong>📌 Goal:</strong> Convert raw Odoo Helpdesk export into clean B2B Report.
+            <ul style="margin-bottom:0;">
+                <li>Filters out 'Internal assistance'</li>
+                <li>Extracts & Cleans SKUs (Removes variants)</li>
+                <li>AI Generates 'Reason' Summary</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
         
-        # Option to process another file
-        st.markdown("---")
-        if st.button("📁 Process Another File", type="secondary", use_container_width=True):
-            # Reset relevant session state
-            for key in ['original_data', 'processed_data', 'categorized_data', 
-                       'processing_complete', 'auto_download_triggered', 
-                       'export_data', 'export_filename']:
-                if key in st.session_state:
-                    st.session_state[key] = None if key != 'processing_complete' else False
-            st.rerun()
+        b2b_file = st.file_uploader("Upload Odoo Export (CSV/Excel)", type=['csv', 'xlsx'], key="b2b_uploader")
+        
+        if b2b_file:
+            # 1. Read & Preview
+            b2b_df = process_b2b_file(b2b_file.read(), b2b_file.name)
+            
+            if b2b_df is not None:
+                st.write(f"**Rows found:** {len(b2b_df):,}")
+                st.dataframe(b2b_df.head(3))
+                
+                # 2. Process Button
+                if st.button("⚡ Generate B2B Report", type="primary"):
+                    analyzer = get_ai_analyzer()
+                    
+                    with st.spinner("Analyzing tickets and generating summaries..."):
+                        # Run the B2B pipeline
+                        final_b2b = generate_b2b_report(b2b_df, analyzer)
+                        
+                        # Save to session
+                        st.session_state.b2b_processed_data = final_b2b
+                        st.session_state.b2b_processing_complete = True
+                        
+                        # Prepare Download
+                        output = io.BytesIO()
+                        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                            final_b2b.to_excel(writer, index=False, sheet_name='B2B Report')
+                        st.session_state.b2b_export_data = output.getvalue()
+                        st.session_state.b2b_export_filename = f"B2B_Report_{datetime.now().strftime('%Y-%m-%d')}.xlsx"
+                        
+                        st.success("✅ B2B Report Generated!")
+                        st.rerun()
+
+        # 3. Results & Download
+        if st.session_state.b2b_processing_complete and st.session_state.b2b_processed_data is not None:
+            st.markdown("### 🏁 Final Report Preview")
+            st.dataframe(st.session_state.b2b_processed_data.head(10))
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.download_button(
+                    label="⬇️ Download B2B Report (.xlsx)",
+                    data=st.session_state.b2b_export_data,
+                    file_name=st.session_state.b2b_export_filename,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    type="primary",
+                    use_container_width=True
+                )
+            with col2:
+                if st.button("🔄 Clear / Start Over", use_container_width=True):
+                    st.session_state.b2b_processed_data = None
+                    st.session_state.b2b_processing_complete = False
+                    st.rerun()
 
 if __name__ == "__main__":
     main()
