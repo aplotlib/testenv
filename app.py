@@ -44,7 +44,7 @@ except ImportError:
 # App Configuration
 APP_CONFIG = {
     'title': 'Vive Health Quality & B2B Report Generator',
-    'version': '17.0',
+    'version': '17.1',
     'company': 'Vive Health',
     'chunk_sizes': [100, 250, 500, 1000],
     'default_chunk': 500,
@@ -717,59 +717,54 @@ def display_results_dashboard(df, column_mapping):
 # TAB 2: B2B REPORT LOGIC
 # -------------------------
 
-def clean_sku_variant(sku):
+def extract_main_sku(text):
     """
-    Clean SKU by removing variant info.
-    Logic: First 3 chars (Category) + Next 4 numbers (Product Number) -> Keep only this.
-    Example: MOB1027BLU -> MOB1027
+    Extracts the Main SKU (3 Caps + 4 Digits) from text.
+    Ignores variants (e.g., matches MOB1027 from MOB1027BLU).
+    Strictly follows the pattern: 3 Uppercase Letters + 4 Digits.
     """
-    if not sku or not isinstance(sku, str):
-        return ""
+    if not isinstance(text, str):
+        return None
     
-    sku = sku.strip()
+    # Pattern: 3 uppercase letters followed by 4 digits.
+    # We check for this pattern anywhere in the string.
+    # The capturing group extracts just the Main SKU.
+    match = re.search(r'\b([A-Z]{3}\d{4})', text)
     
-    # Regex for Standard Vive SKU format: 3 Letters + 4 Digits (e.g., MOB1027)
-    match = re.match(r'^([A-Za-z]{3}\d{4})', sku)
     if match:
-        return match.group(1)  # Return just the core part
-    
-    return sku  # Return original if it doesn't match pattern
+        return match.group(1)
+    return None
 
-def extract_sku_from_row(row):
+def find_sku_in_row(row):
     """
-    Attempt to find SKU in various columns with priority.
-    Priority: Main SKU/Display Name -> Display Name -> Description
+    Attempts to find the Main SKU in various columns.
+    Priority: 
+    1. Explicit SKU columns (Product, SKU, Main SKU)
+    2. Subject/Display Name
+    3. Description/Body
     """
-    # 1. Check explicit SKU column
-    cols_to_check = ['Main SKU/Display Name', 'SKU', 'Product', 'Main SKU']
-    for col in cols_to_check:
-        if col in row.index and pd.notna(row[col]) and str(row[col]).strip():
-            return str(row[col]).strip()
+    # 1. Check explicit columns first
+    sku_cols = ['Main SKU', 'Main SKU/Display Name', 'SKU', 'Product', 'Internal Reference']
+    for col in sku_cols:
+        if col in row.index and pd.notna(row[col]):
+            sku = extract_main_sku(str(row[col]))
+            if sku: return sku
     
-    # 2. Check Display Name (often formatted as 'Defective : SKU1234')
-    if 'Display Name' in row.index and pd.notna(row['Display Name']):
-        text = str(row['Display Name'])
-        # Look for patterns like "SKU:" or just common SKU format
-        match = re.search(r'([A-Za-z]{3}\d{4}[A-Za-z0-9]*)', text)
-        if match:
-            return match.group(1)
+    # 2. Check Display Name / Subject
+    subject_cols = ['Display Name', 'Subject', 'Name']
+    for col in subject_cols:
+        if col in row.index and pd.notna(row[col]):
+            sku = extract_main_sku(str(row[col]))
+            if sku: return sku
             
-    # 3. Check Subject
-    if 'Subject' in row.index and pd.notna(row['Subject']):
-        text = str(row['Subject'])
-        match = re.search(r'([A-Za-z]{3}\d{4}[A-Za-z0-9]*)', text)
-        if match:
-            return match.group(1)
+    # 3. Check Description (Last resort)
+    desc_cols = ['Description', 'Body']
+    for col in desc_cols:
+        if col in row.index and pd.notna(row[col]):
+            sku = extract_main_sku(str(row[col]))
+            if sku: return sku
             
-    # 4. Check Description (Harder, needs HTML parsing often)
-    if 'Description' in row.index and pd.notna(row['Description']):
-        text = str(row['Description'])
-        # Look for "SKU: XXXXX"
-        match = re.search(r'SKU:?\s*([A-Za-z]{3}\d{4}[A-Za-z0-9]*)', text, re.IGNORECASE)
-        if match:
-            return match.group(1)
-            
-    return ""
+    return "Unknown"
 
 def strip_html(text):
     """Remove HTML tags from description for cleaner AI processing"""
@@ -790,22 +785,10 @@ def process_b2b_file(file_content, filename):
             st.error("Unsupported file format")
             return None
 
-        # FILTERING: Remove "Internal assistance"
-        # Check for "Type" column
-        initial_count = len(df)
+        # NO FILTERING based on 'Type' as per requirements.
+        # We process all rows in the upload.
         
-        if 'Type' in df.columns:
-            # Filter out Internal assistance
-            df = df[df['Type'] != 'Internal assistance'].copy()
-            # Also keep only Return, Replacement, Refund if user wants? 
-            # User said: "include each ticket type, except internal assistance"
-        else:
-            # Fallback: Try to detect in Display Name or just warn
-            st.warning("⚠️ 'Type' column not found. Could not auto-filter 'Internal assistance' tickets. Please verify input file.")
-        
-        filtered_count = len(df)
-        logger.info(f"B2B Processing: {initial_count} -> {filtered_count} rows")
-        
+        logger.info(f"B2B Processing: {len(df)} rows loaded (No filtering)")
         return df
         
     except Exception as e:
@@ -815,112 +798,65 @@ def process_b2b_file(file_content, filename):
 def generate_b2b_report(df, analyzer):
     """Generate the B2B report with AI summaries and Cleaned SKUs"""
     
-    results = []
-    total_rows = len(df)
-    
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
-    # Prepare prompts
-    system_prompt = "You are a customer service analyst. Summarize the return/replacement reason in 1 brief sentence (max 10 words). Focus on the 'Why'."
-    
-    processed_count = 0
-    
-    # We need to process row by row or batch
-    # Create batches for AI
-    batch_size = st.session_state.batch_size
-    
-    # Columns to use
+    # Columns to use for display/AI
     display_col = 'Display Name' if 'Display Name' in df.columns else df.columns[0]
     desc_col = 'Description' if 'Description' in df.columns else None
     
-    # Process in batches
-    rows_to_process = []
-    for idx, row in df.iterrows():
-        # Extact Data
-        display_name = str(row.get(display_col, ''))
-        description = str(row.get(desc_col, '')) if desc_col else ""
-        
-        # Clean description (remove HTML)
-        clean_desc = strip_html(description)
-        
-        # Find and Clean SKU
-        raw_sku = extract_sku_from_row(row)
-        clean_sku = clean_sku_variant(raw_sku)
-        
-        rows_to_process.append({
-            'Display Name': display_name,
-            'Description': description, # Keep original HTML for report
-            'Clean_Desc': clean_desc,   # For AI
-            'SKU': clean_sku,
-            'Original_SKU': raw_sku
-        })
-
-    # AI Processing
-    final_data = []
+    # Pre-process data for AI batching
+    items_to_process = []
     
-    for i in range(0, len(rows_to_process), batch_size):
-        batch = rows_to_process[i:i+batch_size]
+    for idx, row in df.iterrows():
+        subject = str(row.get(display_col, ''))
+        description = str(row.get(desc_col, ''))
         
-        # Prepare AI prompts for this batch
-        ai_prompts = []
-        for item in batch:
-            # Construct a text for AI to read
-            text_content = f"Ticket: {item['Display Name']}\nDetails: {item['Clean_Desc']}"
-            ai_prompts.append(text_content)
+        # Extract Main SKU using strict logic
+        main_sku = find_sku_in_row(row)
         
-        # Call AI (We need a custom method or reuse categorize_batch but with different prompt?)
-        # Since categorize_batch is specific to Categories, we should use the raw _call_openai/_call_claude methods
-        # Or better, lets loop and call individually for now (simpler) or add a method to EnhancedAIAnalyzer
-        # To keep it simple without modifying the imported class too much, we will use a loop here 
-        # OR reuse categorize_return but ignore the category list and ask for summary?
-        # Actually, the user wants a summary.
+        items_to_process.append({
+            'index': idx,
+            'subject': subject,
+            'details': strip_html(description)[:500], # Limit text for API speed
+            'full_description': description,
+            'sku': main_sku
+        })
+    
+    # Batch Process with AI
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    batch_size = st.session_state.batch_size
+    total_items = len(items_to_process)
+    processed_results = []
+    
+    for i in range(0, total_items, batch_size):
+        batch = items_to_process[i:i+batch_size]
         
-        # Let's just do a simple loop with the analyzer's internal methods if accessible, 
-        # or just use the categorize_return and abuse the prompt? No, that's messy.
-        # We will add a simple loop here calling the LLM directly if possible. 
-        # Since we can't easily modify the class instance from here, let's use the public method categorize_return
-        # but we really want a SUMMARY.
-        # Hack: The user said "make a quick summary". 
-        # Let's try to use the existing categorize_return but interpret the result? 
-        # No, that gives a category.
+        # Use the new summarize_batch method in EnhancedAIAnalyzer
+        batch_results = analyzer.summarize_batch(batch)
+        processed_results.extend(batch_results)
         
-        # We will add a helper function inside app.py that uses the analyzer's keys to call the API for summaries.
+        # Update progress
+        progress = min((i + batch_size) / total_items, 1.0)
+        progress_bar.progress(progress)
+        status_text.text(f"⏳ Generating summaries: {min(i + batch_size, total_items)}/{total_items}")
         
-        for item in batch:
-            # Generate Summary
-            summary = "AI Summary Unavailable"
-            if analyzer:
-                # Custom prompt for summary
-                sys_p = "Summarize the issue in under 10 words."
-                user_p = f"Subject: {item['Display Name']}\nBody: {item['Clean_Desc']}\nSummary:"
-                
-                # We need to access the internal _call_ methods or use a public one.
-                # The class EnhancedAIAnalyzer has _call_openai. Python allows protected access.
-                try:
-                    if analyzer.provider == AIProvider.FASTEST or analyzer.provider == AIProvider.CLAUDE:
-                         resp, _ = analyzer._call_claude(user_p, sys_p, 'standard')
-                    else:
-                         resp, _ = analyzer._call_openai(user_p, sys_p, 'standard')
-                    
-                    if resp:
-                        summary = resp
-                except Exception as e:
-                    logger.error(f"AI Summary failed: {e}")
-            
-            # Add to final
-            final_data.append({
-                'Display Name': item['Display Name'],
-                'Description': item['Description'], # Original
-                'SKU': item['SKU'],
-                'Reason': summary
-            })
-            
-            processed_count += 1
-            progress_bar.progress(processed_count / total_rows)
-            status_text.text(f"Generating summaries: {processed_count}/{total_rows}")
-            
-    return pd.DataFrame(final_data)
+    status_text.success("✅ AI Summarization Complete!")
+    time.sleep(1)
+    status_text.empty()
+    progress_bar.empty()
+    
+    # Construct Final DataFrame
+    final_rows = []
+    for item in processed_results:
+        final_rows.append({
+            'Main SKU': item['sku'],
+            'Issue Subject': item['subject'],
+            'AI Summary': item['summary'],
+            'Full Description': item['full_description'],
+            'SKU Found': 'Yes' if item['sku'] != 'Unknown' else 'No'
+        })
+        
+    return pd.DataFrame(final_rows)
 
 def main():
     """Main application function"""
@@ -1018,11 +954,11 @@ def main():
         st.markdown("""
         <div style="background: rgba(0, 217, 255, 0.1); border: 1px solid var(--primary); 
                     border-radius: 8px; padding: 0.8rem; margin-bottom: 1rem;">
-            <strong>📌 Goal:</strong> Convert raw Odoo Helpdesk export into clean B2B Report.
+            <strong>📌 Goal:</strong> Convert raw Odoo Helpdesk export into a compliant B2B Report.
             <ul style="margin-bottom:0;">
-                <li>Filters out 'Internal assistance'</li>
-                <li>Extracts & Cleans SKUs (Removes variants)</li>
-                <li>AI Generates 'Reason' Summary</li>
+                <li><strong>SKU Logic:</strong> Auto-extracts Main SKU (e.g., <code>MOB1027</code>) from Subject/Description using "3 Caps + 4 Digits" rule.</li>
+                <li><strong>Filtering:</strong> Processes ALL tickets in upload (No pre-filtering).</li>
+                <li><strong>AI Summary:</strong> Generates 10-word "Reason" summaries for every ticket.</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
@@ -1034,14 +970,13 @@ def main():
             b2b_df = process_b2b_file(b2b_file.read(), b2b_file.name)
             
             if b2b_df is not None:
-                st.write(f"**Rows found:** {len(b2b_df):,}")
-                st.dataframe(b2b_df.head(3))
+                st.markdown(f"**Total Tickets Found:** {len(b2b_df):,}")
                 
                 # 2. Process Button
                 if st.button("⚡ Generate B2B Report", type="primary"):
                     analyzer = get_ai_analyzer()
                     
-                    with st.spinner("Analyzing tickets and generating summaries..."):
+                    with st.spinner("Running AI Analysis & SKU Extraction..."):
                         # Run the B2B pipeline
                         final_b2b = generate_b2b_report(b2b_df, analyzer)
                         
@@ -1053,16 +988,46 @@ def main():
                         output = io.BytesIO()
                         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                             final_b2b.to_excel(writer, index=False, sheet_name='B2B Report')
+                            
+                            # Formatting
+                            workbook = writer.book
+                            worksheet = writer.sheets['B2B Report']
+                            
+                            # Add simple formatting
+                            header_fmt = workbook.add_format({'bold': True, 'bg_color': '#00D9FF', 'font_color': 'white'})
+                            for col_num, value in enumerate(final_b2b.columns.values):
+                                worksheet.write(0, col_num, value, header_fmt)
+                                worksheet.set_column(col_num, col_num, 20)
+
                         st.session_state.b2b_export_data = output.getvalue()
                         st.session_state.b2b_export_filename = f"B2B_Report_{datetime.now().strftime('%Y-%m-%d')}.xlsx"
                         
-                        st.success("✅ B2B Report Generated!")
                         st.rerun()
 
-        # 3. Results & Download
+        # 3. B2B Dashboard Results
         if st.session_state.b2b_processing_complete and st.session_state.b2b_processed_data is not None:
-            st.markdown("### 🏁 Final Report Preview")
-            st.dataframe(st.session_state.b2b_processed_data.head(10))
+            df_res = st.session_state.b2b_processed_data
+            
+            st.markdown("### 🏁 Report Dashboard")
+            
+            # Dashboard Metrics
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.metric("Total Processed", len(df_res))
+            with c2:
+                sku_found_count = len(df_res[df_res['Main SKU'] != 'Unknown'])
+                st.metric("SKUs Identified", f"{sku_found_count}", delta=f"{sku_found_count/len(df_res)*100:.1f}% coverage")
+            with c3:
+                unique_skus = df_res[df_res['Main SKU'] != 'Unknown']['Main SKU'].nunique()
+                st.metric("Unique Products", unique_skus)
+            
+            # Preview Table
+            st.markdown("#### Preview (Top 10)")
+            st.dataframe(df_res.head(10), use_container_width=True)
+            
+            # Warnings if SKUs missing
+            if sku_found_count < len(df_res):
+                st.warning(f"⚠️ {len(df_res) - sku_found_count} tickets have 'Unknown' SKU. Please check the 'Full Description' column in the export.")
             
             col1, col2 = st.columns(2)
             with col1:
