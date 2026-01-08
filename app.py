@@ -1101,143 +1101,134 @@ def main():
         </div>
         """, unsafe_allow_html=True)
 
-        st.markdown("#### 📋 Excel Column Requirements")
-        st.dataframe(quality_case_requirements_df(), use_container_width=True)
-        st.download_button(
-            label="⬇️ Download Quality Case Template",
-            data=build_quality_case_template(),
-            file_name="quality_case_template.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
+        intake_tab, thresholds_tab, results_tab = st.tabs(
+            ["📥 Intake", "⚙️ Thresholds", "📊 Results & Stats"]
         )
 
-        st.divider()
+        with intake_tab:
+            with st.expander("📋 Excel Column Requirements", expanded=False):
+                st.dataframe(quality_case_requirements_df(), use_container_width=True)
+            st.download_button(
+                label="⬇️ Download Quality Case Template",
+                data=build_quality_case_template(),
+                file_name="quality_case_template.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
 
-        st.markdown("#### ✍️ Manual Entry (One Product at a Time)")
-        with st.form("qc_manual_entry_form", clear_on_submit=True):
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                manual_sku = st.text_input("SKU")
-                manual_category = st.text_input("Category")
-            with col2:
-                manual_sold = st.number_input("Units Sold", min_value=0, step=1)
-                manual_returned = st.number_input("Units Returned", min_value=0, step=1)
-            with col3:
-                manual_landed_cost = st.number_input("Landed Cost ($)", min_value=0.0, step=1.0)
-                manual_retail_price = st.number_input("Retail Price ($)", min_value=0.0, step=1.0)
+            st.divider()
 
-            with st.expander("Optional Risk Signals"):
-                col4, col5, col6 = st.columns(3)
-                with col4:
-                    manual_launch_date = st.text_input("Launch Date (YYYY-MM-DD)")
-                    manual_safety_risk = st.selectbox("Safety Risk", options=["", "Yes", "No"])
-                with col5:
-                    manual_zero_tolerance = st.selectbox("Zero Tolerance Component", options=["", "Yes", "No"])
-                    manual_aql_fail = st.selectbox("AQL Fail", options=["", "Yes", "No"])
-                with col6:
-                    manual_complaint_count = st.number_input("Unique Complaints (30d)", min_value=0, step=1)
-                    manual_sales_units_30d = st.number_input("Sales Units (30d)", min_value=0, step=1)
-                    manual_sales_value_30d = st.number_input("Sales Value $ (30d)", min_value=0.0, step=10.0)
-
-            submitted = st.form_submit_button("➕ Add Product")
-            if submitted:
-                if not manual_sku or not manual_category:
-                    st.error("SKU and Category are required for manual entry.")
-                else:
-                    st.session_state.qc_manual_entries.append({
-                        'SKU': manual_sku,
-                        'Category': manual_category,
-                        'Sold': manual_sold,
-                        'Returned': manual_returned,
-                        'Landed Cost': manual_landed_cost,
-                        'Retail Price': manual_retail_price,
-                        'Launch Date': manual_launch_date.strip() if manual_launch_date else '',
-                        'Safety Risk': manual_safety_risk,
-                        'Zero Tolerance Component': manual_zero_tolerance,
-                        'AQL Fail': manual_aql_fail,
-                        'Unique Complaint Count (30d)': manual_complaint_count,
-                        'Sales Units (30d)': manual_sales_units_30d,
-                        'Sales Value (30d)': manual_sales_value_30d,
-                        'Input Source': 'Manual'
-                    })
-                    st.success(f"Added {manual_sku} to the manual intake list.")
-
-        if st.session_state.qc_manual_entries:
-            st.markdown("#### ✅ Manual Entries")
-            st.dataframe(pd.DataFrame(st.session_state.qc_manual_entries), use_container_width=True)
-            if st.button("🧹 Clear Manual Entries", use_container_width=True):
-                st.session_state.qc_manual_entries = []
-                st.rerun()
-
-        st.divider()
-
-        st.markdown("#### ⚙️ Screening Thresholds")
-        col4, col5, col6 = st.columns(3)
-        with col4:
-            return_rate_cap = st.number_input("Return Rate Hard Cap", value=0.25, step=0.01, format="%.2f")
-            relative_threshold = st.number_input("Relative Threshold (x Category Avg)", value=1.20, step=0.05)
-        with col5:
-            cat_avg_delta = st.number_input("Category Avg + Delta (5% = 0.05)", value=0.05, step=0.01)
-            low_volume_cutoff = st.number_input("Low Volume Cutoff (Units Sold)", value=10, step=1)
-        with col6:
-            use_benchmarks = st.checkbox("Use SOP Category Benchmarks", value=True)
-            review_days = st.number_input("Monitor Review in X Days", value=14, step=1)
-
-        st.markdown("#### 🚨 Immediate Escalation Criteria")
-        col7, col8, col9 = st.columns(3)
-        with col7:
-            landed_cost_threshold = st.number_input("Landed Cost Threshold ($)", value=150.0, step=10.0)
-            retail_price_threshold = st.number_input("Retail Price Threshold ($)", value=0.0, step=10.0)
-        with col8:
-            launch_days = st.number_input("New Launch Window (Days)", value=90, step=5)
-        with col9:
-            st.caption("Optional flags are mapped in the file uploader below.")
-
-        qc_file = st.file_uploader(
-            "Upload Quality Screening Data (CSV/XLSX)",
-            type=['csv', 'xlsx', 'xls', 'txt'],
-            key="tab3_uploader"
-        )
-
-        upload_mapping = {}
-        normalized_upload = None
-        if qc_file:
-            qc_df = load_quality_case_file(qc_file.read(), qc_file.name)
-
-            if qc_df is not None:
-                st.markdown("#### 🧭 Column Mapping")
-                columns = qc_df.columns.tolist()
-
+            st.markdown("#### ✍️ Manual Entry (One Product at a Time)")
+            with st.form("qc_manual_entry_form", clear_on_submit=True):
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    upload_mapping['SKU'] = st.selectbox("SKU Column", options=columns, index=0)
-                    upload_mapping['Category'] = st.selectbox("Category Column", options=columns, index=min(1, len(columns) - 1))
-                    upload_mapping['Sold'] = st.selectbox("Sold Column", options=columns)
+                    manual_sku = st.text_input("SKU")
+                    manual_category = st.text_input("Category")
                 with col2:
-                    upload_mapping['Returned'] = st.selectbox("Returned Column", options=columns)
-                    upload_mapping['Landed Cost'] = st.selectbox("Landed Cost Column (Optional)", options=[""] + columns)
-                    upload_mapping['Retail Price'] = st.selectbox("Retail Price Column (Optional)", options=[""] + columns)
+                    manual_sold = st.number_input("Units Sold", min_value=0, step=1)
+                    manual_returned = st.number_input("Units Returned", min_value=0, step=1)
                 with col3:
-                    upload_mapping['Launch Date'] = st.selectbox("Launch Date Column (Optional)", options=[""] + columns)
-                    upload_mapping['Safety Risk'] = st.selectbox("Safety Risk Column (Optional)", options=[""] + columns)
-                    upload_mapping['Zero Tolerance Component'] = st.selectbox("Zero Tolerance Component Column (Optional)", options=[""] + columns)
+                    manual_landed_cost = st.number_input("Landed Cost ($)", min_value=0.0, step=1.0)
+                    manual_retail_price = st.number_input("Retail Price ($)", min_value=0.0, step=1.0)
 
-                st.markdown("#### 🔎 Additional Optional Columns")
-                col7, col8, col9 = st.columns(3)
-                with col7:
-                    upload_mapping['AQL Fail'] = st.selectbox("AQL Fail Column (Optional)", options=[""] + columns)
-                with col8:
-                    upload_mapping['Unique Complaint Count (30d)'] = st.selectbox(
-                        "Unique Complaint Count (30d) (Optional)", options=[""] + columns
-                    )
-                    upload_mapping['Sales Units (30d)'] = st.selectbox(
-                        "Sales Units (30d) (Optional)", options=[""] + columns
-                    )
-                with col9:
-                    upload_mapping['Sales Value (30d)'] = st.selectbox(
-                        "Sales Value $ (30d) (Optional)", options=[""] + columns
-                    )
-                normalized_upload = normalize_quality_case_data(qc_df, upload_mapping, "Upload")
+                with st.expander("Optional Risk Signals", expanded=False):
+                    col4, col5, col6 = st.columns(3)
+                    with col4:
+                        manual_launch_date = st.text_input("Launch Date (YYYY-MM-DD)")
+                        manual_safety_risk = st.selectbox("Safety Risk", options=["", "Yes", "No"])
+                    with col5:
+                        manual_zero_tolerance = st.selectbox("Zero Tolerance Component", options=["", "Yes", "No"])
+                        manual_aql_fail = st.selectbox("AQL Fail", options=["", "Yes", "No"])
+                    with col6:
+                        manual_complaint_count = st.number_input("Unique Complaints (30d)", min_value=0, step=1)
+                        manual_sales_units_30d = st.number_input("Sales Units (30d)", min_value=0, step=1)
+                        manual_sales_value_30d = st.number_input("Sales Value $ (30d)", min_value=0.0, step=10.0)
+
+                submitted = st.form_submit_button("➕ Add Product")
+                if submitted:
+                    if not manual_sku or not manual_category:
+                        st.error("SKU and Category are required for manual entry.")
+                    else:
+                        st.session_state.qc_manual_entries.append({
+                            'SKU': manual_sku,
+                            'Category': manual_category,
+                            'Sold': manual_sold,
+                            'Returned': manual_returned,
+                            'Landed Cost': manual_landed_cost,
+                            'Retail Price': manual_retail_price,
+                            'Launch Date': manual_launch_date.strip() if manual_launch_date else '',
+                            'Safety Risk': manual_safety_risk,
+                            'Zero Tolerance Component': manual_zero_tolerance,
+                            'AQL Fail': manual_aql_fail,
+                            'Unique Complaint Count (30d)': manual_complaint_count,
+                            'Sales Units (30d)': manual_sales_units_30d,
+                            'Sales Value (30d)': manual_sales_value_30d,
+                            'Input Source': 'Manual'
+                        })
+                        st.success(f"Added {manual_sku} to the manual intake list.")
+
+            if st.session_state.qc_manual_entries:
+                st.markdown("#### ✅ Manual Entries")
+                st.dataframe(pd.DataFrame(st.session_state.qc_manual_entries), use_container_width=True)
+                if st.button("🧹 Clear Manual Entries", use_container_width=True):
+                    st.session_state.qc_manual_entries = []
+                    st.rerun()
+
+            st.divider()
+
+            st.markdown("#### 📤 Upload Intake File")
+            qc_file = st.file_uploader(
+                "Upload Quality Screening Data (CSV/XLSX)",
+                type=['csv', 'xlsx', 'xls', 'txt'],
+                key="tab3_uploader"
+            )
+
+            upload_mapping = {}
+            normalized_upload = None
+            if qc_file:
+                qc_df = load_quality_case_file(qc_file.read(), qc_file.name)
+
+                if qc_df is not None:
+                    st.markdown("#### 🧭 Column Mapping")
+                    columns = qc_df.columns.tolist()
+
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        upload_mapping['SKU'] = st.selectbox("SKU Column", options=columns, index=0)
+                        upload_mapping['Category'] = st.selectbox(
+                            "Category Column",
+                            options=columns,
+                            index=min(1, len(columns) - 1)
+                        )
+                        upload_mapping['Sold'] = st.selectbox("Sold Column", options=columns)
+                    with col2:
+                        upload_mapping['Returned'] = st.selectbox("Returned Column", options=columns)
+                        upload_mapping['Landed Cost'] = st.selectbox("Landed Cost Column (Optional)", options=[""] + columns)
+                        upload_mapping['Retail Price'] = st.selectbox("Retail Price Column (Optional)", options=[""] + columns)
+                    with col3:
+                        upload_mapping['Launch Date'] = st.selectbox("Launch Date Column (Optional)", options=[""] + columns)
+                        upload_mapping['Safety Risk'] = st.selectbox("Safety Risk Column (Optional)", options=[""] + columns)
+                        upload_mapping['Zero Tolerance Component'] = st.selectbox(
+                            "Zero Tolerance Component Column (Optional)",
+                            options=[""] + columns
+                        )
+
+                    st.markdown("#### 🔎 Additional Optional Columns")
+                    col7, col8, col9 = st.columns(3)
+                    with col7:
+                        upload_mapping['AQL Fail'] = st.selectbox("AQL Fail Column (Optional)", options=[""] + columns)
+                    with col8:
+                        upload_mapping['Unique Complaint Count (30d)'] = st.selectbox(
+                            "Unique Complaint Count (30d) (Optional)", options=[""] + columns
+                        )
+                        upload_mapping['Sales Units (30d)'] = st.selectbox(
+                            "Sales Units (30d) (Optional)", options=[""] + columns
+                        )
+                    with col9:
+                        upload_mapping['Sales Value (30d)'] = st.selectbox(
+                            "Sales Value $ (30d) (Optional)", options=[""] + columns
+                        )
+                    normalized_upload = normalize_quality_case_data(qc_df, upload_mapping, "Upload")
 
         manual_df = pd.DataFrame(st.session_state.qc_manual_entries)
         if manual_df.empty:
@@ -1252,10 +1243,37 @@ def main():
         if combined_frames:
             combined_df = pd.concat(combined_frames, ignore_index=True)
             st.session_state.qc_combined_data = combined_df
-            st.markdown("#### 📥 Combined Intake Preview")
-            st.dataframe(combined_df.head(10), use_container_width=True)
         else:
             combined_df = None
+
+        with thresholds_tab:
+            st.markdown("#### ⚙️ Screening Thresholds")
+            col4, col5, col6 = st.columns(3)
+            with col4:
+                return_rate_cap = st.number_input("Return Rate Hard Cap", value=0.25, step=0.01, format="%.2f")
+                relative_threshold = st.number_input("Relative Threshold (x Category Avg)", value=1.20, step=0.05)
+            with col5:
+                cat_avg_delta = st.number_input("Category Avg + Delta (5% = 0.05)", value=0.05, step=0.01)
+                low_volume_cutoff = st.number_input("Low Volume Cutoff (Units Sold)", value=10, step=1)
+            with col6:
+                use_benchmarks = st.checkbox("Use SOP Category Benchmarks", value=True)
+                review_days = st.number_input("Monitor Review in X Days", value=14, step=1)
+
+            st.markdown("#### 🚨 Immediate Escalation Criteria")
+            col7, col8, col9 = st.columns(3)
+            with col7:
+                landed_cost_threshold = st.number_input("Landed Cost Threshold ($)", value=150.0, step=10.0)
+                retail_price_threshold = st.number_input("Retail Price Threshold ($)", value=0.0, step=10.0)
+            with col8:
+                launch_days = st.number_input("New Launch Window (Days)", value=90, step=5)
+            with col9:
+                st.caption("Optional flags are mapped in the intake tab.")
+
+            if combined_df is not None and not combined_df.empty:
+                st.markdown("#### 📥 Combined Intake Preview")
+                st.dataframe(combined_df.head(10), use_container_width=True)
+            else:
+                st.info("Add manual entries or upload a file to preview intake data.")
 
         def resolve_optional_column(name, data_frame):
             if name in data_frame.columns:
@@ -1264,302 +1282,306 @@ def main():
                     return name
             return None
 
-        if combined_df is not None and not combined_df.empty:
-            if st.button("🔍 Run Quality Case Screening", type="primary"):
-                config = {
-                    'sold_col': 'Sold',
-                    'returned_col': 'Returned',
-                    'category_col': 'Category',
-                    'use_benchmarks': use_benchmarks,
-                    'return_rate_cap': return_rate_cap,
-                    'relative_threshold': relative_threshold,
-                    'cat_avg_delta': cat_avg_delta,
-                    'low_volume_cutoff': int(low_volume_cutoff),
-                    'review_days': int(review_days),
-                    'safety_col': resolve_optional_column('Safety Risk', combined_df),
-                    'zero_tolerance_col': resolve_optional_column('Zero Tolerance Component', combined_df),
-                    'landed_cost_col': resolve_optional_column('Landed Cost', combined_df),
-                    'retail_price_col': resolve_optional_column('Retail Price', combined_df),
-                    'launch_date_col': resolve_optional_column('Launch Date', combined_df),
-                    'launch_days': int(launch_days),
-                    'aql_fail_col': resolve_optional_column('AQL Fail', combined_df),
-                    'landed_cost_threshold': landed_cost_threshold,
-                    'retail_price_threshold': retail_price_threshold,
-                    'complaint_count_col': resolve_optional_column('Unique Complaint Count (30d)', combined_df),
-                    'sales_units_30d_col': resolve_optional_column('Sales Units (30d)', combined_df),
-                    'sales_value_30d_col': resolve_optional_column('Sales Value (30d)', combined_df),
-                }
+        with results_tab:
+            if combined_df is not None and not combined_df.empty:
+                if st.button("🔍 Run Quality Case Screening", type="primary"):
+                    config = {
+                        'sold_col': 'Sold',
+                        'returned_col': 'Returned',
+                        'category_col': 'Category',
+                        'use_benchmarks': use_benchmarks,
+                        'return_rate_cap': return_rate_cap,
+                        'relative_threshold': relative_threshold,
+                        'cat_avg_delta': cat_avg_delta,
+                        'low_volume_cutoff': int(low_volume_cutoff),
+                        'review_days': int(review_days),
+                        'safety_col': resolve_optional_column('Safety Risk', combined_df),
+                        'zero_tolerance_col': resolve_optional_column('Zero Tolerance Component', combined_df),
+                        'landed_cost_col': resolve_optional_column('Landed Cost', combined_df),
+                        'retail_price_col': resolve_optional_column('Retail Price', combined_df),
+                        'launch_date_col': resolve_optional_column('Launch Date', combined_df),
+                        'launch_days': int(launch_days),
+                        'aql_fail_col': resolve_optional_column('AQL Fail', combined_df),
+                        'landed_cost_threshold': landed_cost_threshold,
+                        'retail_price_threshold': retail_price_threshold,
+                        'complaint_count_col': resolve_optional_column('Unique Complaint Count (30d)', combined_df),
+                        'sales_units_30d_col': resolve_optional_column('Sales Units (30d)', combined_df),
+                        'sales_value_30d_col': resolve_optional_column('Sales Value (30d)', combined_df),
+                    }
 
-                with st.spinner("Analyzing quality triggers..."):
-                    screened = compute_quality_case_screening(combined_df, config)
+                    with st.spinner("Analyzing quality triggers..."):
+                        screened = compute_quality_case_screening(combined_df, config)
 
-                st.session_state.qc_screened_data = screened
-                st.session_state.qc_ai_review = None
+                    st.session_state.qc_screened_data = screened
+                    st.session_state.qc_ai_review = None
 
-                export_buffer = io.BytesIO()
-                with pd.ExcelWriter(export_buffer, engine='xlsxwriter') as writer:
-                    screened.to_excel(writer, index=False, sheet_name='Quality Screening')
-                export_buffer.seek(0)
-                st.session_state.qc_export_data = export_buffer
-                st.session_state.qc_export_filename = f"quality_screening_{datetime.now().strftime('%Y%m%d')}.xlsx"
+                    export_buffer = io.BytesIO()
+                    with pd.ExcelWriter(export_buffer, engine='xlsxwriter') as writer:
+                        screened.to_excel(writer, index=False, sheet_name='Quality Screening')
+                    export_buffer.seek(0)
+                    st.session_state.qc_export_data = export_buffer
+                    st.session_state.qc_export_filename = f"quality_screening_{datetime.now().strftime('%Y%m%d')}.xlsx"
+            else:
+                st.info("Add manual entries or upload a file to run screening.")
 
         if st.session_state.qc_screened_data is not None:
             screened = st.session_state.qc_screened_data
             display_quality_case_dashboard(screened)
 
-            st.markdown("#### ✅ Screening Results")
-            st.dataframe(
-                screened[
-                    [
-                        'SKU',
-                        'Category',
-                        'Return_Rate_Display',
-                        'Cat_Avg_Display',
-                        'Recommended_Action',
-                        'Review_By',
-                        'Input Source'
-                    ]
-                ],
-                use_container_width=True
-            )
-
-            st.markdown("#### 📊 ANOVA / MANOVA Summary")
-            st.markdown(
-                """
-                **What these tests do**
-                - **ANOVA** compares average return rates across categories to detect statistically meaningful differences.
-                - **MANOVA** evaluates multiple metrics at once (e.g., return rate + complaint count) to spot multi-signal
-                  shifts that might indicate systemic device issues.
-
-                **Formulas**
-                - ANOVA: \(F = MS_{between} / MS_{within}\), where
-                  \(MS_{between} = SS_{between}/df_{between}\) and
-                  \(MS_{within} = SS_{within}/df_{within}\).
-                - MANOVA (Wilks' Lambda): \(\Lambda = \det(W) / \det(W + B)\).
-
-                **Why this matters for medical devices**
-                - A high **F** suggests a category is behaving differently than expected (possible design or quality issues).
-                - A low **Wilks' Lambda** suggests multiple risk signals are shifting together, warranting closer review.
-                """
-            )
-
-            categories = sorted(screened['Category'].dropna().unique().tolist())
-            selected_categories = st.multiselect(
-                "Categories to include",
-                options=categories,
-                default=categories
-            )
-            if not selected_categories:
-                st.warning("Select at least one category to run ANOVA/MANOVA.")
-                selected_categories = []
-
-            metric_defaults = [
-                col for col in [
-                    'Return_Rate',
-                    'Sold',
-                    'Returned',
-                    'Landed Cost',
-                    'Retail Price',
-                    'Unique Complaint Count (30d)',
-                    'Sales Units (30d)',
-                    'Sales Value (30d)'
-                ]
-                if col in screened.columns
-            ]
-            numeric_extra = [
-                col for col in screened.columns
-                if pd.api.types.is_numeric_dtype(screened[col]) and col not in metric_defaults
-            ]
-            manova_options = metric_defaults + numeric_extra
-
-            if len(manova_options) < 2:
-                st.warning("MANOVA requires at least two numeric metrics in the data.")
-                manova_metric_1 = None
-                manova_metric_2 = None
-            else:
-                manova_metric_1 = st.selectbox("MANOVA Metric 1", options=manova_options, index=0)
-                metric_2_options = [col for col in manova_options if col != manova_metric_1]
-                manova_metric_2 = st.selectbox("MANOVA Metric 2", options=metric_2_options, index=0)
-
-            with st.expander("➕ Add manual data for ANOVA/MANOVA"):
-                st.caption(
-                    "These rows are used only for the statistical checks below and do not change the screening results."
+            with results_tab:
+                st.markdown("#### ✅ Screening Results")
+                st.dataframe(
+                    screened[
+                        [
+                            'SKU',
+                            'Category',
+                            'Return_Rate_Display',
+                            'Cat_Avg_Display',
+                            'Recommended_Action',
+                            'Review_By',
+                            'Input Source'
+                        ]
+                    ],
+                    use_container_width=True
                 )
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    manual_stat_category = st.text_input("Category (Stats Only)")
-                    manual_stat_return_rate = st.number_input(
-                        "Return Rate (0.00 - 1.00)",
-                        min_value=0.0,
-                        max_value=1.0,
-                        step=0.01,
-                        format="%.2f"
-                    )
-                with col2:
-                    manual_stat_metric_1 = st.number_input(
-                        f"{manova_metric_1 or 'Metric 1'} Value",
-                        step=1.0
-                    )
-                with col3:
-                    manual_stat_metric_2 = st.number_input(
-                        f"{manova_metric_2 or 'Metric 2'} Value",
-                        step=1.0
-                    )
 
-                if st.button("Add Manual Stats Row"):
-                    if not manual_stat_category:
-                        st.error("Category is required for manual stats entry.")
-                    else:
-                        entry = {
-                            'Category': manual_stat_category,
-                            'Return_Rate': manual_stat_return_rate
-                        }
-                        if manova_metric_1:
-                            entry[manova_metric_1] = manual_stat_metric_1
-                        if manova_metric_2:
-                            entry[manova_metric_2] = manual_stat_metric_2
-                        st.session_state.qc_stat_manual_entries.append(entry)
-                        st.success("Manual stats entry added.")
+                st.markdown("#### 📊 ANOVA / MANOVA Summary")
+                st.markdown(
+                    """
+                    **What these tests do**
+                    - **ANOVA** compares average return rates across categories to detect statistically meaningful differences.
+                    - **MANOVA** evaluates multiple metrics at once (e.g., return rate + complaint count) to spot multi-signal
+                      shifts that might indicate systemic device issues.
+
+                    **Formulas**
+                    - ANOVA: \\(F = MS_{between} / MS_{within}\\), where
+                      \\(MS_{between} = SS_{between}/df_{between}\\) and
+                      \\(MS_{within} = SS_{within}/df_{within}\\).
+                    - MANOVA (Wilks' Lambda): \\(\\Lambda = \\det(W) / \\det(W + B)\\).
+
+                    **Why this matters for medical devices**
+                    - A high **F** suggests a category is behaving differently than expected (possible design or quality issues).
+                    - A low **Wilks' Lambda** suggests multiple risk signals are shifting together, warranting closer review.
+                    """
+                )
+
+                categories = sorted(screened['Category'].dropna().unique().tolist())
+                selected_categories = st.multiselect(
+                    "Categories to include",
+                    options=categories,
+                    default=categories
+                )
+                if not selected_categories:
+                    st.warning("Select at least one category to run ANOVA/MANOVA.")
+                    selected_categories = []
+
+                metric_defaults = [
+                    col for col in [
+                        'Return_Rate',
+                        'Sold',
+                        'Returned',
+                        'Landed Cost',
+                        'Retail Price',
+                        'Unique Complaint Count (30d)',
+                        'Sales Units (30d)',
+                        'Sales Value (30d)'
+                    ]
+                    if col in screened.columns
+                ]
+                numeric_extra = [
+                    col for col in screened.columns
+                    if pd.api.types.is_numeric_dtype(screened[col]) and col not in metric_defaults
+                ]
+                manova_options = metric_defaults + numeric_extra
+
+                if len(manova_options) < 2:
+                    st.warning("MANOVA requires at least two numeric metrics in the data.")
+                    manova_metric_1 = None
+                    manova_metric_2 = None
+                else:
+                    manova_metric_1 = st.selectbox("MANOVA Metric 1", options=manova_options, index=0)
+                    metric_2_options = [col for col in manova_options if col != manova_metric_1]
+                    manova_metric_2 = st.selectbox("MANOVA Metric 2", options=metric_2_options, index=0)
+
+                with st.expander("➕ Add manual data for ANOVA/MANOVA"):
+                    st.caption(
+                        "These rows are used only for the statistical checks below and do not change the screening results."
+                    )
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        manual_stat_category = st.text_input("Category (Stats Only)")
+                        manual_stat_return_rate = st.number_input(
+                            "Return Rate (0.00 - 1.00)",
+                            min_value=0.0,
+                            max_value=1.0,
+                            step=0.01,
+                            format="%.2f"
+                        )
+                    with col2:
+                        manual_stat_metric_1 = st.number_input(
+                            f"{manova_metric_1 or 'Metric 1'} Value",
+                            step=1.0
+                        )
+                    with col3:
+                        manual_stat_metric_2 = st.number_input(
+                            f"{manova_metric_2 or 'Metric 2'} Value",
+                            step=1.0
+                        )
+
+                    if st.button("Add Manual Stats Row"):
+                        if not manual_stat_category:
+                            st.error("Category is required for manual stats entry.")
+                        else:
+                            entry = {
+                                'Category': manual_stat_category,
+                                'Return_Rate': manual_stat_return_rate
+                            }
+                            if manova_metric_1:
+                                entry[manova_metric_1] = manual_stat_metric_1
+                            if manova_metric_2:
+                                entry[manova_metric_2] = manual_stat_metric_2
+                            st.session_state.qc_stat_manual_entries.append(entry)
+                            st.success("Manual stats entry added.")
+
+                    if st.session_state.qc_stat_manual_entries:
+                        st.dataframe(
+                            pd.DataFrame(st.session_state.qc_stat_manual_entries),
+                            use_container_width=True
+                        )
+                        if st.button("Clear Manual Stats Entries"):
+                            st.session_state.qc_stat_manual_entries = []
+                            st.rerun()
+
+                analysis_df = screened[['Category', 'Return_Rate']].copy()
+                if manova_metric_1:
+                    analysis_df[manova_metric_1] = (
+                        parse_numeric(screened[manova_metric_1]) if manova_metric_1 in screened.columns else np.nan
+                    )
+                if manova_metric_2:
+                    analysis_df[manova_metric_2] = (
+                        parse_numeric(screened[manova_metric_2]) if manova_metric_2 in screened.columns else np.nan
+                    )
 
                 if st.session_state.qc_stat_manual_entries:
-                    st.dataframe(
-                        pd.DataFrame(st.session_state.qc_stat_manual_entries),
-                        use_container_width=True
+                    manual_stats_df = pd.DataFrame(st.session_state.qc_stat_manual_entries)
+                    needed_cols = ['Category', 'Return_Rate', manova_metric_1, manova_metric_2]
+                    for col in needed_cols:
+                        if col and col not in manual_stats_df.columns:
+                            manual_stats_df[col] = np.nan
+                    manual_stats_df = manual_stats_df[[col for col in needed_cols if col]]
+                    analysis_df = pd.concat([analysis_df, manual_stats_df], ignore_index=True)
+
+                if selected_categories:
+                    analysis_df = analysis_df[analysis_df['Category'].isin(selected_categories)]
+
+                if selected_categories:
+                    summary_table = (
+                        analysis_df.groupby('Category')['Return_Rate']
+                        .agg(['count', 'mean'])
+                        .rename(columns={'count': 'Sample Size', 'mean': 'Avg Return Rate'})
+                        .reset_index()
                     )
-                    if st.button("Clear Manual Stats Entries"):
-                        st.session_state.qc_stat_manual_entries = []
-                        st.rerun()
+                    summary_table['Avg Return Rate'] = (
+                        summary_table['Avg Return Rate'] * 100
+                    ).round(2).astype(str) + '%'
+                    st.markdown("**ANOVA Group Summary**")
+                    st.dataframe(summary_table, use_container_width=True)
 
-            analysis_df = screened[['Category', 'Return_Rate']].copy()
-            if manova_metric_1:
-                analysis_df[manova_metric_1] = (
-                    parse_numeric(screened[manova_metric_1]) if manova_metric_1 in screened.columns else np.nan
-                )
-            if manova_metric_2:
-                analysis_df[manova_metric_2] = (
-                    parse_numeric(screened[manova_metric_2]) if manova_metric_2 in screened.columns else np.nan
-                )
-
-            if st.session_state.qc_stat_manual_entries:
-                manual_stats_df = pd.DataFrame(st.session_state.qc_stat_manual_entries)
-                needed_cols = ['Category', 'Return_Rate', manova_metric_1, manova_metric_2]
-                for col in needed_cols:
-                    if col and col not in manual_stats_df.columns:
-                        manual_stats_df[col] = np.nan
-                manual_stats_df = manual_stats_df[[col for col in needed_cols if col]]
-                analysis_df = pd.concat([analysis_df, manual_stats_df], ignore_index=True)
-
-            if selected_categories:
-                analysis_df = analysis_df[analysis_df['Category'].isin(selected_categories)]
-
-            if selected_categories:
-                summary_table = (
-                    analysis_df.groupby('Category')['Return_Rate']
-                    .agg(['count', 'mean'])
-                    .rename(columns={'count': 'Sample Size', 'mean': 'Avg Return Rate'})
-                    .reset_index()
-                )
-                summary_table['Avg Return Rate'] = (summary_table['Avg Return Rate'] * 100).round(2).astype(str) + '%'
-                st.markdown("**ANOVA Group Summary**")
-                st.dataframe(summary_table, use_container_width=True)
-
-            grouped = [
-                parse_numeric(analysis_df.loc[analysis_df['Category'] == cat, 'Return_Rate']).values
-                for cat in selected_categories
-            ]
-            anova_results = one_way_anova(grouped)
-            if anova_results:
-                st.info(
-                    f"ANOVA F={anova_results['f_stat']:.4f} "
-                    f"(df={anova_results['df_between']}, {anova_results['df_within']})"
-                )
-                st.caption(
-                    f"Group sizes: {anova_results['group_sizes']}. "
-                    "Higher F suggests category-level return rate differences worth investigating."
-                )
-            else:
-                st.warning("ANOVA requires at least two categories with data.")
-
-            if manova_metric_1 and manova_metric_2:
-                manova_groups = []
-                for cat in selected_categories:
-                    subset = analysis_df.loc[
-                        analysis_df['Category'] == cat,
-                        [manova_metric_1, manova_metric_2]
-                    ]
-                    subset = subset.apply(parse_numeric).dropna()
-                    if len(subset) > 1:
-                        manova_groups.append(subset.values)
-
-                manova_results = manova_wilks_lambda(manova_groups, [manova_metric_1, manova_metric_2])
-                if manova_results:
+                grouped = [
+                    parse_numeric(analysis_df.loc[analysis_df['Category'] == cat, 'Return_Rate']).values
+                    for cat in selected_categories
+                ]
+                anova_results = one_way_anova(grouped)
+                if anova_results:
                     st.info(
-                        f"MANOVA Wilks' Lambda={manova_results['wilks_lambda']:.4f} "
-                        f"(groups: {manova_results['group_sizes']})"
+                        f"ANOVA F={anova_results['f_stat']:.4f} "
+                        f"(df={anova_results['df_between']}, {anova_results['df_within']})"
                     )
                     st.caption(
-                        "Lower Wilks' Lambda indicates stronger multivariate separation across categories."
+                        f"Group sizes: {anova_results['group_sizes']}. "
+                        "Higher F suggests category-level return rate differences worth investigating."
                     )
                 else:
-                    st.warning("MANOVA requires at least two categories with 2+ rows.")
+                    st.warning("ANOVA requires at least two categories with data.")
 
-            st.markdown("#### ⬇️ Export Screening Data")
-            st.download_button(
-                label="Download Screening Results",
-                data=st.session_state.qc_export_data,
-                file_name=st.session_state.qc_export_filename,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                type="primary"
-            )
+                if manova_metric_1 and manova_metric_2:
+                    manova_groups = []
+                    for cat in selected_categories:
+                        subset = analysis_df.loc[
+                            analysis_df['Category'] == cat,
+                            [manova_metric_1, manova_metric_2]
+                        ]
+                        subset = subset.apply(parse_numeric).dropna()
+                        if len(subset) > 1:
+                            manova_groups.append(subset.values)
 
-            with st.expander("💬 More (AI Review + Chat)"):
-                st.markdown("#### 🤖 AI Quality Review")
-                if st.button("🧠 Generate AI Review", use_container_width=True):
-                    analyzer = get_ai_analyzer()
-                    summary = build_quality_case_summary(screened)
-                    system_prompt = (
-                        "You are a quality analyst reviewing screening results. "
-                        "Summarize key risks, escalations, and recommended next actions. "
-                        "Keep the response structured and concise."
-                    )
-                    prompt = (
-                        "Analyze the screening summary and provide a short executive readout.\n\n"
-                        f"Summary:\n{json.dumps(summary, indent=2)}"
-                    )
-                    with st.spinner("Generating AI review..."):
-                        response = analyzer.generate_text(prompt, system_prompt, mode='summary')
-                    st.session_state.qc_ai_review = response or "AI review unavailable."
+                    manova_results = manova_wilks_lambda(manova_groups, [manova_metric_1, manova_metric_2])
+                    if manova_results:
+                        st.info(
+                            f"MANOVA Wilks' Lambda={manova_results['wilks_lambda']:.4f} "
+                            f"(groups: {manova_results['group_sizes']})"
+                        )
+                        st.caption(
+                            "Lower Wilks' Lambda indicates stronger multivariate separation across categories."
+                        )
+                    else:
+                        st.warning("MANOVA requires at least two categories with 2+ rows.")
 
-                if st.session_state.qc_ai_review:
-                    st.write(st.session_state.qc_ai_review)
+                st.markdown("#### ⬇️ Export Screening Data")
+                st.download_button(
+                    label="Download Screening Results",
+                    data=st.session_state.qc_export_data,
+                    file_name=st.session_state.qc_export_filename,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    type="primary"
+                )
 
-                st.markdown("#### 💬 Quality Case Chat")
-                for message in st.session_state.qc_chat_history:
-                    with st.chat_message(message["role"]):
-                        st.markdown(message["content"])
+                with st.expander("💬 More (AI Review + Chat)"):
+                    st.markdown("#### 🤖 AI Quality Review")
+                    if st.button("🧠 Generate AI Review", use_container_width=True):
+                        analyzer = get_ai_analyzer()
+                        summary = build_quality_case_summary(screened)
+                        system_prompt = (
+                            "You are a quality analyst reviewing screening results. "
+                            "Summarize key risks, escalations, and recommended next actions. "
+                            "Keep the response structured and concise."
+                        )
+                        prompt = (
+                            "Analyze the screening summary and provide a short executive readout.\n\n"
+                            f"Summary:\n{json.dumps(summary, indent=2)}"
+                        )
+                        with st.spinner("Generating AI review..."):
+                            response = analyzer.generate_text(prompt, system_prompt, mode='summary')
+                        st.session_state.qc_ai_review = response or "AI review unavailable."
 
-                chat_prompt = st.chat_input("Ask about screening results or column requirements...")
-                if chat_prompt:
-                    st.session_state.qc_chat_history.append({"role": "user", "content": chat_prompt})
-                    context_summary = build_quality_case_summary(screened)
-                    system_prompt = (
-                        "You are a quality case screening assistant. Answer using the provided summary and "
-                        "column requirements. If the user asks for details not present, say that you do not have "
-                        "that data. Provide actionable, concise answers."
-                    )
-                    prompt = (
-                        f"Column requirements:\n{json.dumps(QUALITY_CASE_COLUMNS, indent=2)}\n\n"
-                        f"Screening summary:\n{json.dumps(context_summary, indent=2)}\n\n"
-                        f"User question: {chat_prompt}"
-                    )
-                    analyzer = get_ai_analyzer()
-                    with st.spinner("Thinking..."):
-                        response = analyzer.generate_text(prompt, system_prompt, mode='chat')
-                    assistant_message = response or "I'm unable to answer that right now."
-                    st.session_state.qc_chat_history.append({"role": "assistant", "content": assistant_message})
-                    st.rerun()
-        elif combined_df is None or combined_df.empty:
-            st.info("Add manual entries or upload a file to run screening.")
+                    if st.session_state.qc_ai_review:
+                        st.write(st.session_state.qc_ai_review)
+
+                    st.markdown("#### 💬 Quality Case Chat")
+                    for message in st.session_state.qc_chat_history:
+                        with st.chat_message(message["role"]):
+                            st.markdown(message["content"])
+
+                    chat_prompt = st.chat_input("Ask about screening results or column requirements...")
+                    if chat_prompt:
+                        st.session_state.qc_chat_history.append({"role": "user", "content": chat_prompt})
+                        context_summary = build_quality_case_summary(screened)
+                        system_prompt = (
+                            "You are a quality case screening assistant. Answer using the provided summary and "
+                            "column requirements. If the user asks for details not present, say that you do not have "
+                            "that data. Provide actionable, concise answers."
+                        )
+                        prompt = (
+                            f"Column requirements:\n{json.dumps(QUALITY_CASE_COLUMNS, indent=2)}\n\n"
+                            f"Screening summary:\n{json.dumps(context_summary, indent=2)}\n\n"
+                            f"User question: {chat_prompt}"
+                        )
+                        analyzer = get_ai_analyzer()
+                        with st.spinner("Thinking..."):
+                            response = analyzer.generate_text(prompt, system_prompt, mode='chat')
+                        assistant_message = response or "I'm unable to answer that right now."
+                        st.session_state.qc_chat_history.append({"role": "assistant", "content": assistant_message})
+                        st.rerun()
 
 if __name__ == "__main__":
     main()
