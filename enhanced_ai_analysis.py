@@ -589,6 +589,64 @@ class EnhancedAIAnalyzer:
             
         return results
 
+    def generate_text(self, prompt: str, system_prompt: str, mode: str = 'chat') -> Optional[str]:
+        """Generate a single response for general analysis or chat use cases."""
+        if self.provider == AIProvider.FASTEST:
+            if self.claude_configured:
+                response, _ = self._call_claude(prompt, system_prompt, mode)
+                if response:
+                    return response
+            if self.openai_configured:
+                response, _ = self._call_openai(prompt, system_prompt, mode)
+                if response:
+                    return response
+            return None
+
+        if self.provider == AIProvider.BOTH:
+            openai_future = None
+            claude_future = None
+
+            if self.openai_configured:
+                openai_future = self.executor.submit(
+                    self._call_openai, prompt, system_prompt, mode
+                )
+            if self.claude_configured:
+                claude_future = self.executor.submit(
+                    self._call_claude, prompt, system_prompt, mode
+                )
+
+            openai_result = None
+            claude_result = None
+
+            if openai_future:
+                try:
+                    openai_response, _ = openai_future.result(timeout=API_TIMEOUT)
+                    if openai_response:
+                        openai_result = openai_response
+                except Exception as e:
+                    logger.error(f"OpenAI chat call failed: {e}")
+
+            if claude_future:
+                try:
+                    claude_response, _ = claude_future.result(timeout=API_TIMEOUT)
+                    if claude_response:
+                        claude_result = claude_response
+                except Exception as e:
+                    logger.error(f"Claude chat call failed: {e}")
+
+            if openai_result and claude_result:
+                return max([openai_result, claude_result], key=len)
+            return openai_result or claude_result
+
+        if self.provider == AIProvider.OPENAI and self.openai_configured:
+            response, _ = self._call_openai(prompt, system_prompt, mode)
+            return response
+        if self.provider == AIProvider.CLAUDE and self.claude_configured:
+            response, _ = self._call_claude(prompt, system_prompt, mode)
+            return response
+
+        return None
+
     def categorize_return(self, complaint: str, fba_reason: str = None, mode: str = 'standard') -> Tuple[str, float, str, str]:
         """Categorize return with speed optimization"""
         if not complaint or not complaint.strip():
