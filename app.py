@@ -465,13 +465,13 @@ def display_results_dashboard(df, column_mapping):
             columns=['Category', 'Count']
         ).sort_values('Count', ascending=False)
         
-        st.dataframe(category_df, use_container_width=True)
+        st.dataframe(category_df, width="stretch")
     
     # Preview results
     st.markdown("#### 🔍 Preview Results (Top 20)")
     display_cols = [column_mapping['sku'], column_mapping['complaint'], category_col]
     display_cols = [col for col in display_cols if col in df.columns]
-    st.dataframe(df[display_cols].head(20), use_container_width=True)
+    st.dataframe(df[display_cols].head(20), width="stretch")
 
 def export_with_column_k(df):
     """Export file with Column K filled"""
@@ -698,7 +698,7 @@ def display_quality_case_dashboard(screened_df):
         list(action_counts.items()),
         columns=['Recommended Action', 'Count']
     ).sort_values('Count', ascending=False)
-    st.dataframe(breakdown_df, use_container_width=True)
+    st.dataframe(breakdown_df, width="stretch")
 
     st.markdown("#### 🔎 Highest Return Rates")
     st.dataframe(
@@ -707,7 +707,7 @@ def display_quality_case_dashboard(screened_df):
         .sort_values('Return_Rate_Sort', ascending=False)
         .drop(columns=['Return_Rate_Sort'])
         .head(10),
-        use_container_width=True
+        width="stretch"
     )
 
 def parse_numeric(series):
@@ -963,7 +963,7 @@ def main():
                     file_name=st.session_state.export_filename,
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     type="primary",
-                    use_container_width=True
+                    width="stretch"
                 )
 
     # -------------------------
@@ -1070,7 +1070,7 @@ def main():
             
             # Preview Table
             st.markdown("#### Preview (Top 10)")
-            st.dataframe(df_res.head(10), use_container_width=True)
+            st.dataframe(df_res.head(10), width="stretch")
             
             col1, col2 = st.columns(2)
             with col1:
@@ -1080,10 +1080,10 @@ def main():
                     file_name=st.session_state.b2b_export_filename,
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     type="primary",
-                    use_container_width=True
+                    width="stretch"
                 )
             with col2:
-                if st.button("🔄 Clear / Start Over", use_container_width=True):
+                if st.button("🔄 Clear / Start Over", width="stretch"):
                     st.session_state.b2b_processed_data = None
                     st.session_state.b2b_processing_complete = False
                     st.rerun()
@@ -1107,13 +1107,13 @@ def main():
 
         with intake_tab:
             with st.expander("📋 Excel Column Requirements", expanded=False):
-                st.dataframe(quality_case_requirements_df(), use_container_width=True)
+                st.dataframe(quality_case_requirements_df(), width="stretch")
             st.download_button(
                 label="⬇️ Download Quality Case Template",
                 data=build_quality_case_template(),
                 file_name="quality_case_template.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
+                width="stretch"
             )
 
             st.divider()
@@ -1169,8 +1169,8 @@ def main():
 
             if st.session_state.qc_manual_entries:
                 st.markdown("#### ✅ Manual Entries")
-                st.dataframe(pd.DataFrame(st.session_state.qc_manual_entries), use_container_width=True)
-                if st.button("🧹 Clear Manual Entries", use_container_width=True):
+                st.dataframe(pd.DataFrame(st.session_state.qc_manual_entries), width="stretch")
+                if st.button("🧹 Clear Manual Entries", width="stretch"):
                     st.session_state.qc_manual_entries = []
                     st.rerun()
 
@@ -1271,7 +1271,7 @@ def main():
 
             if combined_df is not None and not combined_df.empty:
                 st.markdown("#### 📥 Combined Intake Preview")
-                st.dataframe(combined_df.head(10), use_container_width=True)
+                st.dataframe(combined_df.head(10), width="stretch")
             else:
                 st.info("Add manual entries or upload a file to preview intake data.")
 
@@ -1342,7 +1342,7 @@ def main():
                             'Input Source'
                         ]
                     ],
-                    use_container_width=True
+                    width="stretch"
                 )
 
                 st.markdown("#### 📊 ANOVA / MANOVA Summary")
@@ -1353,6 +1353,13 @@ def main():
                     - **MANOVA** evaluates multiple metrics at once (e.g., return rate + complaint count) to spot multi-signal
                       shifts that might indicate systemic device issues.
 
+                    **How to choose metrics**
+                    - Start with **Return_Rate** across categories to see if any device family is materially worse.
+                    - Pair **Return_Rate** with **Unique Complaint Count (30d)** to see if returns align with active complaint volume.
+                    - Compare **Return_Rate** with **Sales Units (30d)** to detect high-return, high-volume products that may
+                      need faster containment.
+                    - Use **Landed Cost** or **Retail Price** to prioritize financially impactful outliers.
+
                     **Formulas**
                     - ANOVA: \\(F = MS_{between} / MS_{within}\\), where
                       \\(MS_{between} = SS_{between}/df_{between}\\) and
@@ -1362,6 +1369,12 @@ def main():
                     **Why this matters for medical devices**
                     - A high **F** suggests a category is behaving differently than expected (possible design or quality issues).
                     - A low **Wilks' Lambda** suggests multiple risk signals are shifting together, warranting closer review.
+
+                    **About p-values**
+                    - A **p-value** estimates how likely the observed differences are if categories were truly the same.
+                      Lower p-values (e.g., < 0.05) are commonly treated as evidence that the differences are meaningful.
+                    - This app reports F-statistics and group sizes to keep the flow lightweight; if you need p-values,
+                      export the results and compute p-values in statistical tooling.
                     """
                 )
 
@@ -1446,29 +1459,32 @@ def main():
                     if st.session_state.qc_stat_manual_entries:
                         st.dataframe(
                             pd.DataFrame(st.session_state.qc_stat_manual_entries),
-                            use_container_width=True
+                            width="stretch"
                         )
                         if st.button("Clear Manual Stats Entries"):
                             st.session_state.qc_stat_manual_entries = []
                             st.rerun()
 
                 analysis_df = screened[['Category', 'Return_Rate']].copy()
-                if manova_metric_1:
+                if manova_metric_1 and manova_metric_1 not in analysis_df.columns:
                     analysis_df[manova_metric_1] = (
                         parse_numeric(screened[manova_metric_1]) if manova_metric_1 in screened.columns else np.nan
                     )
-                if manova_metric_2:
+                if manova_metric_2 and manova_metric_2 not in analysis_df.columns:
                     analysis_df[manova_metric_2] = (
                         parse_numeric(screened[manova_metric_2]) if manova_metric_2 in screened.columns else np.nan
                     )
 
                 if st.session_state.qc_stat_manual_entries:
                     manual_stats_df = pd.DataFrame(st.session_state.qc_stat_manual_entries)
-                    needed_cols = ['Category', 'Return_Rate', manova_metric_1, manova_metric_2]
+                    needed_cols = []
+                    for col in ['Category', 'Return_Rate', manova_metric_1, manova_metric_2]:
+                        if col and col not in needed_cols:
+                            needed_cols.append(col)
                     for col in needed_cols:
                         if col and col not in manual_stats_df.columns:
                             manual_stats_df[col] = np.nan
-                    manual_stats_df = manual_stats_df[[col for col in needed_cols if col]]
+                    manual_stats_df = manual_stats_df[needed_cols]
                     analysis_df = pd.concat([analysis_df, manual_stats_df], ignore_index=True)
 
                 if selected_categories:
@@ -1485,7 +1501,7 @@ def main():
                         summary_table['Avg Return Rate'] * 100
                     ).round(2).astype(str) + '%'
                     st.markdown("**ANOVA Group Summary**")
-                    st.dataframe(summary_table, use_container_width=True)
+                    st.dataframe(summary_table, width="stretch")
 
                 grouped = [
                     parse_numeric(analysis_df.loc[analysis_df['Category'] == cat, 'Return_Rate']).values
@@ -1533,12 +1549,13 @@ def main():
                     data=st.session_state.qc_export_data,
                     file_name=st.session_state.qc_export_filename,
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    type="primary"
+                    type="primary",
+                    width="stretch"
                 )
 
                 with st.expander("💬 More (AI Review + Chat)"):
                     st.markdown("#### 🤖 AI Quality Review")
-                    if st.button("🧠 Generate AI Review", use_container_width=True):
+                    if st.button("🧠 Generate AI Review", width="stretch"):
                         analyzer = get_ai_analyzer()
                         summary = build_quality_case_summary(screened)
                         system_prompt = (
