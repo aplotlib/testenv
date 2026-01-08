@@ -26,10 +26,7 @@ st.set_page_config(
 
 # Import AI module
 try:
-    from enhanced_ai_analysis import (
-        EnhancedAIAnalyzer, AIProvider, FBA_REASON_MAP,
-        MEDICAL_DEVICE_CATEGORIES
-    )
+    from enhanced_ai_analysis import EnhancedAIAnalyzer, AIProvider, FBA_REASON_MAP, MEDICAL_DEVICE_CATEGORIES
     AI_AVAILABLE = True
 except ImportError as e:
     AI_AVAILABLE = False
