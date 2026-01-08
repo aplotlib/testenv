@@ -1083,7 +1083,7 @@ def main():
                 valid_complaints = df[df[column_mapping['complaint']].notna() & (df[column_mapping['complaint']].str.strip() != '')].shape[0]
                 st.info(f"Found {valid_complaints:,} complaints to categorize.")
                 
-@@ -1047,27 +1210,179 @@ def main():
+def main():
                 st.metric("SKUs Identified", f"{sku_found_count}", delta=f"{sku_found_count/len(df_res)*100:.1f}% coverage")
             with c3:
                 unique_skus = df_res[df_res['SKU'] != 'Unknown']['SKU'].nunique()
