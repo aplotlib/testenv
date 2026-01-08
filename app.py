@@ -28,7 +28,147 @@ st.set_page_config(
 try:
     from enhanced_ai_analysis import (
         EnhancedAIAnalyzer, AIProvider, FBA_REASON_MAP,
-@@ -171,51 +172,60 @@ def initialize_session_state():
+        MEDICAL_DEVICE_CATEGORIES
+    )
+    AI_AVAILABLE = True
+except ImportError as e:
+    AI_AVAILABLE = False
+    logger.error(f"AI module not available: {str(e)}")
+
+# Check optional imports
+try:
+    import xlsxwriter
+    EXCEL_AVAILABLE = True
+except ImportError:
+    EXCEL_AVAILABLE = False
+
+# App Configuration
+APP_CONFIG = {
+    'title': 'Vive Health Quality & B2B Report Generator',
+    'version': '17.2',
+    'company': 'Vive Health',
+    'chunk_sizes': [100, 250, 500, 1000],
+    'default_chunk': 500,
+}
+
+# Colors
+COLORS = {
+    'primary': '#00D9FF',
+    'secondary': '#FF006E',
+    'accent': '#FFB700',
+    'success': '#00F5A0',
+    'warning': '#FF6B35',
+    'danger': '#FF0054',
+    'dark': '#0A0A0F',
+    'light': '#1A1A2E',
+    'text': '#E0E0E0',
+    'muted': '#666680',
+    'cost': '#50C878',
+    'claude': '#9B59B6',
+    'openai': '#00D9FF'
+}
+
+# Quality categories (For Tab 1)
+QUALITY_CATEGORIES = [
+    'Product Defects/Quality',
+    'Performance/Effectiveness',
+    'Missing Components',
+    'Design/Material Issues',
+    'Stability/Positioning Issues',
+    'Medical/Health Concerns'
+]
+
+# AI Provider options
+AI_PROVIDER_OPTIONS = {
+    'Fastest (Claude Haiku)': AIProvider.FASTEST,
+    'OpenAI GPT-3.5': AIProvider.OPENAI,
+    'Claude Sonnet': AIProvider.CLAUDE,
+    'Both (Consensus)': AIProvider.BOTH
+}
+
+def inject_custom_css():
+    """Inject custom CSS"""
+    st.markdown(f"""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    
+    :root {{
+        --primary: {COLORS['primary']};
+        --secondary: {COLORS['secondary']};
+        --accent: {COLORS['accent']};
+        --success: {COLORS['success']};
+        --warning: {COLORS['warning']};
+        --danger: {COLORS['danger']};
+        --dark: {COLORS['dark']};
+        --light: {COLORS['light']};
+        --text: {COLORS['text']};
+        --muted: {COLORS['muted']};
+        --cost: {COLORS['cost']};
+        --claude: {COLORS['claude']};
+        --openai: {COLORS['openai']};
+    }}
+    
+    html, body, .stApp {{
+        font-family: 'Inter', sans-serif;
+    }}
+    
+    .main-header {{
+        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        padding: 2rem;
+        border-radius: 10px;
+        text-align: center;
+        margin-bottom: 1.5rem;
+        box-shadow: 0 5px 20px rgba(0, 217, 255, 0.3);
+    }}
+    
+    .main-title {{
+        font-size: 2.2em;
+        font-weight: 700;
+        color: white;
+        margin: 0;
+    }}
+    
+    .info-box {{
+        background: rgba(26, 26, 46, 0.8);
+        border: 1px solid var(--primary);
+        border-radius: 8px;
+        padding: 1.2rem;
+        margin: 0.8rem 0;
+    }}
+    
+    .metric-card {{
+        background: rgba(26, 26, 46, 0.9);
+        border: 1px solid rgba(0, 217, 255, 0.3);
+        border-radius: 8px;
+        padding: 1rem;
+        text-align: center;
+    }}
+    
+    .stButton > button {{
+        background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+        color: white;
+        border: none;
+        padding: 0.7rem 1.5rem;
+        border-radius: 6px;
+        font-weight: 600;
+    }}
+    
+    .stProgress > div > div {{
+        background: linear-gradient(90deg, var(--primary), var(--accent));
+    }}
+    
+    /* Hide Streamlit branding */
+    #MainMenu {{visibility: hidden;}}
+    footer {{visibility: hidden;}}
+    </style>
+    """, unsafe_allow_html=True)
+
+def initialize_session_state():
+    """Initialize session state variables"""
+    defaults = {
+        'original_data': None,  # Store original file structure
+        'processed_data': None,
+        'categorized_data': None,
         'ai_analyzer': None,
         'processing_complete': False,
         'reason_summary': {},
@@ -89,12 +229,379 @@ def check_api_keys():
                     break
     except Exception as e:
         logger.warning(f"Error checking secrets: {e}")
-@@ -612,50 +622,199 @@ def generate_b2b_report(df, analyzer, batch_size):
-            'Description': item['full_description'],
-            'SKU': item['sku'],
+    
+    return keys_found
+
+def get_ai_analyzer(max_workers=5):
+    """Get or create AI analyzer with specific workers"""
+    # Always re-initialize if workers change or not exists
+    if st.session_state.ai_analyzer is None or st.session_state.ai_analyzer.max_workers != max_workers:
+        try:
+            keys = check_api_keys()
+            
+            if 'openai' in keys:
+                os.environ['OPENAI_API_KEY'] = keys['openai']
+            if 'claude' in keys:
+                os.environ['ANTHROPIC_API_KEY'] = keys['claude']
+            
+            st.session_state.ai_analyzer = EnhancedAIAnalyzer(st.session_state.ai_provider, max_workers=max_workers)
+            logger.info(f"Created AI analyzer with provider: {st.session_state.ai_provider.value}, Workers: {max_workers}")
+        except Exception as e:
+            logger.error(f"Error creating AI analyzer: {e}")
+            st.error(f"Error initializing AI: {str(e)}")
+    
+    return st.session_state.ai_analyzer
+
+# -------------------------
+# TAB 1: CATEGORIZER LOGIC
+# -------------------------
+
+def process_file_preserve_structure(file_content, filename):
+    """Process file while preserving original structure (For Categorizer)"""
+    try:
+        # Read file
+        if filename.endswith('.csv'):
+            df = pd.read_csv(io.BytesIO(file_content), dtype=str)  # Read as strings to preserve format
+        elif filename.endswith(('.xlsx', '.xls')):
+            df = pd.read_excel(io.BytesIO(file_content), dtype=str)
+        elif filename.endswith('.txt'):
+            df = pd.read_csv(io.BytesIO(file_content), sep='\t', dtype=str)
+        else:
+            st.error(f"Unsupported file type: {filename}")
+            return None, None
+        
+        # Store original structure
+        original_df = df.copy()
+        
+        # Create column mapping based on your file structure
+        column_mapping = {}
+        
+        # Check if columns are labeled A, B, C, etc. or by position
+        cols = df.columns.tolist()
+        
+        # For your specific file structure:
+        # Column B = Product Identifier Tag (SKU)
+        # Column I = Categorizing/Investigator Complaint (complaint text)
+        # Column K = Category (where AI results go)
+        
+        if len(cols) >= 11:  # Need at least columns A through K
+            # Try to map by position (0-indexed)
+            # Column I = index 8, Column B = index 1, Column K = index 10
+            
+            # Find complaint column (Column I - 9th column, index 8)
+            if len(cols) > 8:
+                column_mapping['complaint'] = cols[8]  # Column I
+            else:
+                st.error("File doesn't have enough columns. Expected complaint data in Column I.")
+                return None, None
+            
+            # Find SKU/Product column (Column B - 2nd column, index 1)
+            if len(cols) > 1:
+                column_mapping['sku'] = cols[1]  # Column B
+            
+            # Category column (Column K - 11th column, index 10)
+            if len(cols) > 10:
+                column_mapping['category'] = cols[10]  # Column K
+            else:
+                # Add columns if needed to reach K
+                while len(df.columns) < 11:
+                    df[f'Column_{len(df.columns)}'] = ''
+                column_mapping['category'] = df.columns[10]
+        else:
+            st.error("File structure not recognized. Need at least 11 columns (A-K).")
+            return None, None
+        
+        # Ensure column K exists and is empty
+        if column_mapping.get('category'):
+            df[column_mapping['category']] = ''
+        
+        # Store mapping
+        st.session_state.column_mapping = column_mapping
+        
+        # Validate we have complaint data
+        complaint_col = column_mapping['complaint']
+        valid_complaints = df[df[complaint_col].notna() & (df[complaint_col].str.strip() != '')].copy()
+        
+        logger.info(f"File structure: {len(df)} total rows, {len(valid_complaints)} with complaints")
+        logger.info(f"Column mapping: Complaint={complaint_col} (Col I), SKU={column_mapping.get('sku')} (Col B), Category={column_mapping.get('category')} (Col K)")
+        
+        return df, column_mapping
+        
+    except Exception as e:
+        st.error(f"Error processing file: {str(e)}")
+        logger.error(f"File processing error: {e}")
+        return None, None
+
+def process_in_chunks(df, analyzer, column_mapping, chunk_size=None):
+    """Process large datasets in chunks"""
+    if chunk_size is None:
+        chunk_size = st.session_state.chunk_size
+    
+    complaint_col = column_mapping['complaint']
+    category_col = column_mapping['category']
+    
+    # Get rows with complaints
+    valid_indices = df[df[complaint_col].notna() & (df[complaint_col].str.strip() != '')].index
+    total_valid = len(valid_indices)
+    
+    if total_valid == 0:
+        st.warning("No valid complaints found in Column I to process")
+        return df
+    
+    # Clear messaging about processing
+    st.info(f"""
+    📊 **Processing Details:**
+    - Total complaints to categorize (from Column I): **{total_valid:,}**
+    - Processing chunk size: **{chunk_size}** rows at a time
+    - API batch size: **{st.session_state.batch_size}** items per call
+    """)
+    
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    stats_container = st.container()
+    
+    processed_count = 0
+    start_time = time.time()
+    
+    # Process in chunks
+    for chunk_start in range(0, total_valid, chunk_size):
+        chunk_end = min(chunk_start + chunk_size, total_valid)
+        chunk_indices = valid_indices[chunk_start:chunk_end]
+        chunk_num = (chunk_start // chunk_size) + 1
+        total_chunks = (total_valid + chunk_size - 1) // chunk_size
+        
+        # Prepare batch data
+        batch_data = []
+        for idx in chunk_indices:
+            complaint = str(df.at[idx, complaint_col]).strip()
+            
+            # Check for FBA reason code
+            fba_reason = None
+            if 'reason' in df.columns:
+                fba_reason = str(df.at[idx, 'reason'])
+            
+            batch_data.append({
+                'index': idx,
+                'complaint': complaint,
+                'fba_reason': fba_reason
+            })
+        
+        try:
+            # Process batch with smaller sub-batches
+            sub_batch_size = st.session_state.batch_size
+            
+            for i in range(0, len(batch_data), sub_batch_size):
+                sub_batch = batch_data[i:i+sub_batch_size]
+                
+                # Categorize sub-batch
+                results = analyzer.categorize_batch(sub_batch, mode='standard')
+                
+                # Update dataframe
+                for result in results:
+                    idx = result['index']
+                    category = result.get('category', 'Other/Miscellaneous')
+                    df.at[idx, category_col] = category
+                    
+                    # Track stats
+                    processed_count += 1
+                
+                # Update progress
+                progress = processed_count / total_valid
+                progress_bar.progress(progress)
+                status_text.text(f"Processing chunk {chunk_num}/{total_chunks}... ({processed_count}/{total_valid})")
+                
+                # Display ETA and speed
+                elapsed_time = time.time() - start_time
+                if elapsed_time > 0:
+                    processing_speed = processed_count / elapsed_time
+                    remaining = total_valid - processed_count
+                    eta_seconds = remaining / processing_speed if processing_speed > 0 else 0
+                    
+                    with stats_container:
+                        st.write(f"⏱️ Speed: {processing_speed:.1f} items/sec | ETA: {eta_seconds/60:.1f} min")
+        
+        except Exception as e:
+            st.error(f"Error processing batch: {str(e)}")
+            st.session_state.processing_errors.append(str(e))
+            continue
+    
+    # Cleanup
+    progress_bar.empty()
+    status_text.empty()
+    
+    return df
+
+def generate_statistics(df, column_mapping):
+    """Generate statistics for dashboard"""
+    category_col = column_mapping['category']
+    
+    # Basic stats
+    total_categorized = df[df[category_col].notna() & (df[category_col] != '')].shape[0]
+    category_counts = df[category_col].value_counts().to_dict()
+    
+    # Store in session state
+    st.session_state.reason_summary = category_counts
+    st.session_state.total_rows_processed = total_categorized
+    
+def display_results_dashboard(df, column_mapping):
+    """Display results in a dashboard"""
+    category_col = column_mapping['category']
+    
+    st.markdown("### 📊 Results Dashboard")
+    
+    # Metrics
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric("Total Processed", st.session_state.total_rows_processed)
+    with col2:
+        st.metric("Categories Found", len(st.session_state.reason_summary))
+    with col3:
+        st.metric("Processing Time", f"{st.session_state.processing_time:.1f}s")
+    
+    # Category breakdown
+    st.markdown("#### 📈 Category Distribution")
+    if st.session_state.reason_summary:
+        category_df = pd.DataFrame(
+            list(st.session_state.reason_summary.items()),
+            columns=['Category', 'Count']
+        ).sort_values('Count', ascending=False)
+        
+        st.dataframe(category_df, use_container_width=True)
+    
+    # Preview results
+    st.markdown("#### 🔍 Preview Results (Top 20)")
+    display_cols = [column_mapping['sku'], column_mapping['complaint'], category_col]
+    display_cols = [col for col in display_cols if col in df.columns]
+    st.dataframe(df[display_cols].head(20), use_container_width=True)
+
+def export_with_column_k(df):
+    """Export file with Column K filled"""
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False)
+    return output.getvalue()
+
+# -------------------------
+# TAB 2: B2B REPORT LOGIC
+# -------------------------
+
+def extract_main_sku(text):
+    """
+    Extracts the Main SKU (3 Caps + 4 Digits) from text.
+    Ignores variants (e.g., matches MOB1027 from MOB1027BLU).
+    Strictly follows the pattern: 3 Uppercase Letters + 4 Digits.
+    """
+    if not isinstance(text, str):
+        return None
+    
+    # Pattern: 3 uppercase letters followed by 4 digits.
+    # We check for this pattern anywhere in the string.
+    # The capturing group extracts just the Main SKU.
+    match = re.search(r'\b([A-Z]{3}\d{4})', text)
+    
+    if match:
+        return match.group(1)
+    return None
+
+def find_sku_in_row(row):
+    """
+    Attempts to find the Main SKU in various columns.
+    Priority: 
+    1. Explicit SKU columns (Product, SKU, Main SKU)
+    2. Subject/Display Name
+    3. Description/Body
+    """
+    # 1. Check explicit columns first
+    sku_cols = ['Main SKU', 'Main SKU/Display Name', 'SKU', 'Product', 'Internal Reference']
+    for col in sku_cols:
+        if col in row.index and pd.notna(row[col]):
+            sku = extract_main_sku(str(row[col]))
+            if sku: return sku
+    
+    # 2. Check Display Name / Subject
+    subject_cols = ['Display Name', 'Subject', 'Name']
+    for col in subject_cols:
+        if col in row.index and pd.notna(row[col]):
+            sku = extract_main_sku(str(row[col]))
+            if sku: return sku
+            
+    # 3. Check Description (Last resort)
+    desc_cols = ['Description', 'Body']
+    for col in desc_cols:
+        if col in row.index and pd.notna(row[col]):
+            sku = extract_main_sku(str(row[col]))
+            if sku: return sku
+            
+    return "Unknown"
+
+def strip_html(text):
+    """Remove HTML tags from description for cleaner AI processing"""
+    if not text or not isinstance(text, str):
+        return ""
+    # Simple regex to remove tags
+    clean = re.compile('<.*?>')
+    return re.sub(clean, ' ', text).strip()
+
+def process_b2b_file(file_content, filename):
+    """Process raw Odoo export for B2B Report"""
+    try:
+        if filename.endswith('.csv'):
+            df = pd.read_csv(io.BytesIO(file_content), dtype=str)
+        elif filename.endswith(('.xlsx', '.xls')):
+            df = pd.read_excel(io.BytesIO(file_content), dtype=str)
+        else:
+            st.error("Unsupported file format")
+            return None
+
+        # NO FILTERING based on 'Type' as per requirements.
+        # We process all rows in the upload.
+        
+        logger.info(f"B2B Processing: {len(df)} rows loaded (No filtering)")
+        return df
+        
+    except Exception as e:
+        st.error(f"Error reading file: {e}")
+        return None
+
+def generate_b2b_report(df, analyzer, batch_size):
+    """Generate the B2B report with AI summaries and Cleaned SKUs"""
+    
+    # Columns to use for display/AI
+    display_col = 'Display Name' if 'Display Name' in df.columns else 'Subject'
+    desc_col = 'Description' if 'Description' in df.columns else 'Body'
+    
+    # Clean up description column if needed
+    if desc_col in df.columns:
+        df[desc_col] = df[desc_col].apply(strip_html)
+    
+    # Extract SKU
+    df['SKU'] = df.apply(find_sku_in_row, axis=1)
+    
+    # Prepare input for AI summary
+    items = []
+    for _, row in df.iterrows():
+        subject = row.get(display_col, '')
+        details = row.get(desc_col, '')
+        items.append({'subject': subject, 'details': details})
+    
+    # Process in batches for AI summarization
+    results = []
+    for i in range(0, len(items), batch_size):
+        batch_items = items[i:i+batch_size]
+        batch_results = analyzer.summarize_batch(batch_items)
+        results.extend(batch_results)
+    
+    # Build output DataFrame
+    final_rows = []
+    for i, item in enumerate(results):
+        final_rows.append({
+            'Display Name': item['subject'],
+            'Description': item['details'],
+            'SKU': df.iloc[i]['SKU'],
             'Reason': item['summary']
         })
-        
+    
     return pd.DataFrame(final_rows)
 
 # -------------------------
@@ -289,7 +796,324 @@ def one_way_anova(groups):
     df_between = len(groups) - 1
     df_within = len(all_values) - len(groups)
     if df_within <= 0:
-@@ -980,166 +1139,338 @@ def main():
+        return None
+
+    ms_between = ss_between / df_between
+    ms_within = ss_within / df_within
+    if ms_within == 0:
+        return None
+
+    return {
+        'f_stat': ms_between / ms_within,
+        'df_between': df_between,
+        'df_within': df_within
+    }
+
+def manova_wilks_lambda(groups, metric_cols):
+    valid_groups = [g for g in groups if len(g) > 1]
+    if len(valid_groups) < 2:
+        return None
+
+    overall = np.vstack(valid_groups)
+    overall_mean = np.mean(overall, axis=0)
+    w_matrix = np.zeros((len(metric_cols), len(metric_cols)))
+    b_matrix = np.zeros((len(metric_cols), len(metric_cols)))
+
+    for g in valid_groups:
+        group_mean = np.mean(g, axis=0)
+        centered = g - group_mean
+        w_matrix += centered.T @ centered
+        mean_diff = (group_mean - overall_mean).reshape(-1, 1)
+        b_matrix += len(g) * (mean_diff @ mean_diff.T)
+
+    try:
+        det_w = np.linalg.det(w_matrix)
+        det_t = np.linalg.det(w_matrix + b_matrix)
+    except np.linalg.LinAlgError:
+        return None
+
+    if det_t == 0:
+        return None
+
+    return {
+        'wilks_lambda': det_w / det_t,
+        'within_matrix': w_matrix,
+        'between_matrix': b_matrix
+    }
+
+def compute_quality_case_screening(df, config):
+    data = df.copy()
+    sold_col = config['sold_col']
+    returned_col = config['returned_col']
+    category_col = config['category_col']
+
+    data['Sold'] = parse_numeric(data[sold_col])
+    data['Returned'] = parse_numeric(data[returned_col])
+    data['Return_Rate'] = np.where(data['Sold'] > 0, data['Returned'] / data['Sold'], 0)
+
+    category_stats = data.groupby(category_col)['Return_Rate'].agg(['mean', 'std']).reset_index()
+    category_stats.rename(columns={'mean': 'Cat_Avg', 'std': 'Cat_Std'}, inplace=True)
+    category_stats['Cat_Std'] = category_stats['Cat_Std'].fillna(0)
+
+    data = data.merge(category_stats, on=category_col, how='left')
+
+    if config['use_benchmarks']:
+        data['Benchmark_Avg'] = data[category_col].map(CATEGORY_BENCHMARKS)
+        data['Benchmark_Avg'] = data['Benchmark_Avg'].fillna(CATEGORY_BENCHMARKS['All Others'])
+        data['Cat_Avg'] = data['Benchmark_Avg']
+
+    immediate = pd.Series(False, index=data.index)
+    if config['safety_col']:
+        immediate |= data[config['safety_col']].astype(str).str.lower().isin(['yes', 'true', '1', 'y'])
+    if config['zero_tolerance_col']:
+        immediate |= data[config['zero_tolerance_col']].astype(str).str.lower().isin(['yes', 'true', '1', 'y'])
+    if config['landed_cost_col']:
+        immediate |= parse_numeric(data[config['landed_cost_col']]) >= config['landed_cost_threshold']
+    if config['retail_price_col']:
+        immediate |= parse_numeric(data[config['retail_price_col']]) >= config['retail_price_threshold']
+    if config['launch_date_col']:
+        launch_dates = pd.to_datetime(data[config['launch_date_col']], errors='coerce')
+        recent = launch_dates.notna() & ((pd.Timestamp.utcnow() - launch_dates).dt.days <= config['launch_days'])
+        immediate |= recent
+    if config['aql_fail_col']:
+        immediate |= data[config['aql_fail_col']].astype(str).str.lower().isin(['yes', 'true', '1', 'y'])
+
+    condition_critical = data['Return_Rate'] >= config['return_rate_cap']
+    condition_relative = data['Return_Rate'] > (data['Cat_Avg'] * config['relative_threshold'])
+    condition_outlier = data['Return_Rate'] > (data['Cat_Avg'] + data['Cat_Std'])
+    condition_sop_delta = data['Return_Rate'] > (data['Cat_Avg'] + config['cat_avg_delta'])
+
+    qualitative = pd.Series(False, index=data.index)
+    if config['complaint_count_col']:
+        complaints = parse_numeric(data[config['complaint_count_col']])
+        sales_units = parse_numeric(data[config['sales_units_30d_col']]) if config['sales_units_30d_col'] else 0
+        sales_value = parse_numeric(data[config['sales_value_30d_col']]) if config['sales_value_30d_col'] else 0
+        low_impact = (sales_units > 0) & ((complaints / sales_units) < 0.05) & (sales_value < 1000)
+        qualitative = (complaints >= 3) & ~low_impact
+
+    low_volume = data['Sold'] < config['low_volume_cutoff']
+
+    action = np.select(
+        [
+            immediate,
+            condition_critical | condition_relative | condition_outlier | condition_sop_delta | qualitative,
+            low_volume
+        ],
+        [
+            'Escalate to Quality Case (Immediate)',
+            'Escalate to Quality Case',
+            'Dismiss (Low Volume)'
+        ],
+        default='Monitor'
+    )
+
+    review_date = pd.Timestamp.utcnow().normalize() + pd.Timedelta(days=config['review_days'])
+    data['Recommended_Action'] = action
+    data['Review_By'] = np.where(data['Recommended_Action'] == 'Monitor', review_date.date().isoformat(), '')
+
+    data['Return_Rate_Display'] = (data['Return_Rate'] * 100).round(2).astype(str) + '%'
+    data['Cat_Avg_Display'] = (data['Cat_Avg'] * 100).round(2).astype(str) + '%'
+
+    return data
+
+def main():
+    """Main application function"""
+    initialize_session_state()
+    inject_custom_css()
+    
+    # Header
+    st.markdown("""
+    <div class="main-header">
+        <h1 class="main-title">VIVE HEALTH QUALITY SUITE</h1>
+        <p style="color: white; margin: 0.5rem 0; font-size: 1.1em;">
+            AI-Powered Returns Analysis & Reporting
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Check AI status
+    if not AI_AVAILABLE:
+        st.error("❌ AI Module not available. Please check enhanced_ai_analysis.py")
+        st.stop()
+    
+    keys = check_api_keys()
+    if not keys:
+        st.error("❌ No API keys found. Please add API keys to Streamlit secrets.")
+        st.stop()
+
+    # Sidebar Configuration
+    with st.sidebar:
+        st.markdown("### ⚙️ Configuration")
+        provider = st.selectbox("🤖 AI Provider", options=list(AI_PROVIDER_OPTIONS.keys()))
+        st.session_state.ai_provider = AI_PROVIDER_OPTIONS[provider]
+        
+        st.markdown("---")
+        st.caption(f"Version {APP_CONFIG['version']}")
+
+    # TABS
+    tab1, tab2, tab3 = st.tabs(["📊 Return Categorizer", "📑 B2B Report Generator", "🧪 Quality Case Screening"])
+
+    # -------------------------
+    # TAB 1: Original Categorizer
+    # -------------------------
+    with tab1:
+        st.markdown("### 📁 Return Categorization (Column I → K)")
+        st.markdown("""
+        <div style="background: rgba(255, 183, 0, 0.1); border: 1px solid var(--accent); 
+                    border-radius: 8px; padding: 0.8rem; margin-bottom: 1rem;">
+            <strong>📌 Goal:</strong> Categorize complaints into standardized Quality Categories.
+        </div>
+        """, unsafe_allow_html=True)
+
+        uploaded_file = st.file_uploader("Upload Return Data (Excel/CSV)", type=['csv', 'xlsx', 'xls', 'txt'], key="tab1_uploader")
+        
+        if uploaded_file:
+            with st.spinner(f"Reading {uploaded_file.name}..."):
+                file_content = uploaded_file.read()
+                df, column_mapping = process_file_preserve_structure(file_content, uploaded_file.name)
+            
+            if df is not None and column_mapping:
+                # Show file info
+                valid_complaints = df[df[column_mapping['complaint']].notna() & (df[column_mapping['complaint']].str.strip() != '')].shape[0]
+                st.info(f"Found {valid_complaints:,} complaints to categorize.")
+                
+                if st.button("🚀 Start Categorization", type="primary"):
+                    analyzer = get_ai_analyzer()
+                    with st.spinner("Categorizing..."):
+                        categorized_df = process_in_chunks(df, analyzer, column_mapping)
+                        st.session_state.categorized_data = categorized_df
+                        st.session_state.processing_complete = True
+                        generate_statistics(categorized_df, column_mapping)
+                        
+                        # Export
+                        st.session_state.export_data = export_with_column_k(categorized_df)
+                        st.session_state.export_filename = f"categorized_{datetime.now().strftime('%Y%m%d')}.xlsx"
+                        st.rerun()
+        
+        # Results Display (Tab 1)
+        if st.session_state.processing_complete and st.session_state.categorized_data is not None:
+            display_results_dashboard(st.session_state.categorized_data, st.session_state.column_mapping)
+            
+            if st.session_state.export_data:
+                st.download_button(
+                    label="⬇️ Download Categorized File",
+                    data=st.session_state.export_data,
+                    file_name=st.session_state.export_filename,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    type="primary",
+                    use_container_width=True
+                )
+
+    # -------------------------
+    # TAB 2: B2B Report Generator
+    # -------------------------
+    with tab2:
+        st.markdown("### 📑 B2B Report Automation")
+        st.markdown("""
+        <div style="background: rgba(0, 217, 255, 0.1); border: 1px solid var(--primary); 
+                    border-radius: 8px; padding: 0.8rem; margin-bottom: 1rem;">
+            <strong>📌 Goal:</strong> Convert raw Odoo Helpdesk export into a compliant B2B Report.
+            <ul style="margin-bottom:0;">
+                <li><strong>Format:</strong> Matches standard B2B Report columns (Display Name, Description, SKU, Reason)</li>
+                <li><strong>SKU Logic:</strong> Auto-extracts Main SKU (e.g., <code>MOB1027</code>)</li>
+                <li><strong>AI Summary:</strong> Generates detailed Reason summaries for every ticket.</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Performance / File Size Selection
+        st.markdown("#### ⚙️ Data Volume / Processing Speed")
+        perf_mode = st.select_slider(
+            "Select Dataset Size to optimize API performance:",
+            options=['Small (< 500 rows)', 'Medium (500-2,000 rows)', 'Large (2,000+ rows)'],
+            value=st.session_state.b2b_perf_mode,
+            key='perf_selector'
+        )
+        st.session_state.b2b_perf_mode = perf_mode
+        
+        # Map selection to performance settings
+        if perf_mode == 'Small (< 500 rows)':
+            batch_size = 10
+            max_workers = 3
+            st.caption("Settings: Conservative batching for max reliability.")
+        elif perf_mode == 'Medium (500-2,000 rows)':
+            batch_size = 25
+            max_workers = 6
+            st.caption("Settings: Balanced speed and concurrency.")
+        else: # Large
+            batch_size = 50
+            max_workers = 10
+            st.caption("Settings: Aggressive parallel processing for high volume.")
+
+        st.divider()
+        
+        b2b_file = st.file_uploader("Upload Odoo Export (CSV/Excel)", type=['csv', 'xlsx'], key="b2b_uploader")
+        
+        if b2b_file:
+            # 1. Read & Preview
+            b2b_df = process_b2b_file(b2b_file.read(), b2b_file.name)
+            
+            if b2b_df is not None:
+                st.markdown(f"**Total Tickets Found:** {len(b2b_df):,}")
+                
+                # 2. Process Button
+                if st.button("⚡ Generate B2B Report", type="primary"):
+                    # Update analyzer with new worker settings based on user choice
+                    analyzer = get_ai_analyzer(max_workers=max_workers)
+                    
+                    with st.spinner("Running AI Analysis & SKU Extraction..."):
+                        # Run the B2B pipeline
+                        final_b2b = generate_b2b_report(b2b_df, analyzer, batch_size)
+                        
+                        # Save to session
+                        st.session_state.b2b_processed_data = final_b2b
+                        st.session_state.b2b_processing_complete = True
+                        
+                        # Prepare Download
+                        output = io.BytesIO()
+                        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                            final_b2b.to_excel(writer, index=False, sheet_name='B2B Report')
+                            
+                            # Formatting
+                            workbook = writer.book
+                            worksheet = writer.sheets['B2B Report']
+                            
+                            # Add simple formatting
+                            header_fmt = workbook.add_format({'bold': True, 'bg_color': '#00D9FF', 'font_color': 'white'})
+                            for col_num, value in enumerate(final_b2b.columns.values):
+                                worksheet.write(0, col_num, value, header_fmt)
+                                worksheet.set_column(col_num, col_num, 30) # Wider columns for description
+
+                        st.session_state.b2b_export_data = output.getvalue()
+                        st.session_state.b2b_export_filename = f"B2B_Report_{datetime.now().strftime('%Y-%m-%d')}.xlsx"
+                        
+                        st.rerun()
+
+        # 3. B2B Dashboard Results
+        if st.session_state.b2b_processing_complete and st.session_state.b2b_processed_data is not None:
+            df_res = st.session_state.b2b_processed_data
+            
+            st.markdown("### 🏁 Report Dashboard")
+            
+            # Dashboard Metrics
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.metric("Total Processed", len(df_res))
+            with c2:
+                sku_found_count = len(df_res[df_res['SKU'] != 'Unknown'])
+                st.metric("SKUs Identified", f"{sku_found_count}", delta=f"{sku_found_count/len(df_res)*100:.1f}% coverage")
+            with c3:
+                unique_skus = df_res[df_res['SKU'] != 'Unknown']['SKU'].nunique()
+                st.metric("Unique Products", unique_skus)
+            
+            # Preview Table
+            st.markdown("#### Preview (Top 10)")
+            st.dataframe(df_res.head(10), use_container_width=True)
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.download_button(
+                    label="⬇️ Download B2B Report (.xlsx)",
                     data=st.session_state.b2b_export_data,
                     file_name=st.session_state.b2b_export_filename,
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
