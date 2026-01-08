@@ -200,7 +200,8 @@ def initialize_session_state():
         'qc_export_filename': None,
         'qc_ai_review': None,
         'qc_chat_history': [],
-        'qc_combined_data': None
+        'qc_combined_data': None,
+        'qc_stat_manual_entries': []
     }
     
     for key, value in defaults.items():
@@ -565,158 +566,99 @@ def generate_b2b_report(df, analyzer, batch_size):
     """Generate the B2B report with AI summaries and Cleaned SKUs"""
     
     # Columns to use for display/AI
-    display_col = 'Display Name' if 'Display Name' in df.columns else 'Subject'
-    desc_col = 'Description' if 'Description' in df.columns else 'Body'
+    display_col = 'Display Name' if 'Display Name' in df.columns else df.columns[0]
+    description_col = 'Description' if 'Description' in df.columns else df.columns[1]
+
+    # Create output dataframe
+    output_data = []
+
+    # Process in batches
+    total = len(df)
     
-    # Clean up description column if needed
-    if desc_col in df.columns:
-        df[desc_col] = df[desc_col].apply(strip_html)
-    
-    # Extract SKU
-    df['SKU'] = df.apply(find_sku_in_row, axis=1)
-    
-    # Prepare input for AI summary
-    items = []
-    for _, row in df.iterrows():
-        subject = row.get(display_col, '')
-        details = row.get(desc_col, '')
-        items.append({'subject': subject, 'details': details})
-    
-    # Process in batches for AI summarization
-    results = []
-    for i in range(0, len(items), batch_size):
-        batch_items = items[i:i+batch_size]
-        batch_results = analyzer.summarize_batch(batch_items)
-        results.extend(batch_results)
-    
-    # Build output DataFrame
-    final_rows = []
-    for i, item in enumerate(results):
-        final_rows.append({
-            'Display Name': item['subject'],
-            'Description': item['details'],
-            'SKU': df.iloc[i]['SKU'],
-            'Reason': item['summary']
-        })
-    
-    return pd.DataFrame(final_rows)
+    for i in range(0, total, batch_size):
+        batch = df.iloc[i:i+batch_size]
+        
+        # Prepare AI input
+        batch_texts = []
+        for _, row in batch.iterrows():
+            description = strip_html(str(row[description_col]))
+            batch_texts.append(description)
+        
+        # Get AI summaries
+        ai_results = analyzer.summarize_batch(batch_texts)
+        
+        # Process each row
+        for idx, (_, row) in enumerate(batch.iterrows()):
+            sku = find_sku_in_row(row)
+            
+            output_data.append({
+                'Display Name': row.get(display_col, ''),
+                'Description': row.get(description_col, ''),
+                'SKU': sku,
+                'Reason': ai_results[idx] if idx < len(ai_results) else 'Unknown'
+            })
+        
+    return pd.DataFrame(output_data)
 
 # -------------------------
 # TAB 3: QUALITY CASE SCREENING
 # -------------------------
 
-CATEGORY_BENCHMARKS = {
-    'B2B Products (All)': 0.025,
-    'INS': 0.07,
-    'RHB': 0.075,
-    'LVA': 0.095,
-    'MOB - Power Scooters': 0.095,
-    'MOB - Walkers/Rollators/other': 0.10,
-    'MOB - Wheelchairs (manual)': 0.105,
-    'CSH': 0.105,
-    'SUP': 0.11,
-    'MOB - Wheelchairs (power)': 0.115,
-    'All Others': 0.10,
-}
-
 QUALITY_CASE_COLUMNS = [
-    {
-        'Column': 'SKU',
-        'Description': 'Unique product identifier used for escalation tracking.',
-        'Requirement': 'Mandatory'
-    },
-    {
-        'Column': 'Category',
-        'Description': 'Product family/category used for benchmarks.',
-        'Requirement': 'Mandatory'
-    },
-    {
-        'Column': 'Sold',
-        'Description': 'Total units sold in the period.',
-        'Requirement': 'Mandatory'
-    },
-    {
-        'Column': 'Returned',
-        'Description': 'Total units returned in the period.',
-        'Requirement': 'Mandatory'
-    },
-    {
-        'Column': 'Landed Cost',
-        'Description': 'Unit landed cost for immediate escalation thresholds.',
-        'Requirement': 'Optional'
-    },
-    {
-        'Column': 'Retail Price',
-        'Description': 'Unit retail price for immediate escalation thresholds.',
-        'Requirement': 'Optional'
-    },
-    {
-        'Column': 'Launch Date',
-        'Description': 'Launch date for new-product escalation logic (YYYY-MM-DD).',
-        'Requirement': 'Optional'
-    },
-    {
-        'Column': 'Safety Risk',
-        'Description': 'Yes/No flag for safety risk.',
-        'Requirement': 'Optional'
-    },
-    {
-        'Column': 'Zero Tolerance Component',
-        'Description': 'Yes/No flag for zero tolerance component.',
-        'Requirement': 'Optional'
-    },
-    {
-        'Column': 'AQL Fail',
-        'Description': 'Yes/No flag for recent AQL failures.',
-        'Requirement': 'Optional'
-    },
-    {
-        'Column': 'Unique Complaint Count (30d)',
-        'Description': 'Unique complaints in last 30 days.',
-        'Requirement': 'Optional'
-    },
-    {
-        'Column': 'Sales Units (30d)',
-        'Description': 'Units sold in the last 30 days.',
-        'Requirement': 'Optional'
-    },
-    {
-        'Column': 'Sales Value (30d)',
-        'Description': 'Sales value ($) in the last 30 days.',
-        'Requirement': 'Optional'
-    }
+    {"name": "SKU", "required": True, "type": "text", "example": "CRD1001"},
+    {"name": "Category", "required": True, "type": "text", "example": "Compression"},
+    {"name": "Sold", "required": True, "type": "number", "example": "1000"},
+    {"name": "Returned", "required": True, "type": "number", "example": "80"},
+    {"name": "Landed Cost", "required": False, "type": "number", "example": "25.50"},
+    {"name": "Retail Price", "required": False, "type": "number", "example": "75.00"},
+    {"name": "Launch Date", "required": False, "type": "date", "example": "2024-06-01"},
+    {"name": "Safety Risk", "required": False, "type": "flag", "example": "Yes"},
+    {"name": "Zero Tolerance Component", "required": False, "type": "flag", "example": "Yes"},
+    {"name": "AQL Fail", "required": False, "type": "flag", "example": "Yes"},
+    {"name": "Unique Complaint Count (30d)", "required": False, "type": "number", "example": "6"},
+    {"name": "Sales Units (30d)", "required": False, "type": "number", "example": "120"},
+    {"name": "Sales Value (30d)", "required": False, "type": "number", "example": "4800"},
+    {"name": "Input Source", "required": False, "type": "text", "example": "Manual"}
 ]
 
-QUALITY_CASE_STANDARD_COLUMNS = [
-    entry['Column'] for entry in QUALITY_CASE_COLUMNS
-] + ['Input Source']
+QUALITY_CASE_STANDARD_COLUMNS = [col['name'] for col in QUALITY_CASE_COLUMNS]
+
+CATEGORY_BENCHMARKS = {
+    "Compression": 0.05,
+    "Mobility": 0.08,
+    "Pain Relief": 0.07,
+    "Sleep": 0.06,
+    "All Others": 0.08
+}
 
 def quality_case_requirements_df():
     return pd.DataFrame(QUALITY_CASE_COLUMNS)
 
 def build_quality_case_template():
-    template_df = pd.DataFrame(columns=[entry['Column'] for entry in QUALITY_CASE_COLUMNS])
+    template_df = pd.DataFrame(columns=QUALITY_CASE_STANDARD_COLUMNS)
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         template_df.to_excel(writer, index=False, sheet_name='Quality Case Template')
-    return output.getvalue()
+    output.seek(0)
+    return output
 
 def normalize_quality_case_data(df, mapping, source_label):
     normalized = pd.DataFrame()
-    for target_col in QUALITY_CASE_STANDARD_COLUMNS:
-        if target_col == 'Input Source':
-            normalized[target_col] = source_label
-            continue
-        source_col = mapping.get(target_col)
-        if source_col and source_col in df.columns:
-            normalized[target_col] = df[source_col]
+
+    for standard_col in QUALITY_CASE_STANDARD_COLUMNS:
+        mapped_col = mapping.get(standard_col, '')
+        if mapped_col and mapped_col in df.columns:
+            normalized[standard_col] = df[mapped_col]
         else:
-            normalized[target_col] = ''
+            normalized[standard_col] = ''
+
+    normalized['Input Source'] = source_label
     return normalized
 
 def build_quality_case_summary(screened_df):
     action_counts = screened_df['Recommended_Action'].value_counts().to_dict()
-    top_escalations = screened_df.sort_values('Return_Rate', ascending=False).head(5)
+    top_escalations = screened_df[screened_df['Recommended_Action'].str.contains('Escalate')]
+
     top_rows = top_escalations[['SKU', 'Category', 'Return_Rate_Display', 'Recommended_Action']].to_dict('records')
     category_alerts = (
         screened_df.groupby('Category')['Return_Rate']
@@ -782,16 +724,26 @@ def load_quality_case_file(file_content, filename):
     return None
 
 def one_way_anova(groups):
-    all_values = np.concatenate([g for g in groups if len(g) > 0])
-    if len(all_values) == 0 or len(groups) < 2:
+    cleaned_groups = []
+    for group in groups:
+        values = np.asarray(group, dtype=float)
+        values = values[~np.isnan(values)]
+        if values.size > 0:
+            cleaned_groups.append(values)
+
+    if len(cleaned_groups) < 2:
+        return None
+
+    all_values = np.concatenate(cleaned_groups)
+    if all_values.size == 0:
         return None
 
     grand_mean = np.mean(all_values)
-    ss_between = sum(len(g) * (np.mean(g) - grand_mean) ** 2 for g in groups if len(g) > 0)
-    ss_within = sum(np.sum((g - np.mean(g)) ** 2) for g in groups if len(g) > 0)
+    ss_between = sum(len(g) * (np.mean(g) - grand_mean) ** 2 for g in cleaned_groups)
+    ss_within = sum(np.sum((g - np.mean(g)) ** 2) for g in cleaned_groups)
 
-    df_between = len(groups) - 1
-    df_within = len(all_values) - len(groups)
+    df_between = len(cleaned_groups) - 1
+    df_within = len(all_values) - len(cleaned_groups)
     if df_within <= 0:
         return None
 
@@ -803,15 +755,26 @@ def one_way_anova(groups):
     return {
         'f_stat': ms_between / ms_within,
         'df_between': df_between,
-        'df_within': df_within
+        'df_within': df_within,
+        'group_sizes': [len(g) for g in cleaned_groups],
+        'grand_mean': grand_mean
     }
 
 def manova_wilks_lambda(groups, metric_cols):
-    valid_groups = [g for g in groups if len(g) > 1]
+    valid_groups = []
+    for group in groups:
+        values = np.asarray(group, dtype=float)
+        values = values[~np.isnan(values).any(axis=1)]
+        if values.shape[0] > 1:
+            valid_groups.append(values)
+
     if len(valid_groups) < 2:
         return None
 
     overall = np.vstack(valid_groups)
+    if overall.shape[1] != len(metric_cols):
+        return None
+
     overall_mean = np.mean(overall, axis=0)
     w_matrix = np.zeros((len(metric_cols), len(metric_cols)))
     b_matrix = np.zeros((len(metric_cols), len(metric_cols)))
@@ -835,7 +798,8 @@ def manova_wilks_lambda(groups, metric_cols):
     return {
         'wilks_lambda': det_w / det_t,
         'within_matrix': w_matrix,
-        'between_matrix': b_matrix
+        'between_matrix': b_matrix,
+        'group_sizes': [len(g) for g in valid_groups]
     }
 
 def compute_quality_case_screening(df, config):
@@ -869,8 +833,9 @@ def compute_quality_case_screening(df, config):
     if config['retail_price_col']:
         immediate |= parse_numeric(data[config['retail_price_col']]) >= config['retail_price_threshold']
     if config['launch_date_col']:
-        launch_dates = pd.to_datetime(data[config['launch_date_col']], errors='coerce')
-        recent = launch_dates.notna() & ((pd.Timestamp.utcnow() - launch_dates).dt.days <= config['launch_days'])
+        launch_dates = pd.to_datetime(data[config['launch_date_col']], errors='coerce', utc=True)
+        now = pd.Timestamp.now(tz="UTC")
+        recent = launch_dates.notna() & ((now - launch_dates).dt.days <= config['launch_days'])
         immediate |= recent
     if config['aql_fail_col']:
         immediate |= data[config['aql_fail_col']].astype(str).str.lower().isin(['yes', 'true', '1', 'y'])
@@ -904,7 +869,7 @@ def compute_quality_case_screening(df, config):
         default='Monitor'
     )
 
-    review_date = pd.Timestamp.utcnow().normalize() + pd.Timedelta(days=config['review_days'])
+    review_date = pd.Timestamp.now(tz="UTC").normalize() + pd.Timedelta(days=config['review_days'])
     data['Recommended_Action'] = action
     data['Review_By'] = np.where(data['Recommended_Action'] == 'Monitor', review_date.date().isoformat(), '')
 
@@ -1359,9 +1324,148 @@ def main():
             )
 
             st.markdown("#### 📊 ANOVA / MANOVA Summary")
+            st.markdown(
+                """
+                **What these tests do**
+                - **ANOVA** compares average return rates across categories to detect statistically meaningful differences.
+                - **MANOVA** evaluates multiple metrics at once (e.g., return rate + complaint count) to spot multi-signal
+                  shifts that might indicate systemic device issues.
+
+                **Formulas**
+                - ANOVA: \(F = MS_{between} / MS_{within}\), where
+                  \(MS_{between} = SS_{between}/df_{between}\) and
+                  \(MS_{within} = SS_{within}/df_{within}\).
+                - MANOVA (Wilks' Lambda): \(\Lambda = \det(W) / \det(W + B)\).
+
+                **Why this matters for medical devices**
+                - A high **F** suggests a category is behaving differently than expected (possible design or quality issues).
+                - A low **Wilks' Lambda** suggests multiple risk signals are shifting together, warranting closer review.
+                """
+            )
+
+            categories = sorted(screened['Category'].dropna().unique().tolist())
+            selected_categories = st.multiselect(
+                "Categories to include",
+                options=categories,
+                default=categories
+            )
+            if not selected_categories:
+                st.warning("Select at least one category to run ANOVA/MANOVA.")
+                selected_categories = []
+
+            metric_defaults = [
+                col for col in [
+                    'Return_Rate',
+                    'Sold',
+                    'Returned',
+                    'Landed Cost',
+                    'Retail Price',
+                    'Unique Complaint Count (30d)',
+                    'Sales Units (30d)',
+                    'Sales Value (30d)'
+                ]
+                if col in screened.columns
+            ]
+            numeric_extra = [
+                col for col in screened.columns
+                if pd.api.types.is_numeric_dtype(screened[col]) and col not in metric_defaults
+            ]
+            manova_options = metric_defaults + numeric_extra
+
+            if len(manova_options) < 2:
+                st.warning("MANOVA requires at least two numeric metrics in the data.")
+                manova_metric_1 = None
+                manova_metric_2 = None
+            else:
+                manova_metric_1 = st.selectbox("MANOVA Metric 1", options=manova_options, index=0)
+                metric_2_options = [col for col in manova_options if col != manova_metric_1]
+                manova_metric_2 = st.selectbox("MANOVA Metric 2", options=metric_2_options, index=0)
+
+            with st.expander("➕ Add manual data for ANOVA/MANOVA"):
+                st.caption(
+                    "These rows are used only for the statistical checks below and do not change the screening results."
+                )
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    manual_stat_category = st.text_input("Category (Stats Only)")
+                    manual_stat_return_rate = st.number_input(
+                        "Return Rate (0.00 - 1.00)",
+                        min_value=0.0,
+                        max_value=1.0,
+                        step=0.01,
+                        format="%.2f"
+                    )
+                with col2:
+                    manual_stat_metric_1 = st.number_input(
+                        f"{manova_metric_1 or 'Metric 1'} Value",
+                        step=1.0
+                    )
+                with col3:
+                    manual_stat_metric_2 = st.number_input(
+                        f"{manova_metric_2 or 'Metric 2'} Value",
+                        step=1.0
+                    )
+
+                if st.button("Add Manual Stats Row"):
+                    if not manual_stat_category:
+                        st.error("Category is required for manual stats entry.")
+                    else:
+                        entry = {
+                            'Category': manual_stat_category,
+                            'Return_Rate': manual_stat_return_rate
+                        }
+                        if manova_metric_1:
+                            entry[manova_metric_1] = manual_stat_metric_1
+                        if manova_metric_2:
+                            entry[manova_metric_2] = manual_stat_metric_2
+                        st.session_state.qc_stat_manual_entries.append(entry)
+                        st.success("Manual stats entry added.")
+
+                if st.session_state.qc_stat_manual_entries:
+                    st.dataframe(
+                        pd.DataFrame(st.session_state.qc_stat_manual_entries),
+                        use_container_width=True
+                    )
+                    if st.button("Clear Manual Stats Entries"):
+                        st.session_state.qc_stat_manual_entries = []
+                        st.rerun()
+
+            analysis_df = screened[['Category', 'Return_Rate']].copy()
+            if manova_metric_1:
+                analysis_df[manova_metric_1] = (
+                    parse_numeric(screened[manova_metric_1]) if manova_metric_1 in screened.columns else np.nan
+                )
+            if manova_metric_2:
+                analysis_df[manova_metric_2] = (
+                    parse_numeric(screened[manova_metric_2]) if manova_metric_2 in screened.columns else np.nan
+                )
+
+            if st.session_state.qc_stat_manual_entries:
+                manual_stats_df = pd.DataFrame(st.session_state.qc_stat_manual_entries)
+                needed_cols = ['Category', 'Return_Rate', manova_metric_1, manova_metric_2]
+                for col in needed_cols:
+                    if col and col not in manual_stats_df.columns:
+                        manual_stats_df[col] = np.nan
+                manual_stats_df = manual_stats_df[[col for col in needed_cols if col]]
+                analysis_df = pd.concat([analysis_df, manual_stats_df], ignore_index=True)
+
+            if selected_categories:
+                analysis_df = analysis_df[analysis_df['Category'].isin(selected_categories)]
+
+            if selected_categories:
+                summary_table = (
+                    analysis_df.groupby('Category')['Return_Rate']
+                    .agg(['count', 'mean'])
+                    .rename(columns={'count': 'Sample Size', 'mean': 'Avg Return Rate'})
+                    .reset_index()
+                )
+                summary_table['Avg Return Rate'] = (summary_table['Avg Return Rate'] * 100).round(2).astype(str) + '%'
+                st.markdown("**ANOVA Group Summary**")
+                st.dataframe(summary_table, use_container_width=True)
+
             grouped = [
-                parse_numeric(screened.loc[screened['Category'] == cat, 'Return_Rate']).values
-                for cat in screened['Category'].dropna().unique()
+                parse_numeric(analysis_df.loc[analysis_df['Category'] == cat, 'Return_Rate']).values
+                for cat in selected_categories
             ]
             anova_results = one_way_anova(grouped)
             if anova_results:
@@ -1369,25 +1473,35 @@ def main():
                     f"ANOVA F={anova_results['f_stat']:.4f} "
                     f"(df={anova_results['df_between']}, {anova_results['df_within']})"
                 )
+                st.caption(
+                    f"Group sizes: {anova_results['group_sizes']}. "
+                    "Higher F suggests category-level return rate differences worth investigating."
+                )
             else:
                 st.warning("ANOVA requires at least two categories with data.")
 
-            manova_options = [col for col in QUALITY_CASE_STANDARD_COLUMNS if col != 'Input Source']
-            manova_metric_1 = st.selectbox("MANOVA Metric 1", options=manova_options, index=2)
-            manova_metric_2 = st.selectbox("MANOVA Metric 2", options=manova_options, index=3)
+            if manova_metric_1 and manova_metric_2:
+                manova_groups = []
+                for cat in selected_categories:
+                    subset = analysis_df.loc[
+                        analysis_df['Category'] == cat,
+                        [manova_metric_1, manova_metric_2]
+                    ]
+                    subset = subset.apply(parse_numeric).dropna()
+                    if len(subset) > 1:
+                        manova_groups.append(subset.values)
 
-            manova_groups = []
-            for cat in screened['Category'].dropna().unique():
-                subset = screened[screened['Category'] == cat][[manova_metric_1, manova_metric_2]]
-                subset = subset.apply(parse_numeric)
-                if len(subset) > 1:
-                    manova_groups.append(subset.values)
-
-            manova_results = manova_wilks_lambda(manova_groups, [manova_metric_1, manova_metric_2])
-            if manova_results:
-                st.info(f"MANOVA Wilks' Lambda={manova_results['wilks_lambda']:.4f}")
-            else:
-                st.warning("MANOVA requires at least two categories with 2+ rows.")
+                manova_results = manova_wilks_lambda(manova_groups, [manova_metric_1, manova_metric_2])
+                if manova_results:
+                    st.info(
+                        f"MANOVA Wilks' Lambda={manova_results['wilks_lambda']:.4f} "
+                        f"(groups: {manova_results['group_sizes']})"
+                    )
+                    st.caption(
+                        "Lower Wilks' Lambda indicates stronger multivariate separation across categories."
+                    )
+                else:
+                    st.warning("MANOVA requires at least two categories with 2+ rows.")
 
             st.markdown("#### ⬇️ Export Screening Data")
             st.download_button(
