@@ -398,322 +398,79 @@ def process_in_chunks(df, analyzer, column_mapping, chunk_size=None):
                 # Update progress
                 progress = processed_count / total_valid
                 progress_bar.progress(progress)
+                status_text.text(f"Processing chunk {chunk_num}/{total_chunks}... ({processed_count}/{total_valid})")
                 
-                elapsed = time.time() - start_time
-                speed = processed_count / elapsed if elapsed > 0 else 0
-                remaining = (total_valid - processed_count) / speed if speed > 0 else 0
-                
-                # Update status with clear information
-                with stats_container:
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        st.metric("Progress", f"{processed_count:,}/{total_valid:,}")
-                    with col2:
-                        st.metric("Speed", f"{speed:.1f}/sec")
-                    with col3:
-                        st.metric("Chunk", f"{chunk_num}/{total_chunks}")
-                    with col4:
-                        if remaining > 0:
-                            st.metric("ETA", f"{int(remaining)}s")
-                        else:
-                            st.metric("ETA", "Complete")
-                
-                # Small delay to prevent overwhelming
-                time.sleep(0.05)
-                
-        except Exception as e:
-            logger.error(f"Chunk processing error: {e}")
-            st.session_state.processing_errors.append(f"Chunk {chunk_num}: {str(e)}")
-            
-            # Fill failed items with default category
-            for item in batch_data:
-                if pd.isna(df.at[item['index'], category_col]):
-                    df.at[item['index'], category_col] = 'Other/Miscellaneous'
+                # Display ETA and speed
+                elapsed_time = time.time() - start_time
+                if elapsed_time > 0:
+                    processing_speed = processed_count / elapsed_time
+                    remaining = total_valid - processed_count
+                    eta_seconds = remaining / processing_speed if processing_speed > 0 else 0
+                    
+                    with stats_container:
+                        st.write(f"⏱️ Speed: {processing_speed:.1f} items/sec | ETA: {eta_seconds/60:.1f} min")
         
-        # Force garbage collection after each chunk
-        gc.collect()
+        except Exception as e:
+            st.error(f"Error processing batch: {str(e)}")
+            st.session_state.processing_errors.append(str(e))
+            continue
     
-    # Final update
-    progress_bar.progress(1.0)
-    elapsed = time.time() - start_time
-    st.session_state.processing_speed = processed_count / elapsed if elapsed > 0 else 0
-    
-    # Clear the stats container and show final message
-    stats_container.empty()
-    status_text.success(f"✅ Complete! Processed {processed_count:,} returns in {elapsed:.1f} seconds at {st.session_state.processing_speed:.1f} returns/second")
+    # Cleanup
+    progress_bar.empty()
+    status_text.empty()
     
     return df
 
 def generate_statistics(df, column_mapping):
-    """Generate statistics from categorized data"""
-    category_col = column_mapping.get('category')
-    sku_col = column_mapping.get('sku')
+    """Generate statistics for dashboard"""
+    category_col = column_mapping['category']
     
-    if not category_col:
-        return
+    # Basic stats
+    total_categorized = df[df[category_col].notna() & (df[category_col] != '')].shape[0]
+    category_counts = df[category_col].value_counts().to_dict()
     
-    # Category statistics
-    categorized_df = df[df[category_col].notna() & (df[category_col] != '')]
-    if len(categorized_df) == 0:
-        return
+    # Store in session state
+    st.session_state.reason_summary = category_counts
+    st.session_state.total_rows_processed = total_categorized
     
-    category_counts = categorized_df[category_col].value_counts()
-    st.session_state.reason_summary = category_counts.to_dict()
-    
-    # SKU statistics
-    if sku_col and sku_col in df.columns:
-        product_summary = defaultdict(lambda: defaultdict(int))
-        
-        for _, row in categorized_df.iterrows():
-            if pd.notna(row.get(sku_col)):
-                sku = str(row[sku_col]).strip()
-                if sku and sku != 'nan':
-                    category = row[category_col]
-                    product_summary[sku][category] += 1
-        
-        st.session_state.product_summary = dict(product_summary)
-        logger.info(f"Generated product summary for {len(product_summary)} SKUs")
-
-def export_with_column_k(df):
-    """Export data with categories in column K, preserving original format"""
-    output = io.BytesIO()
-    
-    # Ensure we have at least 11 columns (up to K)
-    while len(df.columns) < 11:
-        df[f'Col_{len(df.columns)}'] = ''
-    
-    # Save based on format preference
-    if EXCEL_AVAILABLE:
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            # Write with string format to preserve original data
-            df.to_excel(writer, index=False, sheet_name='Returns')
-            
-            # Get workbook and worksheet
-            workbook = writer.book
-            worksheet = writer.sheets['Returns']
-            
-            # Format column K (11th column, index 10) with categories
-            category_format = workbook.add_format({
-                'bg_color': '#E6F5E6',
-                'font_color': '#006600',
-                'bold': True
-            })
-            
-            # Apply format to column K
-            worksheet.set_column(10, 10, 20, category_format)  # Column K
-    else:
-        # CSV fallback
-        df.to_csv(output, index=False)
-    
-    output.seek(0)
-    return output.getvalue()
-
 def display_results_dashboard(df, column_mapping):
-    """Display enhanced results dashboard (Tab 1)"""
-    st.markdown("### 📊 Analysis Results")
+    """Display results in a dashboard"""
+    category_col = column_mapping['category']
     
-    # Calculate metrics
-    total_rows = len(df)
-    category_col = column_mapping.get('category')
-    sku_col = column_mapping.get('sku')
+    st.markdown("### 📊 Results Dashboard")
     
-    categorized_rows = len(df[df[category_col].notna() & (df[category_col] != '')])
-    
-    # Key Metrics Row
-    col1, col2, col3, col4, col5 = st.columns(5)
+    # Metrics
+    col1, col2, col3 = st.columns(3)
     
     with col1:
-        st.metric("Total Rows", f"{total_rows:,}")
-    
+        st.metric("Total Processed", st.session_state.total_rows_processed)
     with col2:
-        st.metric("Categorized", f"{categorized_rows:,}")
-    
+        st.metric("Categories Found", len(st.session_state.reason_summary))
     with col3:
-        success_rate = categorized_rows / total_rows * 100 if total_rows > 0 else 0
-        st.metric("Success Rate", f"{success_rate:.1f}%")
+        st.metric("Processing Time", f"{st.session_state.processing_time:.1f}s")
     
-    with col4:
-        quality_count = sum(count for cat, count in st.session_state.reason_summary.items() 
-                          if cat in QUALITY_CATEGORIES)
-        quality_rate = quality_count / categorized_rows * 100 if categorized_rows > 0 else 0
-        st.metric("Quality Issues", f"{quality_rate:.1f}%", 
-                 help=f"{quality_count:,} quality-related returns")
-    
-    with col5:
-        cost_per_return = st.session_state.total_cost / categorized_rows if categorized_rows > 0 else 0
-        st.metric("Cost/Return", f"${cost_per_return:.4f}")
-    
-    # Category Distribution
-    st.markdown("---")
+    # Category breakdown
     st.markdown("#### 📈 Category Distribution")
-    
     if st.session_state.reason_summary:
-        # Create two columns for better layout
-        col1, col2 = st.columns([3, 1])
+        category_df = pd.DataFrame(
+            list(st.session_state.reason_summary.items()),
+            columns=['Category', 'Count']
+        ).sort_values('Count', ascending=False)
         
-        with col1:
-            # Show top categories with visual bars
-            top_categories = sorted(st.session_state.reason_summary.items(), 
-                                  key=lambda x: x[1], reverse=True)[:10]
-            
-            for i, (cat, count) in enumerate(top_categories):
-                pct = count / categorized_rows * 100 if categorized_rows > 0 else 0
-                
-                # Determine color based on category type
-                if cat in QUALITY_CATEGORIES:
-                    color = COLORS['danger']
-                    icon = "🔴"
-                else:
-                    color = COLORS['primary']
-                    icon = "🔵"
-                
-                # Create visual bar
-                st.markdown(f"""
-                <div style="margin: 0.8rem 0;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.3rem;">
-                        <span style="font-weight: 500;">{icon} {cat}</span>
-                        <span style="color: {COLORS['muted']};">{count:,} ({pct:.1f}%)</span>
-                    </div>
-                    <div style="background: rgba(255,255,255,0.1); height: 20px; border-radius: 10px; overflow: hidden;">
-                        <div style="background: {color}; width: {pct}%; height: 100%; 
-                                    border-radius: 10px; transition: width 0.5s ease;">
-                        </div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-        
-        with col2:
-            # Summary stats box
-            st.markdown("""
-            <div class="info-box" style="text-align: center;">
-                <h4 style="color: var(--primary); margin: 0;">Summary</h4>
-                <div style="margin-top: 1rem;">
-                    <div style="font-size: 2em; font-weight: 700; color: var(--danger);">
-                        {quality_pct:.0f}%
-                    </div>
-                    <div style="color: var(--muted);">Quality Issues</div>
-                </div>
-                <hr style="opacity: 0.2; margin: 1rem 0;">
-                <div style="font-size: 0.9em;">
-                    <div>Categories: {total_cats}</div>
-                    <div style="color: var(--muted); margin-top: 0.5rem;">
-                        Top category accounts for {top_pct:.0f}% of returns
-                    </div>
-                </div>
-            </div>
-            """.format(
-                quality_pct=quality_rate,
-                total_cats=len(st.session_state.reason_summary),
-                top_pct=(top_categories[0][1] / categorized_rows * 100) if top_categories else 0
-            ), unsafe_allow_html=True)
+        st.dataframe(category_df, use_container_width=True)
     
-    # Product Analysis (if enabled)
-    if st.session_state.show_product_analysis and st.session_state.product_summary:
-        st.markdown("---")
-        st.markdown("#### 📦 Product/SKU Analysis")
-        
-        # Product metrics
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.metric("Unique SKUs", f"{len(st.session_state.product_summary):,}")
-        
-        with col2:
-            avg_returns_per_sku = categorized_rows / len(st.session_state.product_summary) if st.session_state.product_summary else 0
-            st.metric("Avg Returns/SKU", f"{avg_returns_per_sku:.1f}")
-        
-        with col3:
-            # Find SKUs with high quality issues
-            high_quality_skus = 0
-            for sku, issues in st.session_state.product_summary.items():
-                quality_count = sum(count for cat, count in issues.items() if cat in QUALITY_CATEGORIES)
-                total_count = sum(issues.values())
-                if total_count > 0 and quality_count / total_count > 0.5:
-                    high_quality_skus += 1
-            st.metric("High Risk SKUs", f"{high_quality_skus:,}", 
-                     help="SKUs with >50% quality issues")
-        
-        # Top problematic products
-        st.markdown("##### 🚨 Top 10 Products by Return Volume (from Column B)")
-        
-        # Calculate product metrics
-        product_data = []
-        for sku, issues in st.session_state.product_summary.items():
-            total = sum(issues.values())
-            quality = sum(count for cat, count in issues.items() if cat in QUALITY_CATEGORIES)
-            quality_pct = quality / total * 100 if total > 0 else 0
-            top_issue = max(issues.items(), key=lambda x: x[1])[0] if issues else 'N/A'
-            
-            product_data.append({
-                'SKU': sku,
-                'Total Returns': total,
-                'Quality Issues': quality,
-                'Quality %': quality_pct,
-                'Top Issue': top_issue,
-                'Risk Score': quality * (quality_pct / 100)  # Weighted risk
-            })
-        
-        # Sort by total returns
-        product_data.sort(key=lambda x: x['Total Returns'], reverse=True)
-        
-        # Display top products
-        for i, product in enumerate(product_data[:10]):
-            if i < 5:  # Show first 5 in detail
-                # Determine risk color
-                if product['Quality %'] > 50:
-                    risk_color = COLORS['danger']
-                    risk_label = "High Risk"
-                elif product['Quality %'] > 25:
-                    risk_color = COLORS['warning']
-                    risk_label = "Medium Risk"
-                else:
-                    risk_color = COLORS['success']
-                    risk_label = "Low Risk"
-                
-                st.markdown(f"""
-                <div class="info-box" style="border-left: 4px solid {risk_color}; margin: 0.5rem 0;">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <div>
-                            <strong>{i+1}. SKU: {product['SKU'][:40]}{'...' if len(product['SKU']) > 40 else ''}</strong>
-                            <div style="color: {COLORS['muted']}; font-size: 0.9em; margin-top: 0.2rem;">
-                                Top issue: {product['Top Issue']}
-                            </div>
-                        </div>
-                        <div style="text-align: right;">
-                            <div style="font-size: 1.2em; font-weight: 600;">{product['Total Returns']:,} returns</div>
-                            <div style="color: {risk_color}; font-size: 0.9em;">
-                                {product['Quality %']:.0f}% quality ({risk_label})
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                # Show remaining as simple list
-                st.markdown(f"{i+1}. **{product['SKU'][:30]}...**: {product['Total Returns']} returns ({product['Quality %']:.0f}% quality)")
-        
-        # Option to export full product analysis
-        if st.button("📥 Export Full SKU Analysis"):
-            # Create detailed product export
-            export_data = []
-            for sku, issues in st.session_state.product_summary.items():
-                for category, count in issues.items():
-                    export_data.append({
-                        'SKU': sku,
-                        'Category': category,
-                        'Count': count,
-                        'Is_Quality_Issue': 'Yes' if category in QUALITY_CATEGORIES else 'No'
-                    })
-            
-            export_df = pd.DataFrame(export_data)
-            csv = export_df.to_csv(index=False)
-            
-            st.download_button(
-                label="Download SKU Analysis CSV",
-                data=csv,
-                file_name=f"sku_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv"
-            )
+    # Preview results
+    st.markdown("#### 🔍 Preview Results (Top 20)")
+    display_cols = [column_mapping['sku'], column_mapping['complaint'], category_col]
+    display_cols = [col for col in display_cols if col in df.columns]
+    st.dataframe(df[display_cols].head(20), use_container_width=True)
+
+def export_with_column_k(df):
+    """Export file with Column K filled"""
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False)
+    return output.getvalue()
 
 # -------------------------
 # TAB 2: B2B REPORT LOGIC
@@ -1083,7 +840,130 @@ def main():
                 valid_complaints = df[df[column_mapping['complaint']].notna() & (df[column_mapping['complaint']].str.strip() != '')].shape[0]
                 st.info(f"Found {valid_complaints:,} complaints to categorize.")
                 
-def main():
+                if st.button("🚀 Start Categorization", type="primary"):
+                    analyzer = get_ai_analyzer()
+                    with st.spinner("Categorizing..."):
+                        categorized_df = process_in_chunks(df, analyzer, column_mapping)
+                        st.session_state.categorized_data = categorized_df
+                        st.session_state.processing_complete = True
+                        generate_statistics(categorized_df, column_mapping)
+                        
+                        # Export
+                        st.session_state.export_data = export_with_column_k(categorized_df)
+                        st.session_state.export_filename = f"categorized_{datetime.now().strftime('%Y%m%d')}.xlsx"
+                        st.rerun()
+        
+        # Results Display (Tab 1)
+        if st.session_state.processing_complete and st.session_state.categorized_data is not None:
+            display_results_dashboard(st.session_state.categorized_data, st.session_state.column_mapping)
+            
+            if st.session_state.export_data:
+                st.download_button(
+                    label="⬇️ Download Categorized File",
+                    data=st.session_state.export_data,
+                    file_name=st.session_state.export_filename,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    type="primary",
+                    use_container_width=True
+                )
+
+    # -------------------------
+    # TAB 2: B2B Report Generator
+    # -------------------------
+    with tab2:
+        st.markdown("### 📑 B2B Report Automation")
+        st.markdown("""
+        <div style="background: rgba(0, 217, 255, 0.1); border: 1px solid var(--primary); 
+                    border-radius: 8px; padding: 0.8rem; margin-bottom: 1rem;">
+            <strong>📌 Goal:</strong> Convert raw Odoo Helpdesk export into a compliant B2B Report.
+            <ul style="margin-bottom:0;">
+                <li><strong>Format:</strong> Matches standard B2B Report columns (Display Name, Description, SKU, Reason)</li>
+                <li><strong>SKU Logic:</strong> Auto-extracts Main SKU (e.g., <code>MOB1027</code>)</li>
+                <li><strong>AI Summary:</strong> Generates detailed Reason summaries for every ticket.</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Performance / File Size Selection
+        st.markdown("#### ⚙️ Data Volume / Processing Speed")
+        perf_mode = st.select_slider(
+            "Select Dataset Size to optimize API performance:",
+            options=['Small (< 500 rows)', 'Medium (500-2,000 rows)', 'Large (2,000+ rows)'],
+            value=st.session_state.b2b_perf_mode,
+            key='perf_selector'
+        )
+        st.session_state.b2b_perf_mode = perf_mode
+        
+        # Map selection to performance settings
+        if perf_mode == 'Small (< 500 rows)':
+            batch_size = 10
+            max_workers = 3
+            st.caption("Settings: Conservative batching for max reliability.")
+        elif perf_mode == 'Medium (500-2,000 rows)':
+            batch_size = 25
+            max_workers = 6
+            st.caption("Settings: Balanced speed and concurrency.")
+        else: # Large
+            batch_size = 50
+            max_workers = 10
+            st.caption("Settings: Aggressive parallel processing for high volume.")
+
+        st.divider()
+        
+        b2b_file = st.file_uploader("Upload Odoo Export (CSV/Excel)", type=['csv', 'xlsx'], key="b2b_uploader")
+        
+        if b2b_file:
+            # 1. Read & Preview
+            b2b_df = process_b2b_file(b2b_file.read(), b2b_file.name)
+            
+            if b2b_df is not None:
+                st.markdown(f"**Total Tickets Found:** {len(b2b_df):,}")
+                
+                # 2. Process Button
+                if st.button("⚡ Generate B2B Report", type="primary"):
+                    # Update analyzer with new worker settings based on user choice
+                    analyzer = get_ai_analyzer(max_workers=max_workers)
+                    
+                    with st.spinner("Running AI Analysis & SKU Extraction..."):
+                        # Run the B2B pipeline
+                        final_b2b = generate_b2b_report(b2b_df, analyzer, batch_size)
+                        
+                        # Save to session
+                        st.session_state.b2b_processed_data = final_b2b
+                        st.session_state.b2b_processing_complete = True
+                        
+                        # Prepare Download
+                        output = io.BytesIO()
+                        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                            final_b2b.to_excel(writer, index=False, sheet_name='B2B Report')
+                            
+                            # Formatting
+                            workbook = writer.book
+                            worksheet = writer.sheets['B2B Report']
+                            
+                            # Add simple formatting
+                            header_fmt = workbook.add_format({'bold': True, 'bg_color': '#00D9FF', 'font_color': 'white'})
+                            for col_num, value in enumerate(final_b2b.columns.values):
+                                worksheet.write(0, col_num, value, header_fmt)
+                                worksheet.set_column(col_num, col_num, 30) # Wider columns for description
+
+                        st.session_state.b2b_export_data = output.getvalue()
+                        st.session_state.b2b_export_filename = f"B2B_Report_{datetime.now().strftime('%Y-%m-%d')}.xlsx"
+                        
+                        st.rerun()
+
+        # 3. B2B Dashboard Results
+        if st.session_state.b2b_processing_complete and st.session_state.b2b_processed_data is not None:
+            df_res = st.session_state.b2b_processed_data
+            
+            st.markdown("### 🏁 Report Dashboard")
+            
+            # Dashboard Metrics
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.metric("Total Processed", len(df_res))
+            with c2:
+                sku_found_count = len(df_res[df_res['SKU'] != 'Unknown'])
                 st.metric("SKUs Identified", f"{sku_found_count}", delta=f"{sku_found_count/len(df_res)*100:.1f}% coverage")
             with c3:
                 unique_skus = df_res[df_res['SKU'] != 'Unknown']['SKU'].nunique()
@@ -1260,9 +1140,6 @@ def main():
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         type="primary"
                     )
-
-if __name__ == "__main__":
-    main()
 
 if __name__ == "__main__":
     main()
