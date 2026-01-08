@@ -859,6 +859,169 @@ def generate_b2b_report(df, analyzer, batch_size):
         
     return pd.DataFrame(final_rows)
 
+# -------------------------
+# TAB 3: QUALITY CASE SCREENING
+# -------------------------
+
+CATEGORY_BENCHMARKS = {
+    'B2B Products (All)': 0.025,
+    'INS': 0.07,
+    'RHB': 0.075,
+    'LVA': 0.095,
+    'MOB - Power Scooters': 0.095,
+    'MOB - Walkers/Rollators/other': 0.10,
+    'MOB - Wheelchairs (manual)': 0.105,
+    'CSH': 0.105,
+    'SUP': 0.11,
+    'MOB - Wheelchairs (power)': 0.115,
+    'All Others': 0.10,
+}
+
+def parse_numeric(series):
+    return pd.to_numeric(series, errors='coerce').fillna(0)
+
+def load_quality_case_file(file_content, filename):
+    if filename.endswith('.csv'):
+        return pd.read_csv(io.BytesIO(file_content))
+    if filename.endswith(('.xlsx', '.xls')):
+        return pd.read_excel(io.BytesIO(file_content))
+    if filename.endswith('.txt'):
+        return pd.read_csv(io.BytesIO(file_content), sep='\t')
+    st.error(f"Unsupported file type: {filename}")
+    return None
+
+def one_way_anova(groups):
+    all_values = np.concatenate([g for g in groups if len(g) > 0])
+    if len(all_values) == 0 or len(groups) < 2:
+        return None
+
+    grand_mean = np.mean(all_values)
+    ss_between = sum(len(g) * (np.mean(g) - grand_mean) ** 2 for g in groups if len(g) > 0)
+    ss_within = sum(np.sum((g - np.mean(g)) ** 2) for g in groups if len(g) > 0)
+
+    df_between = len(groups) - 1
+    df_within = len(all_values) - len(groups)
+    if df_within <= 0:
+        return None
+
+    ms_between = ss_between / df_between
+    ms_within = ss_within / df_within
+    if ms_within == 0:
+        return None
+
+    return {
+        'f_stat': ms_between / ms_within,
+        'df_between': df_between,
+        'df_within': df_within
+    }
+
+def manova_wilks_lambda(groups, metric_cols):
+    valid_groups = [g for g in groups if len(g) > 1]
+    if len(valid_groups) < 2:
+        return None
+
+    overall = np.vstack(valid_groups)
+    overall_mean = np.mean(overall, axis=0)
+    w_matrix = np.zeros((len(metric_cols), len(metric_cols)))
+    b_matrix = np.zeros((len(metric_cols), len(metric_cols)))
+
+    for g in valid_groups:
+        group_mean = np.mean(g, axis=0)
+        centered = g - group_mean
+        w_matrix += centered.T @ centered
+        mean_diff = (group_mean - overall_mean).reshape(-1, 1)
+        b_matrix += len(g) * (mean_diff @ mean_diff.T)
+
+    try:
+        det_w = np.linalg.det(w_matrix)
+        det_t = np.linalg.det(w_matrix + b_matrix)
+    except np.linalg.LinAlgError:
+        return None
+
+    if det_t == 0:
+        return None
+
+    return {
+        'wilks_lambda': det_w / det_t,
+        'within_matrix': w_matrix,
+        'between_matrix': b_matrix
+    }
+
+def compute_quality_case_screening(df, config):
+    data = df.copy()
+    sold_col = config['sold_col']
+    returned_col = config['returned_col']
+    category_col = config['category_col']
+
+    data['Sold'] = parse_numeric(data[sold_col])
+    data['Returned'] = parse_numeric(data[returned_col])
+    data['Return_Rate'] = np.where(data['Sold'] > 0, data['Returned'] / data['Sold'], 0)
+
+    category_stats = data.groupby(category_col)['Return_Rate'].agg(['mean', 'std']).reset_index()
+    category_stats.rename(columns={'mean': 'Cat_Avg', 'std': 'Cat_Std'}, inplace=True)
+    category_stats['Cat_Std'] = category_stats['Cat_Std'].fillna(0)
+
+    data = data.merge(category_stats, on=category_col, how='left')
+
+    if config['use_benchmarks']:
+        data['Benchmark_Avg'] = data[category_col].map(CATEGORY_BENCHMARKS)
+        data['Benchmark_Avg'] = data['Benchmark_Avg'].fillna(CATEGORY_BENCHMARKS['All Others'])
+        data['Cat_Avg'] = data['Benchmark_Avg']
+
+    immediate = pd.Series(False, index=data.index)
+    if config['safety_col']:
+        immediate |= data[config['safety_col']].astype(str).str.lower().isin(['yes', 'true', '1', 'y'])
+    if config['zero_tolerance_col']:
+        immediate |= data[config['zero_tolerance_col']].astype(str).str.lower().isin(['yes', 'true', '1', 'y'])
+    if config['landed_cost_col']:
+        immediate |= parse_numeric(data[config['landed_cost_col']]) >= config['landed_cost_threshold']
+    if config['retail_price_col']:
+        immediate |= parse_numeric(data[config['retail_price_col']]) >= config['retail_price_threshold']
+    if config['launch_date_col']:
+        launch_dates = pd.to_datetime(data[config['launch_date_col']], errors='coerce')
+        recent = launch_dates.notna() & ((pd.Timestamp.utcnow() - launch_dates).dt.days <= config['launch_days'])
+        immediate |= recent
+    if config['aql_fail_col']:
+        immediate |= data[config['aql_fail_col']].astype(str).str.lower().isin(['yes', 'true', '1', 'y'])
+
+    condition_critical = data['Return_Rate'] >= config['return_rate_cap']
+    condition_relative = data['Return_Rate'] > (data['Cat_Avg'] * config['relative_threshold'])
+    condition_outlier = data['Return_Rate'] > (data['Cat_Avg'] + data['Cat_Std'])
+    condition_sop_delta = data['Return_Rate'] > (data['Cat_Avg'] + config['cat_avg_delta'])
+
+    qualitative = pd.Series(False, index=data.index)
+    if config['complaint_count_col']:
+        complaints = parse_numeric(data[config['complaint_count_col']])
+        sales_units = parse_numeric(data[config['sales_units_30d_col']]) if config['sales_units_30d_col'] else 0
+        sales_value = parse_numeric(data[config['sales_value_30d_col']]) if config['sales_value_30d_col'] else 0
+        low_impact = (sales_units > 0) & ((complaints / sales_units) < 0.05) & (sales_value < 1000)
+        qualitative = (complaints >= 3) & ~low_impact
+
+    low_volume = data['Sold'] < config['low_volume_cutoff']
+
+    action = np.select(
+        [
+            immediate,
+            condition_critical | condition_relative | condition_outlier | condition_sop_delta | qualitative,
+            low_volume
+        ],
+        [
+            'Escalate to Quality Case (Immediate)',
+            'Escalate to Quality Case',
+            'Dismiss (Low Volume)'
+        ],
+        default='Monitor'
+    )
+
+    review_date = pd.Timestamp.utcnow().normalize() + pd.Timedelta(days=config['review_days'])
+    data['Recommended_Action'] = action
+    data['Review_By'] = np.where(data['Recommended_Action'] == 'Monitor', review_date.date().isoformat(), '')
+
+    data['Return_Rate_Display'] = (data['Return_Rate'] * 100).round(2).astype(str) + '%'
+    data['Cat_Avg_Display'] = (data['Cat_Avg'] * 100).round(2).astype(str) + '%'
+
+    return data
+
 def main():
     """Main application function"""
     initialize_session_state()
@@ -894,7 +1057,7 @@ def main():
         st.caption(f"Version {APP_CONFIG['version']}")
 
     # TABS
-    tab1, tab2 = st.tabs(["📊 Return Categorizer", "📑 B2B Report Generator"])
+    tab1, tab2, tab3 = st.tabs(["📊 Return Categorizer", "📑 B2B Report Generator", "🧪 Quality Case Screening"])
 
     # -------------------------
     # TAB 1: Original Categorizer
@@ -920,130 +1083,7 @@ def main():
                 valid_complaints = df[df[column_mapping['complaint']].notna() & (df[column_mapping['complaint']].str.strip() != '')].shape[0]
                 st.info(f"Found {valid_complaints:,} complaints to categorize.")
                 
-                if st.button("🚀 Start Categorization", type="primary"):
-                    analyzer = get_ai_analyzer()
-                    with st.spinner("Categorizing..."):
-                        categorized_df = process_in_chunks(df, analyzer, column_mapping)
-                        st.session_state.categorized_data = categorized_df
-                        st.session_state.processing_complete = True
-                        generate_statistics(categorized_df, column_mapping)
-                        
-                        # Export
-                        st.session_state.export_data = export_with_column_k(categorized_df)
-                        st.session_state.export_filename = f"categorized_{datetime.now().strftime('%Y%m%d')}.xlsx"
-                        st.rerun()
-        
-        # Results Display (Tab 1)
-        if st.session_state.processing_complete and st.session_state.categorized_data is not None:
-            display_results_dashboard(st.session_state.categorized_data, st.session_state.column_mapping)
-            
-            if st.session_state.export_data:
-                st.download_button(
-                    label="⬇️ Download Categorized File",
-                    data=st.session_state.export_data,
-                    file_name=st.session_state.export_filename,
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    type="primary",
-                    use_container_width=True
-                )
-
-    # -------------------------
-    # TAB 2: B2B Report Generator
-    # -------------------------
-    with tab2:
-        st.markdown("### 📑 B2B Report Automation")
-        st.markdown("""
-        <div style="background: rgba(0, 217, 255, 0.1); border: 1px solid var(--primary); 
-                    border-radius: 8px; padding: 0.8rem; margin-bottom: 1rem;">
-            <strong>📌 Goal:</strong> Convert raw Odoo Helpdesk export into a compliant B2B Report.
-            <ul style="margin-bottom:0;">
-                <li><strong>Format:</strong> Matches standard B2B Report columns (Display Name, Description, SKU, Reason)</li>
-                <li><strong>SKU Logic:</strong> Auto-extracts Main SKU (e.g., <code>MOB1027</code>)</li>
-                <li><strong>AI Summary:</strong> Generates detailed Reason summaries for every ticket.</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Performance / File Size Selection
-        st.markdown("#### ⚙️ Data Volume / Processing Speed")
-        perf_mode = st.select_slider(
-            "Select Dataset Size to optimize API performance:",
-            options=['Small (< 500 rows)', 'Medium (500-2,000 rows)', 'Large (2,000+ rows)'],
-            value=st.session_state.b2b_perf_mode,
-            key='perf_selector'
-        )
-        st.session_state.b2b_perf_mode = perf_mode
-        
-        # Map selection to performance settings
-        if perf_mode == 'Small (< 500 rows)':
-            batch_size = 10
-            max_workers = 3
-            st.caption("Settings: Conservative batching for max reliability.")
-        elif perf_mode == 'Medium (500-2,000 rows)':
-            batch_size = 25
-            max_workers = 6
-            st.caption("Settings: Balanced speed and concurrency.")
-        else: # Large
-            batch_size = 50
-            max_workers = 10
-            st.caption("Settings: Aggressive parallel processing for high volume.")
-
-        st.divider()
-        
-        b2b_file = st.file_uploader("Upload Odoo Export (CSV/Excel)", type=['csv', 'xlsx'], key="b2b_uploader")
-        
-        if b2b_file:
-            # 1. Read & Preview
-            b2b_df = process_b2b_file(b2b_file.read(), b2b_file.name)
-            
-            if b2b_df is not None:
-                st.markdown(f"**Total Tickets Found:** {len(b2b_df):,}")
-                
-                # 2. Process Button
-                if st.button("⚡ Generate B2B Report", type="primary"):
-                    # Update analyzer with new worker settings based on user choice
-                    analyzer = get_ai_analyzer(max_workers=max_workers)
-                    
-                    with st.spinner("Running AI Analysis & SKU Extraction..."):
-                        # Run the B2B pipeline
-                        final_b2b = generate_b2b_report(b2b_df, analyzer, batch_size)
-                        
-                        # Save to session
-                        st.session_state.b2b_processed_data = final_b2b
-                        st.session_state.b2b_processing_complete = True
-                        
-                        # Prepare Download
-                        output = io.BytesIO()
-                        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                            final_b2b.to_excel(writer, index=False, sheet_name='B2B Report')
-                            
-                            # Formatting
-                            workbook = writer.book
-                            worksheet = writer.sheets['B2B Report']
-                            
-                            # Add simple formatting
-                            header_fmt = workbook.add_format({'bold': True, 'bg_color': '#00D9FF', 'font_color': 'white'})
-                            for col_num, value in enumerate(final_b2b.columns.values):
-                                worksheet.write(0, col_num, value, header_fmt)
-                                worksheet.set_column(col_num, col_num, 30) # Wider columns for description
-
-                        st.session_state.b2b_export_data = output.getvalue()
-                        st.session_state.b2b_export_filename = f"B2B_Report_{datetime.now().strftime('%Y-%m-%d')}.xlsx"
-                        
-                        st.rerun()
-
-        # 3. B2B Dashboard Results
-        if st.session_state.b2b_processing_complete and st.session_state.b2b_processed_data is not None:
-            df_res = st.session_state.b2b_processed_data
-            
-            st.markdown("### 🏁 Report Dashboard")
-            
-            # Dashboard Metrics
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.metric("Total Processed", len(df_res))
-            with c2:
-                sku_found_count = len(df_res[df_res['SKU'] != 'Unknown'])
+@@ -1047,27 +1210,179 @@ def main():
                 st.metric("SKUs Identified", f"{sku_found_count}", delta=f"{sku_found_count/len(df_res)*100:.1f}% coverage")
             with c3:
                 unique_skus = df_res[df_res['SKU'] != 'Unknown']['SKU'].nunique()
@@ -1068,6 +1108,161 @@ def main():
                     st.session_state.b2b_processed_data = None
                     st.session_state.b2b_processing_complete = False
                     st.rerun()
+
+    # -------------------------
+    # TAB 3: Quality Case Screening
+    # -------------------------
+    with tab3:
+        st.markdown("### 🧪 Quality Case Screening & Escalation")
+        st.markdown("""
+        <div style="background: rgba(255, 0, 110, 0.1); border: 1px solid var(--secondary); 
+                    border-radius: 8px; padding: 0.8rem; margin-bottom: 1rem;">
+            <strong>📌 Goal:</strong> Screen SKUs for Quality Case escalation using SOP thresholds,
+            ANOVA/MANOVA checks, and calendar-based monitoring.
+        </div>
+        """, unsafe_allow_html=True)
+
+        qc_file = st.file_uploader(
+            "Upload Quality Screening Data (CSV/XLSX)",
+            type=['csv', 'xlsx', 'xls', 'txt'],
+            key="tab3_uploader"
+        )
+
+        if qc_file:
+            qc_df = load_quality_case_file(qc_file.read(), qc_file.name)
+
+            if qc_df is not None:
+                st.markdown("#### 🧭 Column Mapping")
+                columns = qc_df.columns.tolist()
+
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    sku_col = st.selectbox("SKU Column", options=columns, index=0)
+                    category_col = st.selectbox("Category Column", options=columns, index=min(1, len(columns) - 1))
+                    sold_col = st.selectbox("Sold Column", options=columns)
+                with col2:
+                    returned_col = st.selectbox("Returned Column", options=columns)
+                    landed_cost_col = st.selectbox("Landed Cost Column (Optional)", options=[""] + columns)
+                    retail_price_col = st.selectbox("Retail Price Column (Optional)", options=[""] + columns)
+                with col3:
+                    launch_date_col = st.selectbox("Launch Date Column (Optional)", options=[""] + columns)
+                    safety_col = st.selectbox("Safety Risk Column (Optional)", options=[""] + columns)
+                    zero_tolerance_col = st.selectbox("Zero Tolerance Component Column (Optional)", options=[""] + columns)
+
+                st.markdown("#### 📈 Trend-Based Thresholds")
+                col4, col5, col6 = st.columns(3)
+                with col4:
+                    return_rate_cap = st.number_input("Return Rate Hard Cap", value=0.25, step=0.01, format="%.2f")
+                    relative_threshold = st.number_input("Relative Threshold (x Category Avg)", value=1.20, step=0.05)
+                with col5:
+                    cat_avg_delta = st.number_input("Category Avg + Delta (5% = 0.05)", value=0.05, step=0.01)
+                    low_volume_cutoff = st.number_input("Low Volume Cutoff (Units Sold)", value=10, step=1)
+                with col6:
+                    use_benchmarks = st.checkbox("Use SOP Category Benchmarks", value=True)
+                    review_days = st.number_input("Monitor Review in X Days", value=14, step=1)
+
+                st.markdown("#### 🚨 Immediate Escalation Criteria")
+                col7, col8, col9 = st.columns(3)
+                with col7:
+                    landed_cost_threshold = st.number_input("Landed Cost Threshold ($)", value=150.0, step=10.0)
+                    retail_price_threshold = st.number_input("Retail Price Threshold ($)", value=0.0, step=10.0)
+                with col8:
+                    launch_days = st.number_input("New Launch Window (Days)", value=90, step=5)
+                    aql_fail_col = st.selectbox("AQL Fail Column (Optional)", options=[""] + columns)
+                with col9:
+                    complaint_count_col = st.selectbox("Unique Complaint Count (30d) (Optional)", options=[""] + columns)
+                    sales_units_30d_col = st.selectbox("Sales Units (30d) (Optional)", options=[""] + columns)
+                    sales_value_30d_col = st.selectbox("Sales Value $ (30d) (Optional)", options=[""] + columns)
+
+                st.markdown("#### 📊 ANOVA / MANOVA Inputs")
+                manova_metric_1 = st.selectbox("MANOVA Metric 1", options=columns, index=columns.index(returned_col))
+                manova_metric_2 = st.selectbox("MANOVA Metric 2", options=columns, index=columns.index(sold_col))
+
+                if st.button("🔍 Run Quality Case Screening", type="primary"):
+                    config = {
+                        'sold_col': sold_col,
+                        'returned_col': returned_col,
+                        'category_col': category_col,
+                        'use_benchmarks': use_benchmarks,
+                        'return_rate_cap': return_rate_cap,
+                        'relative_threshold': relative_threshold,
+                        'cat_avg_delta': cat_avg_delta,
+                        'low_volume_cutoff': int(low_volume_cutoff),
+                        'review_days': int(review_days),
+                        'safety_col': safety_col or None,
+                        'zero_tolerance_col': zero_tolerance_col or None,
+                        'landed_cost_col': landed_cost_col or None,
+                        'retail_price_col': retail_price_col or None,
+                        'launch_date_col': launch_date_col or None,
+                        'launch_days': int(launch_days),
+                        'aql_fail_col': aql_fail_col or None,
+                        'landed_cost_threshold': landed_cost_threshold,
+                        'retail_price_threshold': retail_price_threshold,
+                        'complaint_count_col': complaint_count_col or None,
+                        'sales_units_30d_col': sales_units_30d_col or None,
+                        'sales_value_30d_col': sales_value_30d_col or None,
+                    }
+
+                    with st.spinner("Analyzing quality triggers..."):
+                        screened = compute_quality_case_screening(qc_df, config)
+
+                    st.markdown("#### ✅ Screening Results")
+                    st.dataframe(
+                        screened[
+                            [
+                                sku_col,
+                                category_col,
+                                'Return_Rate_Display',
+                                'Cat_Avg_Display',
+                                'Recommended_Action',
+                                'Review_By'
+                            ]
+                        ],
+                        use_container_width=True
+                    )
+
+                    st.markdown("#### 📊 ANOVA / MANOVA Summary")
+                    grouped = [
+                        parse_numeric(screened.loc[screened[category_col] == cat, 'Return_Rate']).values
+                        for cat in screened[category_col].dropna().unique()
+                    ]
+                    anova_results = one_way_anova(grouped)
+                    if anova_results:
+                        st.info(
+                            f"ANOVA F={anova_results['f_stat']:.4f} "
+                            f"(df={anova_results['df_between']}, {anova_results['df_within']})"
+                        )
+                    else:
+                        st.warning("ANOVA requires at least two categories with data.")
+
+                    manova_groups = []
+                    for cat in screened[category_col].dropna().unique():
+                        subset = screened[screened[category_col] == cat][[manova_metric_1, manova_metric_2]]
+                        subset = subset.apply(parse_numeric)
+                        if len(subset) > 1:
+                            manova_groups.append(subset.values)
+
+                    manova_results = manova_wilks_lambda(manova_groups, [manova_metric_1, manova_metric_2])
+                    if manova_results:
+                        st.info(f"MANOVA Wilks' Lambda={manova_results['wilks_lambda']:.4f}")
+                    else:
+                        st.warning("MANOVA requires at least two categories with 2+ rows.")
+
+                    st.markdown("#### ⬇️ Export Screening Data")
+                    export_buffer = io.BytesIO()
+                    with pd.ExcelWriter(export_buffer, engine='xlsxwriter') as writer:
+                        screened.to_excel(writer, index=False, sheet_name='Quality Screening')
+                    export_buffer.seek(0)
+                    st.download_button(
+                        label="Download Screening Results",
+                        data=export_buffer,
+                        file_name=f"quality_screening_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        type="primary"
+                    )
+
+if __name__ == "__main__":
+    main()
 
 if __name__ == "__main__":
     main()
