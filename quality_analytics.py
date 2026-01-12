@@ -12,6 +12,13 @@ try:
 except ImportError:
     STATS_AVAILABLE = False
 
+try:
+    from statsmodels.stats.multicomp import pairwise_tukeyhsd
+    from statsmodels.multivariate.manova import MANOVA
+    STATSMODELS_AVAILABLE = True
+except ImportError:
+    STATSMODELS_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 # SOP Thresholds (Derived from uploaded SOPs)
@@ -42,7 +49,11 @@ class QualityAnalytics:
     """
     
     @staticmethod
-    def validate_upload(df: pd.DataFrame, required_cols: List[str]) -> Dict[str, Any]:
+    def validate_upload(
+        df: pd.DataFrame,
+        required_cols: List[str],
+        numeric_cols: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
         """
         Validates uploaded data for missing fields and numeric errors.
         """
@@ -58,11 +69,26 @@ class QualityAnalytics:
             if col not in df.columns:
                 report['missing_cols'].append(col)
                 report['valid'] = False
+
+        if numeric_cols:
+            for col in numeric_cols:
+                if col in df.columns:
+                    series = df[col]
+                    numeric = pd.to_numeric(series.astype(str).str.replace(r'[$,%]', '', regex=True), errors='coerce')
+                    bad_rows = df[series.notna() & numeric.isna()].index.tolist()
+                    if bad_rows:
+                        report['non_numeric_rows'].append({'column': col, 'rows': bad_rows})
+                        report['valid'] = False
         
         return report
 
     @staticmethod
-    def calculate_risk_score(row: pd.Series, category_avg: float) -> float:
+    def calculate_weighted_risk_score(
+        row: pd.Series,
+        category_avg: float,
+        category_std: float = 0.0,
+        ai_severity_score: float = 0.0
+    ) -> float:
         """
         Calculates Weighted Risk Score.
         Factors:
@@ -74,7 +100,9 @@ class QualityAnalytics:
         
         # 1. Statistical Deviation (30 pts)
         rr = row.get('Return_Rate', 0)
-        if rr > (category_avg * 1.5):
+        if category_std > 0 and rr > (category_avg + 2 * category_std):
+            score += 30
+        elif rr > (category_avg * 1.5):
             score += 30
         elif rr > category_avg:
             score += 15
@@ -93,6 +121,8 @@ class QualityAnalytics:
             score += 40
         elif severity in ['major', 'medium']:
             score += 20
+        else:
+            score += min(max(ai_severity_score, 0), 40)
             
         return score
 
@@ -132,6 +162,81 @@ class QualityAnalytics:
             return {'error': str(e)}
 
     @staticmethod
+    def perform_tukey_hsd(df: pd.DataFrame, category_col: str, metric_col: str) -> Dict[str, Any]:
+        """
+        Runs Tukey HSD if statsmodels is available.
+        """
+        if not STATSMODELS_AVAILABLE:
+            return {'error': 'statsmodels not installed. Cannot calculate Tukey HSD.'}
+
+        try:
+            data = df[[category_col, metric_col]].dropna()
+            if data[category_col].nunique() < 2:
+                return {'error': 'Not enough categories for Tukey HSD.'}
+            tukey = pairwise_tukeyhsd(endog=data[metric_col], groups=data[category_col], alpha=0.05)
+            results = pd.DataFrame(data=tukey.summary().data[1:], columns=tukey.summary().data[0])
+            significant = results[results['reject'] == True]
+            return {
+                'results': results,
+                'significant_pairs': significant
+            }
+        except Exception as e:
+            return {'error': str(e)}
+
+    @staticmethod
+    def perform_manova(df: pd.DataFrame, category_col: str, metric_cols: List[str]) -> Dict[str, Any]:
+        """
+        Performs MANOVA and returns p-values when possible.
+        """
+        if not STATSMODELS_AVAILABLE:
+            return {'error': 'statsmodels not installed. Cannot calculate MANOVA.'}
+
+        try:
+            metrics = [col for col in metric_cols if col in df.columns]
+            if len(metrics) < 2:
+                return {'error': 'Not enough metrics for MANOVA.'}
+            formula = f"{' + '.join(metrics)} ~ {category_col}"
+            maov = MANOVA.from_formula(formula, data=df.dropna(subset=metrics + [category_col]))
+            test_results = maov.mv_test()
+            stats_table = test_results.results[category_col]['stat']
+            p_value = stats_table.loc['Wilks\' lambda', 'Pr > F']
+            return {
+                'p_value': float(p_value),
+                'stat_table': stats_table.reset_index()
+            }
+        except Exception as e:
+            return {'error': str(e)}
+
+    @staticmethod
+    def analyze_trend(row: pd.Series) -> Dict[str, Any]:
+        """
+        Compares 30-day return rate to 6M and 12M rolling averages.
+        """
+        current = row.get('Return_Rate_30D', row.get('Return_Rate', None))
+        avg_6m = row.get('Return_Rate_6M', None)
+        avg_12m = row.get('Return_Rate_12M', None)
+        trend = "Unknown"
+        flags = []
+
+        if current is None:
+            return {'trend': trend, 'flags': flags}
+
+        if avg_6m is not None:
+            if current > avg_6m:
+                flags.append("Above 6M Avg")
+            elif current < avg_6m:
+                flags.append("Below 6M Avg")
+        if avg_12m is not None:
+            if current > avg_12m:
+                flags.append("Above 12M Avg")
+            elif current < avg_12m:
+                flags.append("Below 12M Avg")
+
+        if flags:
+            trend = ", ".join(flags)
+        return {'trend': trend, 'flags': flags}
+
+    @staticmethod
     def detect_spc_signals(row: pd.Series, history_mean: float, history_std: float) -> str:
         """
         Control Charting (SPC) Logic.
@@ -163,7 +268,8 @@ class QualityAnalytics:
             
         # 2. Financial/Cost Checks
         cost = row.get('Landed Cost', 0)
-        if cost >= SOP_THRESHOLDS['Critical_Landed_Cost']:
+        critical_cost = sop_benchmarks.get('Critical_Landed_Cost', SOP_THRESHOLDS['Critical_Landed_Cost'])
+        if cost >= critical_cost:
             # For high cost, we are stricter
             if row.get('Return_Rate', 0) > 0.05: # Arbitrary strict threshold for high value
                 return "Escalate: High Value Defect"
@@ -175,7 +281,8 @@ class QualityAnalytics:
         benchmark = sop_benchmarks.get(cat, SOP_THRESHOLDS['All Others'])
         
         # Hard Cap
-        if rr >= SOP_THRESHOLDS['Critical_Return_Rate_Cap']:
+        critical_cap = sop_benchmarks.get('Critical_Return_Rate_Cap', SOP_THRESHOLDS['Critical_Return_Rate_Cap'])
+        if rr >= critical_cap:
              return "Escalate: Critical Return Rate (>25%)"
              
         # Relative to Benchmark
@@ -217,4 +324,19 @@ class QualityAnalytics:
         F = \frac{\text{Between-Group Variance}}{\text{Within-Group Variance}}
         $$
         If $p < 0.05$, we perform Post-Hoc testing to identify outlier categories.
+
+        **5. Trend Analysis**
+        Compare current 30-day rate to 6-month and 12-month rolling averages.
+        $$
+        \Delta_{6M} = \text{RR}_{30D} - \text{RR}_{6M}, \quad \Delta_{12M} = \text{RR}_{30D} - \text{RR}_{12M}
+        $$
+
+        **6. SPC Signal Detection (Shewhart)**
+        $$
+        Z = \frac{\text{RR}_{current} - \mu}{\sigma}
+        $$
+        Signal if $Z > 3$.
+
+        **7. MANOVA (Multivariate ANOVA)**
+        Used when multiple metrics (e.g., Return Rate + Landed Cost) are available to test category effects.
         """
