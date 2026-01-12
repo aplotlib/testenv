@@ -1,24 +1,35 @@
-# Core dependencies
-streamlit>=1.28.0
-pandas>=2.0.0
-numpy>=1.24.0
+# requirements.txt
 
-PyPDF2
+# UI / app
+streamlit==1.52.2
 
-# For AI module (enhanced_ai_analysis.py)
-requests>=2.31.0
+# Data + stats (ANOVA, MANOVA, post-hoc Tukey, trend analysis, SPC math)
+pandas==2.3.3
+numpy==2.4.1
+scipy==1.17.0
+statsmodels==0.14.6
+python-dateutil==2.9.0.post0
 
-# Excel file support
-openpyxl>=3.1.0
-xlsxwriter>=3.1.0
+# Visualization (heatmaps, dashboards)
+altair==6.0.0
 
-# Optional but recommended for better compatibility
-python-dateutil>=2.8.2
+# Excel I/O + exports (incl. metadata sheet)
+openpyxl==3.1.5
+xlsxwriter==3.2.9
 
-openai
-pdfplumber
-streamlit>=1.28.0
-pandas>=2.0.0
-openpyxl>=3.1.0
-xlsxwriter>=3.1.0
-requests>=2.31.0
+# PDF ingestion
+pdfplumber==0.11.9
+PyPDF2==3.0.1
+
+# HTTP (if you have a requests-based module)
+requests==2.32.5
+
+# AI providers (OpenAI + Anthropic)
+openai==2.15.0
+anthropic==0.75.0
+
+# Fuzzy matching for product-name/category logic
+RapidFuzz==3.14.3
+
+# Reliability (retry w/ exponential backoff)
+tenacity==9.1.2
