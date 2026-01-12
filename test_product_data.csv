@@ -1,0 +1,26 @@
+Order Date,Main SKU,Product Name,Category,Units Sold,Units Returned,Return Rate (%),Return Reason,Customer Type,Landed Cost ($),Sale Price ($),Revenue ($),Return Cost ($)
+2025-01-15,MOB-2847,Premium Knee Scooter with Basket,MOB,450,54,12.0,Product Defects/Quality - Wheel wobble,B2C,89.50,179.99,80999.55,4833.00
+2025-02-20,MOB-3921,Heavy Duty Rollator Walker,MOB,380,42,11.1,Performance/Effectiveness - Brakes too stiff,B2C,75.20,149.99,56996.20,3158.40
+2025-03-10,MOB-4512,Lightweight Transport Chair,MOB,520,47,9.0,Missing Components - Footrest missing,B2B,62.30,129.99,67594.80,2928.10
+2025-01-05,MOB-1893,Folding Electric Wheelchair,MOB,85,13,15.3,Design/Material Issues - Battery compartment loose,B2C,425.00,899.99,76499.15,5525.00
+2025-02-28,SUP-5621,Lumbar Support Cushion - Memory Foam,SUP,890,89,10.0,Product Defects/Quality - Foam degradation,B2C,12.50,34.99,31141.10,1112.50
+2025-03-15,SUP-6784,Cervical Neck Pillow,SUP,1250,112,9.0,Performance/Effectiveness - Too firm,B2C,8.75,24.99,31237.50,980.00
+2025-01-22,SUP-4209,Posture Corrector Brace,SUP,675,74,11.0,Stability/Positioning Issues - Straps slip,B2C,15.30,44.99,30368.25,1132.20
+2025-02-14,SUP-7821,Adjustable Back Support Belt,SUP,540,38,7.0,Customer Changed Mind,B2C,18.90,49.99,26994.60,718.20
+2025-03-20,INS-3421,Orthotic Insoles - Arch Support,INS,1420,99,7.0,Performance/Effectiveness - Arch height wrong,B2C,6.20,19.99,28385.80,613.80
+2025-01-18,INS-5632,Gel Heel Cushions,INS,980,68,6.9,Product Defects/Quality - Gel leaked,B2C,3.50,14.99,14690.20,238.00
+2025-02-25,INS-7234,Diabetic Comfort Insoles,INS,760,61,8.0,Design/Material Issues - Material too thick,B2C,8.90,29.99,22792.40,542.90
+2025-03-08,RHB-8421,Resistance Band Set - 5 Pack,RHB,1580,126,8.0,Missing Components - 1 band missing,B2C,7.25,24.99,39464.20,913.50
+2025-01-30,RHB-2947,Hand Therapy Putty Kit,RHB,890,71,8.0,Performance/Effectiveness - Too hard,B2C,4.80,16.99,15121.10,340.80
+2025-02-10,RHB-5123,Ankle Weights Set,RHB,420,29,6.9,Product Defects/Quality - Strap broke,B2C,12.40,34.99,14695.80,359.60
+2025-03-12,RHB-6891,Foam Roller - High Density,RHB,1150,92,8.0,Design/Material Issues - Too firm,B2C,9.80,29.99,34488.50,901.60
+2025-01-12,LVA-4523,Reacher Grabber Tool - 32 inch,LVA,1890,189,10.0,Product Defects/Quality - Grip mechanism failed,B2C,5.60,16.99,32110.10,1058.40
+2025-02-18,LVA-7821,Sock Aid with Foam Handles,LVA,670,60,9.0,Performance/Effectiveness - Hard to use,B2C,3.20,12.99,8703.30,192.00
+2025-03-05,LVA-3214,Long Handle Shoe Horn,LVA,1240,111,8.9,Design/Material Issues - Handle bent easily,B2C,4.10,14.99,18587.60,455.10
+2025-01-25,LVA-9452,Dressing Stick with Hook,LVA,540,54,10.0,Product Defects/Quality - Hook detached,B2C,4.50,13.99,7554.60,243.00
+2025-02-08,CSH-2341,Wheelchair Cushion - Gel Foam,CSH,350,35,10.0,Performance/Effectiveness - Not enough support,B2C,28.90,69.99,24496.50,1011.50
+2025-03-18,CSH-5621,Coccyx Seat Cushion,CSH,1680,176,10.5,Product Defects/Quality - Cover tore,B2C,16.20,39.99,67183.20,2851.20
+2025-01-20,CSH-7834,Memory Foam Seat Cushion,CSH,920,92,10.0,Design/Material Issues - Foam too soft,B2C,13.50,34.99,32190.80,1242.00
+2025-02-22,B2B-8421,Bulk Knee Walker Package (10 units),B2B,45,1,2.2,Missing Components - 1 unit incomplete,B2B,850.00,1799.99,80999.55,850.00
+2025-03-01,B2B-5234,Hospital Grade Walker Set (5 units),B2B,78,2,2.6,Product Defects/Quality - 1 wheel defective,B2B,340.00,749.99,58499.22,680.00
+2025-01-28,B2B-9187,Commercial Rehab Equipment Bundle,B2B,32,1,3.1,Performance/Effectiveness - Client requirements mismatch,B2B,1250.00,2999.99,95999.68,1250.00
