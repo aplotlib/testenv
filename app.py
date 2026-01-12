@@ -43,7 +43,7 @@ except ImportError:
 try:
     from enhanced_ai_analysis import (
         EnhancedAIAnalyzer, AIProvider, FBA_REASON_MAP,
-        MEDICAL_DEVICE_CATEGORIES
+        MEDICAL_DEVICE_CATEGORIES, DeepDiveAnalyzer, BulkOperationsManager
     )
     from quality_analytics import (
         QualityAnalytics, QualityStatistics, SPCAnalysis, TrendAnalysis,
@@ -136,27 +136,84 @@ STATISTICAL_ANALYSIS_OPTIONS = {
     "Auto (AI Recommended)": {
         "description": "AI analyzes your data and recommends the best statistical test",
         "when_to_use": "Best default choice - let the system decide based on your data characteristics",
-        "example": "AI might suggest MANOVA if you have multiple metrics, or Kruskal-Wallis if data is non-normal"
+        "example": "AI might suggest MANOVA if you have multiple metrics, or Kruskal-Wallis if data is non-normal",
+        "tooltip": "🤖 AI picks the right test for your data automatically - perfect if you're unsure which statistical method to use"
     },
     "ANOVA (Analysis of Variance)": {
         "description": "Compares average return rates across different categories to determine if any category is statistically different from others",
         "when_to_use": "When comparing ONE metric (like return rate) across multiple product categories",
-        "example": "Is MOB's 12% return rate significantly higher than SUP's 8%? ANOVA gives you a p-value to answer this definitively."
+        "example": "Is MOB's 12% return rate significantly higher than SUP's 8%? ANOVA gives you a p-value to answer this definitively.",
+        "tooltip": "📊 Tests if categories have truly different return rates or if differences are just random chance. F-score measures how different the groups are; p-value tells you if it's statistically significant (p<0.05 = real difference, not luck)"
     },
     "MANOVA (Multivariate ANOVA)": {
         "description": "Compares MULTIPLE metrics simultaneously across categories - more powerful than running separate ANOVAs",
         "when_to_use": "When you have return rate AND landed cost (or other metrics) and want to test differences considering all metrics together",
-        "example": "Do categories differ when considering both return rate AND financial impact together? MANOVA answers this."
+        "example": "Do categories differ when considering both return rate AND financial impact together? MANOVA answers this.",
+        "tooltip": "📈 Like ANOVA but tests multiple metrics at once (return rate + cost + sales). Wilks' Lambda shows overall difference; p<0.05 means categories differ significantly across all metrics combined"
     },
     "Kruskal-Wallis (Non-parametric)": {
         "description": "Like ANOVA but doesn't assume your data follows a normal bell curve - more robust for real-world messy data",
         "when_to_use": "When you have outliers, skewed distributions, or small sample sizes where normality can't be assumed",
-        "example": "If one product has 50% returns while others are 5-10%, Kruskal-Wallis handles these outliers better than ANOVA"
+        "example": "If one product has 50% returns while others are 5-10%, Kruskal-Wallis handles these outliers better than ANOVA",
+        "tooltip": "🎯 Robust version of ANOVA that works with messy real-world data. H-statistic measures group differences; p<0.05 means significant difference. Use when you have extreme outliers or small samples"
     },
     "Descriptive Only": {
         "description": "Just calculates summary statistics (means, medians, ranges) without formal hypothesis testing",
         "when_to_use": "Quick overview, very small datasets (<5 products), or when you just need numbers not statistical significance",
-        "example": "Simple summary: MOB avg 10.2%, SUP avg 8.5%, LVA avg 9.1% - no p-values, just the facts"
+        "example": "Simple summary: MOB avg 10.2%, SUP avg 8.5%, LVA avg 9.1% - no p-values, just the facts",
+        "tooltip": "📋 Simple averages and summaries without statistical testing - fastest option, good for quick overviews or when you have very few products"
+    }
+}
+
+# Statistical Terms Plain Language Explanations
+STATS_EXPLAINER = {
+    "p_value": "The probability that your results happened by random chance. p<0.05 = only 5% chance it's random, so we trust the result is real. Lower is better!",
+    "f_score": "Measures how different your groups are compared to variation within groups. Higher F-score = bigger differences between categories. F>3 usually means something interesting is happening.",
+    "h_statistic": "Like F-score but for non-normal data. Higher H = bigger differences between groups. Compare to critical value to determine significance.",
+    "wilks_lambda": "Tests multiple metrics at once (0 to 1 scale). Lower = bigger overall differences. Think of it as 'how much do groups differ across ALL metrics combined'",
+    "confidence_interval": "Range where the true value likely falls. '95% CI: 8-12%' means we're 95% confident the real return rate is between 8-12%.",
+    "effect_size": "How BIG is the difference (not just 'is there a difference'). Small=0.2, Medium=0.5, Large=0.8. Helps you know if a difference actually matters in practice.",
+    "post_hoc": "After finding differences exist (via ANOVA), post-hoc tests identify WHICH specific groups differ. Example: 'MOB differs from SUP but not from LVA'",
+    "degrees_of_freedom": "Number of independent data points used in calculation. More = more reliable results. Technical term you'll see in outputs but don't worry about the details.",
+}
+
+# Investigation Methods Dictionary
+INVESTIGATION_METHODS = {
+    '5_whys': {
+        'name': '5 Whys Analysis',
+        'best_for': 'Simple, linear problems with clear cause-effect relationships',
+        'use_when': 'Problem has a clear starting point and you need to dig deep into root cause',
+        'example': 'Product defect → Why? → Manufacturing issue → Why? → Machine calibration → Why? (repeat 5x)'
+    },
+    'fishbone': {
+        'name': 'Fishbone Diagram (Ishikawa)',
+        'best_for': 'Complex problems with multiple potential contributing factors',
+        'use_when': 'Many possible causes from different categories (people, process, materials, equipment)',
+        'example': 'Analyzing all potential causes of product quality issues across manufacturing, design, materials, etc.'
+    },
+    'rca': {
+        'name': 'Root Cause Analysis (Formal RCA)',
+        'best_for': 'Critical/high-impact issues requiring comprehensive investigation',
+        'use_when': 'Safety concerns, regulatory issues, or high-value/high-volume problems',
+        'example': 'Medical device failure with potential patient impact - requires full documentation'
+    },
+    'fmea': {
+        'name': 'FMEA (Failure Mode Effects Analysis)',
+        'best_for': 'Proactive risk assessment of potential failures',
+        'use_when': 'New product launches, design changes, or preventing future issues',
+        'example': 'Analyzing all ways a product could fail and prioritizing prevention efforts'
+    },
+    '8d': {
+        'name': '8D Problem Solving',
+        'best_for': 'Team-based problem solving with customer impact',
+        'use_when': 'Customer complaints requiring cross-functional investigation and containment',
+        'example': 'Batch quality issue affecting multiple customers - requires immediate containment + long-term fix'
+    },
+    'pareto': {
+        'name': 'Pareto Analysis (80/20 Rule)',
+        'best_for': 'Prioritizing which issues to tackle first',
+        'use_when': 'Multiple issues and you need to focus resources on the biggest impact areas',
+        'example': 'Identifying that 20% of defect types cause 80% of returns'
     }
 }
 
@@ -2227,30 +2284,72 @@ def render_screening_results():
     col3.metric("Quality Cases", cases, delta_color="inverse")
     col4.metric("Monitor", monitors)
     
-    # Statistical Results
+    # Statistical Results with Enhanced Tooltips
     if st.session_state.anova_result or st.session_state.manova_result:
-        with st.expander("📈 Statistical Analysis Results", expanded=True):
+        with st.expander("📈 Statistical Analysis Results (Click for Plain English Explanations)", expanded=True):
             if st.session_state.manova_result:
                 result = st.session_state.manova_result
-                st.markdown(f"**MANOVA Results**")
+                st.markdown(f"**MANOVA Results** - {STATISTICAL_ANALYSIS_OPTIONS['MANOVA (Multivariate ANOVA)']['tooltip']}")
                 col1, col2, col3 = st.columns(3)
-                col1.metric("F-Statistic", f"{result.statistic:.3f}")
-                col2.metric("p-value", f"{result.p_value:.4f}")
-                col3.metric("Significant", "Yes ✓" if result.significant else "No")
+                col1.metric("F-Statistic", f"{result.statistic:.3f}",
+                           help=STATS_EXPLAINER['f_score'])
+                col2.metric("p-value", f"{result.p_value:.4f}",
+                           help=STATS_EXPLAINER['p_value'])
+                col3.metric("Significant", "Yes ✓" if result.significant else "No",
+                           help="p<0.05 means the differences are statistically significant (not due to random chance)")
                 st.info(result.recommendation)
-            
+
+                # Plain English Summary
+                with st.expander("🗣️ What does this mean in plain English?"):
+                    significance_text = "ARE statistically significant" if result.significant else "are NOT statistically significant"
+                    st.markdown(f"""
+                    **Bottom Line:** Your product categories {significance_text} when looking at multiple metrics together.
+
+                    - **F-Statistic ({result.statistic:.3f})**: {STATS_EXPLAINER['f_score']}
+                    - **p-value ({result.p_value:.4f})**: {STATS_EXPLAINER['p_value']}
+                    - **Wilks' Lambda**: {STATS_EXPLAINER['wilks_lambda']}
+
+                    {"✅ **Action:** The differences are real. Focus on the categories with highest return rates." if result.significant else "⚠️ **Action:** Differences might be random variation. Monitor trends but don't overreact."}
+                    """)
+
             elif st.session_state.anova_result:
                 result = st.session_state.anova_result
-                st.markdown(f"**{result.test_type} Results**")
+                test_name = result.test_type
+                is_anova = 'ANOVA' in test_name
+                st.markdown(f"**{test_name} Results** - {STATISTICAL_ANALYSIS_OPTIONS.get(test_name, STATISTICAL_ANALYSIS_OPTIONS['ANOVA (Analysis of Variance)'])['tooltip']}")
+
                 col1, col2, col3, col4 = st.columns(4)
-                col1.metric("F-Statistic" if 'ANOVA' in result.test_type else "H-Statistic", 
-                           f"{result.statistic:.3f}")
-                col2.metric("p-value", f"{result.p_value:.4f}")
-                col3.metric("Effect Size (η²)", f"{result.effect_size:.3f}" if result.effect_size else "N/A")
-                col4.metric("Significant", "Yes ✓" if result.significant else "No")
-                
+                stat_name = "F-Statistic" if is_anova else "H-Statistic"
+                stat_help = STATS_EXPLAINER['f_score'] if is_anova else STATS_EXPLAINER['h_statistic']
+
+                col1.metric(stat_name, f"{result.statistic:.3f}", help=stat_help)
+                col2.metric("p-value", f"{result.p_value:.4f}", help=STATS_EXPLAINER['p_value'])
+                col3.metric("Effect Size (η²)", f"{result.effect_size:.3f}" if result.effect_size else "N/A",
+                           help=STATS_EXPLAINER['effect_size'])
+                col4.metric("Significant", "Yes ✓" if result.significant else "No",
+                           help="p<0.05 = statistically significant difference between groups")
+
                 st.info(result.recommendation)
-                
+
+                # Plain English Summary
+                with st.expander("🗣️ What does this mean in plain English?"):
+                    significance_text = "ARE statistically different" if result.significant else "are NOT statistically different"
+                    effect_interp = "large" if result.effect_size and result.effect_size > 0.8 else \
+                                   "medium" if result.effect_size and result.effect_size > 0.5 else \
+                                   "small" if result.effect_size and result.effect_size > 0.2 else "negligible"
+
+                    st.markdown(f"""
+                    **Bottom Line:** Your product categories {significance_text} in their return rates.
+
+                    - **{stat_name} ({result.statistic:.3f})**: {stat_help}
+                    - **p-value ({result.p_value:.4f})**: {STATS_EXPLAINER['p_value']}
+                    - **Effect Size ({result.effect_size:.3f if result.effect_size else 'N/A'})**: The practical difference is **{effect_interp}**. {STATS_EXPLAINER['effect_size']}
+
+                    {"✅ **Action:** The differences are real and meaningful. Investigate high-return categories." if result.significant and effect_interp in ['large', 'medium']
+                     else "⚠️ **Action:** Differences exist but may not be practically significant. Monitor trends." if result.significant
+                     else "⚠️ **Action:** No significant differences detected. Variation is within normal range."}
+                    """)
+
                 if result.outlier_categories:
                     st.warning(f"⚠️ Outlier Categories: {', '.join(str(c) for c in result.outlier_categories)}")
     
@@ -2399,11 +2498,335 @@ def render_screening_results():
                 )
     else:
         st.success("✅ No immediate action items. All products within acceptable thresholds.")
-    
+
+    # ========== NEW: DEEP DIVE ANALYSIS & BULK OPERATIONS ==========
+    if len(action_items) > 0:
+        st.markdown("---")
+        st.markdown("### 🔬 Advanced Analysis & Bulk Operations")
+
+        tab1, tab2, tab3 = st.tabs(["🔍 Deep Dive Analysis", "📧 Bulk Vendor Emails", "📋 Bulk Investigation Plans"])
+
+        # TAB 1: Deep Dive Analysis
+        with tab1:
+            st.markdown("#### AI-Powered Deep Dive Analysis")
+            st.caption("Upload product documentation for comprehensive AI analysis with investigation method recommendations")
+
+            col1, col2 = st.columns([1, 2])
+
+            with col1:
+                deep_dive_sku = st.selectbox(
+                    "Select Product for Deep Dive",
+                    options=action_items['SKU'].unique(),
+                    key="deep_dive_sku",
+                    help=STATS_EXPLAINER.get('confidence_interval', '')
+                )
+
+                # Investigation method info
+                st.markdown("**Investigation Methods:**")
+                for method_key, method_info in {
+                    '5_whys': '5 Whys - Simple, linear problems',
+                    'fishbone': 'Fishbone - Complex, multi-factor issues',
+                    'rca': 'Formal RCA - Critical/safety issues',
+                    'fmea': 'FMEA - Proactive risk assessment',
+                    '8d': '8D - Customer-facing team response',
+                    'pareto': 'Pareto - Prioritize multiple issues'
+                }.items():
+                    with st.expander(method_info):
+                        st.caption(f"**Best for:** {INVESTIGATION_METHODS.get(method_key, {}).get('best_for', 'N/A')}")
+                        st.caption(f"**Use when:** {INVESTIGATION_METHODS.get(method_key, {}).get('use_when', 'N/A')}")
+
+            with col2:
+                # Document uploads
+                st.markdown("**Upload Product Documentation (Optional but Recommended)**")
+
+                col_a, col_b = st.columns(2)
+
+                with col_a:
+                    manual_file = st.file_uploader(
+                        "📖 Product Manual",
+                        type=['pdf', 'txt', 'docx'],
+                        key="manual_upload",
+                        help="Upload product manual for AI to analyze intended use and identify design issues"
+                    )
+
+                    amazon_file = st.file_uploader(
+                        "🛒 Amazon Listing",
+                        type=['pdf', 'txt', 'html'],
+                        key="amazon_upload",
+                        help="Upload Amazon listing/bullets to compare marketed features vs reported issues"
+                    )
+
+                with col_b:
+                    ifu_file = st.file_uploader(
+                        "📋 IFU (Instructions for Use)",
+                        type=['pdf', 'txt', 'docx'],
+                        key="ifu_upload",
+                        help="Upload IFU to check if customer errors relate to unclear instructions"
+                    )
+
+                    specs_file = st.file_uploader(
+                        "⚙️ Technical Specs",
+                        type=['pdf', 'txt', 'xlsx'],
+                        key="specs_upload",
+                        help="Upload specs to identify if returns relate to spec deviations"
+                    )
+
+                # Run Deep Dive Analysis
+                if st.button("🚀 Run Deep Dive Analysis", type="primary", key="run_deep_dive"):
+                    with st.spinner("AI is analyzing product details, documentation, and recommending investigation methods..."):
+                        try:
+                            # Get product data
+                            product_row = action_items[action_items['SKU'] == deep_dive_sku].iloc[0]
+                            product_data = product_row.to_dict()
+
+                            # Process uploaded docs
+                            product_docs = {}
+                            if manual_file:
+                                product_docs['manual'] = manual_file.read().decode('utf-8', errors='ignore')
+                            if amazon_file:
+                                product_docs['amazon_listing'] = amazon_file.read().decode('utf-8', errors='ignore')
+                            if ifu_file:
+                                product_docs['ifu'] = ifu_file.read().decode('utf-8', errors='ignore')
+                            if specs_file:
+                                product_docs['specs'] = specs_file.read().decode('utf-8', errors='ignore')
+
+                            # Run deep dive (using AI)
+                            if AI_AVAILABLE:
+                                ai_analyzer = EnhancedAIAnalyzer(provider=st.session_state.ai_provider)
+                                deep_dive = DeepDiveAnalyzer(ai_analyzer)
+                                analysis = deep_dive.analyze_flagged_product(product_data, product_docs)
+
+                                # Display results
+                                st.success("✅ Deep Dive Analysis Complete!")
+
+                                # Risk Level
+                                risk_level = analysis.get('risk_level', 'Medium')
+                                risk_colors = {'Low': '🟢', 'Medium': '🟡', 'High': '🟠', 'Critical': '🔴'}
+                                st.markdown(f"### {risk_colors.get(risk_level, '⚪')} Risk Level: {risk_level}")
+
+                                # Recommended Method
+                                st.markdown("### 🎯 Recommended Investigation Method")
+                                method_key = analysis.get('recommended_method', 'rca')
+                                method_details = deep_dive.get_method_details(method_key)
+                                st.info(f"**{method_details['name']}**\n\n{method_details['best_for']}\n\n**Use when:** {method_details['use_when']}")
+
+                                # Full Analysis
+                                with st.expander("📊 Full AI Analysis", expanded=True):
+                                    if 'raw_analysis' in analysis:
+                                        st.markdown(analysis['raw_analysis'])
+                                    else:
+                                        st.json(analysis)
+
+                                # Store for use in investigation plan
+                                st.session_state.last_deep_dive = {
+                                    'sku': deep_dive_sku,
+                                    'analysis': analysis,
+                                    'method': method_key
+                                }
+
+                            else:
+                                st.error("AI modules not available. Install required packages.")
+
+                        except Exception as e:
+                            st.error(f"Deep dive analysis failed: {e}")
+                            logger.error(f"Deep dive error: {e}")
+
+        # TAB 2: Bulk Vendor Emails
+        with tab2:
+            st.markdown("#### Generate Vendor Emails for Multiple Products")
+            st.caption("Create emails for all flagged products at once")
+
+            # Select products
+            selected_for_email = st.multiselect(
+                "Select Products for Vendor Communication",
+                options=action_items['SKU'].tolist(),
+                default=action_items['SKU'].tolist()[:5],  # Default to first 5
+                help="Select which products need vendor follow-up"
+            )
+
+            # Email type
+            col1, col2 = st.columns(2)
+            with col1:
+                bulk_email_type = st.selectbox(
+                    "Email Type (applies to all)",
+                    ["CAPA Request", "RCA Request", "Inspection Notice", "Quality Alert"],
+                    help="Same email type will be used for all selected products"
+                )
+
+            with col2:
+                vendor_name = st.text_input(
+                    "Vendor/Supplier Name",
+                    placeholder="e.g., ABC Manufacturing Ltd.",
+                    help="Vendor name for email personalization"
+                )
+
+            if st.button("📧 Generate All Emails", type="primary", key="bulk_emails"):
+                if not selected_for_email:
+                    st.warning("Please select at least one product")
+                else:
+                    with st.spinner(f"Generating {len(selected_for_email)} vendor emails..."):
+                        try:
+                            # Generate emails for each product
+                            bulk_emails = []
+
+                            for sku in selected_for_email:
+                                row = action_items[action_items['SKU'] == sku].iloc[0]
+
+                                if bulk_email_type == "CAPA Request":
+                                    email = VendorEmailGenerator.generate_capa_request(
+                                        sku=row['SKU'],
+                                        product_name=row.get('Name', row['SKU']),
+                                        issue_summary=row.get('Complaint_Text', 'Quality concerns identified'),
+                                        return_rate=row['Return_Rate'],
+                                        defect_description=row.get('Triggers', ''),
+                                        units_affected=int(row.get('Returned', 0))
+                                    )
+                                elif bulk_email_type == "RCA Request":
+                                    email = VendorEmailGenerator.generate_rca_request(
+                                        sku=row['SKU'],
+                                        product_name=row.get('Name', row['SKU']),
+                                        defect_type=row['Action'],
+                                        occurrence_rate=row['Return_Rate'],
+                                        sample_complaints=str(row.get('Complaint_Text', '')).split(',')[:5]
+                                    )
+                                else:
+                                    email = VendorEmailGenerator.generate_inspection_notice(
+                                        sku=row['SKU'],
+                                        product_name=row.get('Name', row['SKU']),
+                                        special_focus=str(row.get('Triggers', '')).split(';')
+                                    )
+
+                                bulk_emails.append({
+                                    'SKU': sku,
+                                    'Product': row.get('Name', sku),
+                                    'Email_Type': bulk_email_type,
+                                    'Subject': f"Quality Issue - {sku}",
+                                    'Body': email,
+                                    'Priority': row.get('Action', 'Monitor')
+                                })
+
+                            st.success(f"✅ Generated {len(bulk_emails)} emails!")
+
+                            # Display preview
+                            for i, email_data in enumerate(bulk_emails[:3]):  # Show first 3
+                                with st.expander(f"📧 {email_data['SKU']} - {email_data['Product']}", expanded=(i==0)):
+                                    st.markdown(f"**Priority:** {email_data['Priority']}")
+                                    st.text_area("Email Content", email_data['Body'], height=200, key=f"preview_email_{i}")
+
+                            if len(bulk_emails) > 3:
+                                st.info(f"+ {len(bulk_emails) - 3} more emails (see CSV export)")
+
+                            # Export option
+                            email_df = pd.DataFrame(bulk_emails)
+                            csv_data = email_df.to_csv(index=False)
+
+                            st.download_button(
+                                "📥 Download All Emails (CSV)",
+                                csv_data,
+                                file_name=f"bulk_vendor_emails_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                                mime="text/csv"
+                            )
+
+                        except Exception as e:
+                            st.error(f"Bulk email generation failed: {e}")
+                            logger.error(f"Bulk email error: {e}")
+
+        # TAB 3: Bulk Investigation Plans
+        with tab3:
+            st.markdown("#### Generate Investigation Plans for Multiple Products")
+            st.caption("Create comprehensive investigation plans with timelines and team assignments")
+
+            # Select products
+            selected_for_plans = st.multiselect(
+                "Select Products for Investigation Planning",
+                options=action_items['SKU'].tolist(),
+                default=action_items['SKU'].tolist()[:5],
+                help="Select which products need investigation plans"
+            )
+
+            # Allow custom method selection per SKU
+            use_custom_methods = st.checkbox(
+                "Customize investigation method per product",
+                help="Assign different investigation methods to different products"
+            )
+
+            method_assignments = {}
+            if use_custom_methods and selected_for_plans:
+                st.markdown("**Assign Investigation Methods:**")
+                cols = st.columns(3)
+                for i, sku in enumerate(selected_for_plans):
+                    with cols[i % 3]:
+                        method_assignments[sku] = st.selectbox(
+                            f"{sku}",
+                            ["Auto (AI)", "5 Whys", "Fishbone", "Formal RCA", "FMEA", "8D", "Pareto"],
+                            key=f"method_{sku}"
+                        )
+
+            if st.button("📋 Generate All Plans", type="primary", key="bulk_plans"):
+                if not selected_for_plans:
+                    st.warning("Please select at least one product")
+                else:
+                    with st.spinner(f"Generating {len(selected_for_plans)} investigation plans..."):
+                        try:
+                            bulk_plans = []
+
+                            for sku in selected_for_plans:
+                                row = action_items[action_items['SKU'] == sku].iloc[0]
+                                assigned_method = method_assignments.get(sku, "Auto (AI)")
+
+                                plan = InvestigationPlanGenerator.generate_plan(
+                                    sku=row['SKU'],
+                                    product_name=row.get('Name', row['SKU']),
+                                    category=row.get('Category', 'Unknown'),
+                                    issue_type=row.get('Action', 'Quality Issue'),
+                                    complaint_summary=row.get('Complaint_Text', 'See triggers'),
+                                    return_rate=row['Return_Rate'],
+                                    risk_score=row['Risk_Score'],
+                                    investigation_method=assigned_method
+                                )
+
+                                bulk_plans.append({
+                                    'SKU': sku,
+                                    'Product': row.get('Name', sku),
+                                    'Method': assigned_method,
+                                    'Priority': row.get('Action', 'Monitor'),
+                                    'Plan': InvestigationPlanGenerator.format_plan_markdown(plan),
+                                    'Estimated_Days': plan.get('timeline_days', 14),
+                                    'Team_Required': ', '.join(plan.get('team', []))
+                                })
+
+                            st.success(f"✅ Generated {len(bulk_plans)} investigation plans!")
+
+                            # Display preview
+                            for i, plan_data in enumerate(bulk_plans[:2]):  # Show first 2
+                                with st.expander(f"📋 {plan_data['SKU']} - {plan_data['Product']}", expanded=(i==0)):
+                                    st.markdown(f"**Method:** {plan_data['Method']} | **Priority:** {plan_data['Priority']}")
+                                    st.markdown(plan_data['Plan'])
+
+                            if len(bulk_plans) > 2:
+                                st.info(f"+ {len(bulk_plans) - 2} more plans (see CSV export)")
+
+                            # Export option
+                            plan_df = pd.DataFrame(bulk_plans)
+                            csv_data = plan_df.to_csv(index=False)
+
+                            st.download_button(
+                                "📥 Download All Plans (CSV)",
+                                csv_data,
+                                file_name=f"bulk_investigation_plans_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                                mime="text/csv"
+                            )
+
+                        except Exception as e:
+                            st.error(f"Bulk plan generation failed: {e}")
+                            logger.error(f"Bulk plan error: {e}")
+
+    # ========== END NEW FEATURES ==========
+
     # Safety Disclaimer
     st.markdown("---")
     st.warning("""
-    ⚠️ **Important Safety Notice**: Any safety concern or potential/confirmed injury requires a Quality Issue 
+    ⚠️ **Important Safety Notice**: Any safety concern or potential/confirmed injury requires a Quality Issue
     to be opened immediately in Odoo. This can be opened and closed same day as long as an investigation took place.
     Refer to Quality Incident Response SOP (QMS-SOP-001-9) for full procedures.
     """)
