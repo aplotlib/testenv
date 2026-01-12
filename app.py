@@ -116,6 +116,50 @@ AI_PROVIDER_OPTIONS = {
     'Both (Consensus)': AIProvider.BOTH
 }
 
+# Source of Flag options for tracking how issues came to attention
+SOURCE_OF_FLAG_OPTIONS = [
+    "Support Ticket",
+    "Amazon Review", 
+    "B2B Sales Rep",
+    "Internal Meeting",
+    "Internal Request",
+    "QA Inspection",
+    "Warehouse Report",
+    "Customer Complaint",
+    "Routine Screening",
+    "Management Request",
+    "Other (specify)"
+]
+
+# Statistical Analysis Options with clear explanations
+STATISTICAL_ANALYSIS_OPTIONS = {
+    "Auto (AI Recommended)": {
+        "description": "AI analyzes your data and recommends the best statistical test",
+        "when_to_use": "Best default choice - let the system decide based on your data characteristics",
+        "example": "AI might suggest MANOVA if you have multiple metrics, or Kruskal-Wallis if data is non-normal"
+    },
+    "ANOVA (Analysis of Variance)": {
+        "description": "Compares average return rates across different categories to determine if any category is statistically different from others",
+        "when_to_use": "When comparing ONE metric (like return rate) across multiple product categories",
+        "example": "Is MOB's 12% return rate significantly higher than SUP's 8%? ANOVA gives you a p-value to answer this definitively."
+    },
+    "MANOVA (Multivariate ANOVA)": {
+        "description": "Compares MULTIPLE metrics simultaneously across categories - more powerful than running separate ANOVAs",
+        "when_to_use": "When you have return rate AND landed cost (or other metrics) and want to test differences considering all metrics together",
+        "example": "Do categories differ when considering both return rate AND financial impact together? MANOVA answers this."
+    },
+    "Kruskal-Wallis (Non-parametric)": {
+        "description": "Like ANOVA but doesn't assume your data follows a normal bell curve - more robust for real-world messy data",
+        "when_to_use": "When you have outliers, skewed distributions, or small sample sizes where normality can't be assumed",
+        "example": "If one product has 50% returns while others are 5-10%, Kruskal-Wallis handles these outliers better than ANOVA"
+    },
+    "Descriptive Only": {
+        "description": "Just calculates summary statistics (means, medians, ranges) without formal hypothesis testing",
+        "when_to_use": "Quick overview, very small datasets (<5 products), or when you just need numbers not statistical significance",
+        "example": "Simple summary: MOB avg 10.2%, SUP avg 8.5%, LVA avg 9.1% - no p-values, just the facts"
+    }
+}
+
 # Default category thresholds (from SOPs)
 DEFAULT_CATEGORY_THRESHOLDS = {
     'B2B': 0.025,
@@ -283,6 +327,7 @@ def initialize_session_state():
         'ai_chat_history': [],
         'ai_needs_clarification': False,
         'ai_clarification_question': '',
+        'ai_guidance_chat': [],  # For sidebar guidance chat
         
         # Session persistence
         'saved_sessions': {},
@@ -290,6 +335,12 @@ def initialize_session_state():
         
         # Manual entry data (Lite mode)
         'lite_entries': [],
+        
+        # Screening metadata for tracker export
+        'screened_by': '',
+        'screening_date': datetime.now().strftime('%Y-%m-%d'),
+        'source_of_flag': 'Routine Screening',
+        'source_of_flag_other': '',
     }
     
     for key, value in defaults.items():
@@ -945,6 +996,43 @@ def render_quality_screening_tab():
     st.markdown("### 🧪 Quality Case Screening")
     st.caption("AI-powered quality screening compliant with ISO 13485, FDA 21 CFR 820, EU MDR, UK MDR")
     
+    # --- SCREENING SESSION INFO (Who, When, Source) ---
+    with st.expander("👤 Screening Session Info", expanded=True):
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.session_state.screened_by = st.text_input(
+                "Screened By*",
+                value=st.session_state.screened_by,
+                placeholder="Enter your name",
+                help="Your name - included in exports for accountability tracking"
+            )
+        
+        with col2:
+            source_idx = SOURCE_OF_FLAG_OPTIONS.index(st.session_state.source_of_flag) \
+                if st.session_state.source_of_flag in SOURCE_OF_FLAG_OPTIONS else 8  # Default to Routine Screening
+            st.session_state.source_of_flag = st.selectbox(
+                "Source of Flag*",
+                options=SOURCE_OF_FLAG_OPTIONS,
+                index=source_idx,
+                help="How did this product/issue come to your attention?"
+            )
+        
+        with col3:
+            if st.session_state.source_of_flag == "Other (specify)":
+                st.session_state.source_of_flag_other = st.text_input(
+                    "Specify Source",
+                    value=st.session_state.source_of_flag_other,
+                    placeholder="Enter custom source"
+                )
+            else:
+                st.session_state.screening_date = st.date_input(
+                    "Screening Date",
+                    value=datetime.now()
+                ).strftime('%Y-%m-%d')
+    
+    st.divider()
+    
     # --- MODE SELECTION ---
     col1, col2, col3 = st.columns([2, 2, 2])
     
@@ -969,24 +1057,33 @@ def render_quality_screening_tab():
     
     with col3:
         # Threshold profile selection
+        profile_options = list(st.session_state.threshold_profiles.keys())
         profile = st.selectbox(
             "Threshold Profile",
-            options=list(st.session_state.threshold_profiles.keys()) + ["+ Create New"],
-            index=list(st.session_state.threshold_profiles.keys()).index(st.session_state.active_profile) 
-                  if st.session_state.active_profile in st.session_state.threshold_profiles else 0
+            options=profile_options + ["➕ Create New Profile"],
+            index=profile_options.index(st.session_state.active_profile) 
+                  if st.session_state.active_profile in profile_options else 0,
+            help="Select return rate thresholds to screen against"
         )
-        if profile != "+ Create New":
+        
+        if profile != "➕ Create New Profile":
             st.session_state.active_profile = profile
     
     st.divider()
     
-    # --- SIDEBAR CONFIGURATION ---
+    # --- THRESHOLD PROFILE MANAGEMENT ---
+    render_threshold_manager(profile)
+    
+    # --- SIDEBAR: AI CHAT + CONFIG ---
     with st.sidebar:
+        st.markdown("---")
+        render_ai_chat_panel()
+        
         st.markdown("---")
         st.markdown("### 📋 Tab 3 Config")
         
         # Custom threshold file upload
-        st.markdown("#### Custom Thresholds")
+        st.markdown("#### Upload Threshold File")
         threshold_file = st.file_uploader(
             "Upload threshold CSV",
             type=['csv', 'xlsx'],
@@ -1026,6 +1123,405 @@ def render_quality_screening_tab():
     # --- RESULTS DISPLAY ---
     if st.session_state.qc_results_df is not None:
         render_screening_results()
+
+
+def render_threshold_manager(selected_profile):
+    """Render threshold profile viewer/editor"""
+    
+    with st.expander("📊 Threshold Profile Manager", expanded=(selected_profile == "➕ Create New Profile")):
+        
+        if selected_profile == "➕ Create New Profile":
+            # CREATE NEW PROFILE
+            st.markdown("#### Create New Threshold Profile")
+            
+            new_profile_name = st.text_input(
+                "Profile Name",
+                placeholder="e.g., Q1 Strict Review, Post-Holiday Cleanup",
+                key="new_profile_name"
+            )
+            
+            st.markdown("**Set Return Rate Thresholds by Category**")
+            st.caption("Enter the maximum acceptable return rate (%) for each category. Products exceeding these will be flagged.")
+            
+            # Base profile to start from
+            base_profile = st.selectbox(
+                "Start from existing profile",
+                options=list(st.session_state.threshold_profiles.keys()),
+                key="base_profile"
+            )
+            base_thresholds = st.session_state.threshold_profiles[base_profile].copy()
+            
+            # Threshold inputs in columns
+            new_thresholds = {}
+            cols = st.columns(4)
+            categories = list(DEFAULT_CATEGORY_THRESHOLDS.keys())
+            
+            for idx, cat in enumerate(categories):
+                with cols[idx % 4]:
+                    default_val = base_thresholds.get(cat, 0.10) * 100
+                    new_val = st.number_input(
+                        f"{cat}",
+                        min_value=0.0,
+                        max_value=100.0,
+                        value=float(default_val),
+                        step=0.5,
+                        format="%.1f",
+                        key=f"thresh_{cat}",
+                        help=f"SOP default: {DEFAULT_CATEGORY_THRESHOLDS.get(cat, 0.10)*100:.1f}%"
+                    )
+                    new_thresholds[cat] = new_val / 100  # Convert back to decimal
+            
+            # Quick adjustment buttons
+            st.markdown("**Quick Adjustments**")
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                if st.button("Tighten All (-20%)", key="tighten"):
+                    for cat in categories:
+                        st.session_state[f"thresh_{cat}"] = st.session_state.get(f"thresh_{cat}", 10) * 0.8
+                    st.rerun()
+            with col2:
+                if st.button("Loosen All (+20%)", key="loosen"):
+                    for cat in categories:
+                        st.session_state[f"thresh_{cat}"] = st.session_state.get(f"thresh_{cat}", 10) * 1.2
+                    st.rerun()
+            with col3:
+                if st.button("Reset to SOP", key="reset_sop"):
+                    for cat in categories:
+                        st.session_state[f"thresh_{cat}"] = DEFAULT_CATEGORY_THRESHOLDS.get(cat, 0.10) * 100
+                    st.rerun()
+            with col4:
+                pass  # spacer
+            
+            # Save button
+            st.markdown("---")
+            if st.button("💾 Save New Profile", type="primary", disabled=not new_profile_name):
+                if new_profile_name in st.session_state.threshold_profiles:
+                    st.error(f"Profile '{new_profile_name}' already exists. Choose a different name.")
+                else:
+                    st.session_state.threshold_profiles[new_profile_name] = new_thresholds
+                    st.session_state.active_profile = new_profile_name
+                    st.success(f"✅ Created profile: {new_profile_name}")
+                    st.rerun()
+        
+        else:
+            # VIEW/EDIT EXISTING PROFILE
+            st.markdown(f"#### Profile: {selected_profile}")
+            
+            current_thresholds = st.session_state.threshold_profiles.get(
+                selected_profile, DEFAULT_CATEGORY_THRESHOLDS
+            )
+            
+            # Show current thresholds in a nice format
+            col1, col2 = st.columns([2, 1])
+            
+            with col1:
+                # Table view
+                threshold_data = []
+                for cat, thresh in current_thresholds.items():
+                    sop_default = DEFAULT_CATEGORY_THRESHOLDS.get(cat, 0.10)
+                    diff = ((thresh - sop_default) / sop_default) * 100 if sop_default > 0 else 0
+                    threshold_data.append({
+                        'Category': cat,
+                        'Threshold': f"{thresh*100:.1f}%",
+                        'SOP Default': f"{sop_default*100:.1f}%",
+                        'Diff': f"{diff:+.0f}%" if diff != 0 else "—"
+                    })
+                
+                st.dataframe(
+                    pd.DataFrame(threshold_data),
+                    hide_index=True,
+                    use_container_width=True
+                )
+            
+            with col2:
+                st.markdown("**Profile Actions**")
+                
+                if selected_profile not in ['Standard Review']:  # Protect default
+                    if st.button("🗑️ Delete Profile", key="delete_profile"):
+                        del st.session_state.threshold_profiles[selected_profile]
+                        st.session_state.active_profile = 'Standard Review'
+                        st.rerun()
+                
+                if st.button("📋 Duplicate Profile", key="dup_profile"):
+                    new_name = f"{selected_profile} (Copy)"
+                    st.session_state.threshold_profiles[new_name] = current_thresholds.copy()
+                    st.success(f"Created: {new_name}")
+                    st.rerun()
+            
+            # Edit mode
+            st.markdown("---")
+            edit_mode = st.checkbox("✏️ Edit this profile", key="edit_mode")
+            
+            if edit_mode and selected_profile != 'Standard Review':
+                st.markdown("**Edit Return Rate Thresholds (%)**")
+                
+                edited_thresholds = {}
+                cols = st.columns(4)
+                categories = list(current_thresholds.keys())
+                
+                for idx, cat in enumerate(categories):
+                    with cols[idx % 4]:
+                        current_val = current_thresholds.get(cat, 0.10) * 100
+                        new_val = st.number_input(
+                            f"{cat}",
+                            min_value=0.0,
+                            max_value=100.0,
+                            value=float(current_val),
+                            step=0.5,
+                            format="%.1f",
+                            key=f"edit_{cat}"
+                        )
+                        edited_thresholds[cat] = new_val / 100
+                
+                if st.button("💾 Save Changes", type="primary"):
+                    st.session_state.threshold_profiles[selected_profile] = edited_thresholds
+                    st.success("✅ Profile updated")
+                    st.rerun()
+            
+            elif edit_mode and selected_profile == 'Standard Review':
+                st.warning("⚠️ Cannot edit Standard Review (SOP defaults). Duplicate it first to customize.")
+            
+            # Explanation
+            st.markdown("---")
+            st.markdown("""
+            **How Thresholds Work:**
+            - Products with return rates **above** their category threshold are flagged
+            - Lower thresholds = stricter screening (more products flagged)
+            - Higher thresholds = looser screening (fewer products flagged)
+            
+            **Example:** If MOB threshold is 10%, a product with 12% return rate gets flagged.
+            """)
+
+
+def render_ai_chat_panel():
+    """Render AI chat panel in sidebar for guidance and discussion"""
+    
+    st.markdown("### 💬 AI Assistant")
+    
+    # Initialize chat history if needed
+    if 'ai_guidance_chat' not in st.session_state:
+        st.session_state.ai_guidance_chat = []
+    
+    # Chat container with scrollable history
+    chat_container = st.container()
+    
+    with chat_container:
+        # Show chat history (last 10 messages)
+        for msg in st.session_state.ai_guidance_chat[-10:]:
+            if msg['role'] == 'user':
+                st.markdown(f"**You:** {msg['content']}")
+            else:
+                st.markdown(f"**AI:** {msg['content']}")
+            st.markdown("---")
+    
+    # Quick action buttons
+    st.markdown("**Quick Questions:**")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("❓ How to set thresholds?", key="q1", use_container_width=True):
+            _add_ai_response("threshold_help")
+    
+    with col2:
+        if st.button("📊 Explain my results", key="q2", use_container_width=True):
+            _add_ai_response("results_help")
+    
+    col3, col4 = st.columns(2)
+    
+    with col3:
+        if st.button("🎯 What should I screen?", key="q3", use_container_width=True):
+            _add_ai_response("screening_help")
+    
+    with col4:
+        if st.button("⚠️ Risk score meaning?", key="q4", use_container_width=True):
+            _add_ai_response("risk_help")
+    
+    # Free text input
+    st.markdown("**Ask anything:**")
+    user_question = st.text_input(
+        "Type your question",
+        placeholder="e.g., Should I flag products under 5% return rate?",
+        key="ai_chat_input",
+        label_visibility="collapsed"
+    )
+    
+    if st.button("Send", key="send_chat", use_container_width=True):
+        if user_question.strip():
+            _process_ai_chat(user_question)
+
+
+def _add_ai_response(response_type: str):
+    """Add predefined AI responses for quick questions"""
+    
+    responses = {
+        "threshold_help": {
+            "question": "How should I set thresholds?",
+            "answer": """**Setting Return Rate Thresholds:**
+
+1. **Start with SOP defaults** - These are based on historical category performance
+
+2. **Adjust based on your goals:**
+   - **Stricter (lower %)**: Use before peak seasons, new product launches, or after quality issues
+   - **Looser (higher %)**: For stable products or when focusing resources on high-priority items
+
+3. **Category guidance:**
+   - **MOB (Mobility)**: 10% typical - complex products, higher returns expected
+   - **SUP (Support)**: 11% typical - sizing issues common
+   - **B2B**: 2.5% typical - professional buyers, lower returns
+
+4. **Pro tip**: Create an "Aggressive Q4" profile at 80% of standard thresholds before holiday season."""
+        },
+        "results_help": {
+            "question": "Explain my results",
+            "answer": """**Understanding Your Screening Results:**
+
+1. **Risk Score (0-100):**
+   - 70-100: Immediate attention needed
+   - 40-69: Open quality case for investigation
+   - 20-39: Monitor closely
+   - 0-19: No action required
+
+2. **Action Column:**
+   - "Immediate Escalation" = Safety/high-value issue
+   - "Open Quality Case" = Exceeds thresholds
+   - "Monitor" = Elevated but within tolerance
+
+3. **SPC Signal:**
+   - "Critical (>3σ)" = Statistical outlier
+   - "Warning (>2σ)" = Trending concerning
+   - "Normal" = Within expected variation
+
+4. **Key tip**: Sort by Risk Score descending to prioritize your investigation queue."""
+        },
+        "screening_help": {
+            "question": "What should I screen?",
+            "answer": """**What to Screen:**
+
+1. **Regular screening (monthly):**
+   - All products with >$50K monthly sales
+   - Products launched in last 90 days
+   - Any product with customer complaints
+
+2. **Priority screening:**
+   - Products mentioned in safety reports
+   - High landed cost items (>$100)
+   - Products with sudden return rate changes
+
+3. **Data to gather:**
+   - Units sold and returned (required)
+   - Top complaint reasons (highly recommended)
+   - Landed cost (helps prioritization)
+   - Any customer feedback verbatims
+
+4. **Pro tip**: Use the trailing 12-month Amazon data as your baseline, then screen specific products in Lite mode for deeper investigation."""
+        },
+        "risk_help": {
+            "question": "What does Risk Score mean?",
+            "answer": """**Risk Score Breakdown (0-100):**
+
+The composite score combines 5 factors:
+
+1. **Statistical Deviation (25%)** - How far above category threshold
+   - >50% above = 25 pts
+   - >25% above = 20 pts
+   - Any amount above = 15 pts
+
+2. **Financial Impact (25%)** - Landed cost consideration
+   - >$150 cost = 25 pts
+   - >$100 cost = 18 pts
+   - >$50 cost = 10 pts
+
+3. **Safety Severity (30%)** - Largest weight
+   - Safety risk flagged = 30 pts
+   - Critical complaint = 25 pts
+   - Major defect = 15 pts
+
+4. **Trend Direction (10%)** - Is it getting worse?
+   - Rapidly deteriorating = 10 pts
+   - Stable = 3 pts
+   - Improving = 0 pts
+
+5. **Complaint Volume (10%)** - Frequency of issues
+   - High complaint rate = 10 pts
+   - Moderate = 6 pts
+   - Low = 0 pts"""
+        }
+    }
+    
+    if response_type in responses:
+        resp = responses[response_type]
+        st.session_state.ai_guidance_chat.append({
+            'role': 'user',
+            'content': resp['question']
+        })
+        st.session_state.ai_guidance_chat.append({
+            'role': 'assistant',
+            'content': resp['answer']
+        })
+        st.rerun()
+
+
+def _process_ai_chat(user_question: str):
+    """Process free-form user question with AI"""
+    
+    # Add user message
+    st.session_state.ai_guidance_chat.append({
+        'role': 'user',
+        'content': user_question
+    })
+    
+    # Build context-aware prompt
+    context_parts = []
+    
+    # Add current results context if available
+    if st.session_state.qc_results_df is not None:
+        df = st.session_state.qc_results_df
+        context_parts.append(f"Current screening has {len(df)} products.")
+        high_risk = len(df[df['Risk_Score'] >= 70]) if 'Risk_Score' in df.columns else 0
+        context_parts.append(f"High risk items: {high_risk}")
+    
+    # Add active profile context
+    context_parts.append(f"Active threshold profile: {st.session_state.active_profile}")
+    
+    context = " ".join(context_parts)
+    
+    system_prompt = f"""You are a medical device quality management expert assistant. 
+You help users with quality case screening, understanding return rates, setting thresholds, and interpreting results.
+Be concise but helpful. Use bullet points for clarity.
+Current context: {context}
+Answer questions about quality management, ISO 13485, FDA QSR, return rate analysis, and the screening tool."""
+    
+    try:
+        analyzer = get_ai_analyzer()
+        if analyzer:
+            response = analyzer.generate_text(
+                user_question,
+                system_prompt,
+                mode='chat'
+            )
+            
+            if response:
+                st.session_state.ai_guidance_chat.append({
+                    'role': 'assistant',
+                    'content': response
+                })
+            else:
+                st.session_state.ai_guidance_chat.append({
+                    'role': 'assistant',
+                    'content': "I couldn't generate a response. Please check your API connection."
+                })
+        else:
+            st.session_state.ai_guidance_chat.append({
+                'role': 'assistant',
+                'content': "AI not available. Please check API configuration."
+            })
+    except Exception as e:
+        st.session_state.ai_guidance_chat.append({
+            'role': 'assistant',
+            'content': f"Error: {str(e)}"
+        })
+    
+    st.rerun()
 
 
 def render_lite_mode():
@@ -1382,7 +1878,7 @@ def render_pro_mode():
             st.dataframe(df_input.head(10), use_container_width=True)
             
             # Statistical analysis suggestion
-            st.markdown("#### 📊 Statistical Analysis")
+            st.markdown("#### 📊 Statistical Analysis Options")
             
             # Prepare numeric columns for suggestion
             numeric_cols = []
@@ -1398,44 +1894,70 @@ def render_pro_mode():
             )
             st.session_state.statistical_suggestion = suggestion
             
-            # Display suggestion
-            with st.expander("🤖 AI Analysis Suggestion", expanded=True):
-                st.markdown(f"**Recommended:** {suggestion['recommended']}")
-                st.markdown(f"**Reason:** {suggestion['reason']}")
-                
-                if suggestion['alternatives']:
-                    st.markdown("**Alternatives:**")
-                    for alt in suggestion['alternatives']:
-                        st.caption(f"- {alt['test']}: {alt['when']}")
+            # Display AI recommendation prominently
+            rec_col, alt_col = st.columns([2, 1])
+            
+            with rec_col:
+                st.success(f"🤖 **AI Recommends: {suggestion['recommended']}**")
+                st.caption(suggestion['reason'])
                 
                 if suggestion['warnings']:
                     for warning in suggestion['warnings']:
                         st.warning(warning)
             
-            # User override
+            with alt_col:
+                if suggestion['alternatives']:
+                    st.markdown("**Alternatives:**")
+                    for alt in suggestion['alternatives'][:2]:
+                        st.caption(f"• {alt['test']}")
+            
+            st.markdown("---")
+            
+            # Analysis type selection with detailed explanations
+            st.markdown("##### Choose Your Analysis Method")
+            
+            analysis_type = st.selectbox(
+                "Statistical Test",
+                options=list(STATISTICAL_ANALYSIS_OPTIONS.keys()),
+                index=0,
+                help="Select the statistical method to use. Auto uses AI recommendation."
+            )
+            
+            # Show detailed explanation for selected analysis
+            selected_info = STATISTICAL_ANALYSIS_OPTIONS[analysis_type]
+            
+            with st.expander(f"ℹ️ About: {analysis_type}", expanded=True):
+                st.markdown(f"**What it does:** {selected_info['description']}")
+                st.markdown(f"**When to use:** {selected_info['when_to_use']}")
+                st.markdown(f"**Example:** _{selected_info['example']}_")
+            
+            # Additional options
             col1, col2 = st.columns(2)
             with col1:
-                analysis_type = st.selectbox(
-                    "Select Analysis Type",
-                    ["Auto (AI Suggested)", "ANOVA", "MANOVA", "Kruskal-Wallis", "Descriptive Only"],
-                    index=0
+                include_claude_review = st.checkbox(
+                    "🔍 Request Claude AI Review",
+                    help="Get additional cross-analysis from Claude (slower but more thorough)"
                 )
             with col2:
-                include_claude_review = st.checkbox(
-                    "Request Claude AI Review",
-                    help="Get additional analysis from Claude AI (slower but more thorough)"
+                run_posthoc = st.checkbox(
+                    "📈 Run Post-Hoc Tests",
+                    value=True,
+                    help="If results are significant, identify exactly which categories differ"
                 )
             
+            st.markdown("---")
+            
             # Run analysis button
-            if st.button("🔍 Run Full Screening Analysis", type="primary", use_container_width=True):
+            if st.button("🚀 Run Full Screening Analysis", type="primary", use_container_width=True):
                 # Rename columns to standard names
                 df_renamed = df_input.rename(columns={v: k for k, v in validation['column_mapping'].items()})
                 
                 # Determine analysis type
-                if analysis_type == "Auto (AI Suggested)":
+                if analysis_type == "Auto (AI Recommended)":
                     actual_analysis = suggestion['recommended']
                 else:
-                    actual_analysis = analysis_type
+                    # Extract just the test name without description
+                    actual_analysis = analysis_type.split(" (")[0]
                 
                 process_screening(df_renamed, analysis_type=actual_analysis, include_claude=include_claude_review)
         
@@ -1562,15 +2084,29 @@ def process_screening(df: pd.DataFrame, analysis_type: str = "ANOVA", include_cl
                 risk_score=risk_score
             )
             
-            # Build result row
+            # Build result row with all data + screening metadata
             result_row = row.to_dict()
+            
+            # Get source of flag (handle "Other" case)
+            source_flag = st.session_state.source_of_flag
+            if source_flag == "Other (specify)":
+                source_flag = st.session_state.source_of_flag_other or "Other"
+            
             result_row.update({
                 'Risk_Score': risk_score,
                 'Risk_Components': json.dumps(risk_components),
                 'SPC_Signal': spc_result.signal_type,
                 'SPC_Z_Score': spc_result.z_score,
                 'Action': action,
-                'Triggers': '; '.join(triggers) if triggers else 'None'
+                'Triggers': '; '.join(triggers) if triggers else 'None',
+                # Screening metadata for tracker
+                'Screened_By': st.session_state.screened_by or 'Not specified',
+                'Screening_Date': st.session_state.screening_date,
+                'Source_of_Flag': source_flag,
+                'Threshold_Profile': st.session_state.active_profile,
+                # Blank columns for Google Sheets tracker
+                'Current_Status': '',  # User fills in: Open, Investigating, Closed, etc.
+                'Notes': ''  # User adds their own notes
             })
             results.append(result_row)
         
@@ -1876,38 +2412,111 @@ def render_screening_results():
     with st.expander("📐 Methodology & Math", expanded=False):
         st.markdown(generate_methodology_markdown())
     
-    # Export
+    # Export Section - Google Sheets Tracker Compatible
     st.markdown("---")
-    col1, col2 = st.columns(2)
+    st.markdown("### 📥 Export for Team Tracker")
+    
+    st.info("""
+    **Google Sheets Compatible Format**: Exports include all screening data plus blank columns for 
+    **Current Status** and **Notes**. Copy/paste new rows directly into your team's quality tracker spreadsheet.
+    """)
+    
+    # Define tracker-friendly column order
+    tracker_columns = [
+        'Screening_Date', 'Screened_By', 'Source_of_Flag', 
+        'SKU', 'Name', 'Category',
+        'Sold', 'Returned', 'Return_Rate', 'Category_Threshold',
+        'Risk_Score', 'SPC_Signal', 'Action', 'Triggers',
+        'Complaint_Text', 'Landed Cost', 'Safety Risk',
+        'Threshold_Profile', 'Current_Status', 'Notes'
+    ]
+    
+    # Prepare export dataframe
+    export_df = df.copy()
+    
+    # Format percentages for readability
+    if 'Return_Rate' in export_df.columns:
+        export_df['Return_Rate'] = export_df['Return_Rate'].apply(lambda x: f"{x:.1%}" if pd.notna(x) else '')
+    if 'Category_Threshold' in export_df.columns:
+        export_df['Category_Threshold'] = export_df['Category_Threshold'].apply(lambda x: f"{x:.1%}" if pd.notna(x) else '')
+    if 'Risk_Score' in export_df.columns:
+        export_df['Risk_Score'] = export_df['Risk_Score'].apply(lambda x: f"{x:.0f}" if pd.notna(x) else '')
+    
+    # Ensure all tracker columns exist
+    for col in tracker_columns:
+        if col not in export_df.columns:
+            export_df[col] = ''
+    
+    # Reorder to tracker format
+    final_columns = [c for c in tracker_columns if c in export_df.columns]
+    other_columns = [c for c in export_df.columns if c not in tracker_columns and c not in ['Risk_Components', 'SPC_Z_Score']]
+    export_df = export_df[final_columns + other_columns]
+    
+    col1, col2, col3 = st.columns(3)
     
     with col1:
-        # Excel export
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df.to_excel(writer, index=False, sheet_name='Screening Results')
-            
-            # Add metadata sheet
-            metadata = pd.DataFrame([
-                ['Analysis Date', datetime.now().strftime('%Y-%m-%d %H:%M')],
-                ['AI Provider', st.session_state.ai_provider.value],
-                ['Threshold Profile', st.session_state.active_profile],
-                ['Total Products', len(df)],
-                ['Escalations', len(df[df['Action'].str.contains('Escalat', na=False)])],
-                ['Quality Cases', len(df[df['Action'].str.contains('Case', na=False)])]
-            ], columns=['Parameter', 'Value'])
-            metadata.to_excel(writer, index=False, sheet_name='Metadata')
-        
-        output.seek(0)
+        # CSV - best for Google Sheets paste
+        csv_data = export_df.to_csv(index=False)
         st.download_button(
-            "📥 Download Full Report (Excel)",
-            output.getvalue(),
-            file_name=f"quality_screening_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            "📥 CSV (Google Sheets)",
+            csv_data,
+            file_name=f"quality_screening_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            mime="text/csv",
+            help="Best for copy/paste into Google Sheets tracker",
+            use_container_width=True
         )
     
     with col2:
+        # Excel with formatting
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            export_df.to_excel(writer, index=False, sheet_name='Screening Results')
+            
+            # Add metadata sheet
+            metadata = pd.DataFrame([
+                ['Screening Date', st.session_state.screening_date],
+                ['Screened By', st.session_state.screened_by],
+                ['Source of Flag', st.session_state.source_of_flag],
+                ['AI Provider', st.session_state.ai_provider.value],
+                ['Threshold Profile', st.session_state.active_profile],
+                ['Total Products', len(df)],
+                ['Immediate Escalations', len(df[df['Action'].str.contains('Escalat', na=False)])],
+                ['Quality Cases', len(df[df['Action'].str.contains('Case', na=False)])],
+                ['Monitor Items', len(df[df['Action'].str.contains('Monitor', na=False)])],
+                ['Export Time', datetime.now().strftime('%Y-%m-%d %H:%M:%S')]
+            ], columns=['Parameter', 'Value'])
+            metadata.to_excel(writer, index=False, sheet_name='Metadata')
+            
+            # Format the results sheet
+            workbook = writer.book
+            worksheet = writer.sheets['Screening Results']
+            
+            # Header format
+            header_fmt = workbook.add_format({
+                'bold': True, 
+                'bg_color': '#4FACFE', 
+                'font_color': 'white',
+                'border': 1
+            })
+            
+            # Write formatted headers
+            for col_num, value in enumerate(export_df.columns):
+                worksheet.write(0, col_num, value, header_fmt)
+                worksheet.set_column(col_num, col_num, 15)  # Set column width
+        
+        output.seek(0)
+        st.download_button(
+            "📥 Excel (Full Report)",
+            output.getvalue(),
+            file_name=f"quality_screening_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            help="Full report with metadata sheet",
+            use_container_width=True
+        )
+    
+    with col3:
         # Clear results
-        if st.button("🗑️ Clear Results", type="secondary"):
+        if st.button("🗑️ Clear Results", use_container_width=True):
             st.session_state.qc_results_df = None
             st.session_state.anova_result = None
             st.session_state.manova_result = None
