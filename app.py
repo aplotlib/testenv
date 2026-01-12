@@ -1287,7 +1287,7 @@ def render_threshold_manager(selected_profile):
                 st.dataframe(
                     pd.DataFrame(threshold_data),
                     hide_index=True,
-                    use_container_width=True
+                    width="stretch"
                 )
             
             with col2:
@@ -1376,21 +1376,21 @@ def render_ai_chat_panel():
     col1, col2 = st.columns(2)
     
     with col1:
-        if st.button("❓ How to set thresholds?", key="q1", use_container_width=True):
+        if st.button("❓ How to set thresholds?", key="q1", width="stretch"):
             _add_ai_response("threshold_help")
     
     with col2:
-        if st.button("📊 Explain my results", key="q2", use_container_width=True):
+        if st.button("📊 Explain my results", key="q2", width="stretch"):
             _add_ai_response("results_help")
     
     col3, col4 = st.columns(2)
     
     with col3:
-        if st.button("🎯 What should I screen?", key="q3", use_container_width=True):
+        if st.button("🎯 What should I screen?", key="q3", width="stretch"):
             _add_ai_response("screening_help")
     
     with col4:
-        if st.button("⚠️ Risk score meaning?", key="q4", use_container_width=True):
+        if st.button("⚠️ Risk score meaning?", key="q4", width="stretch"):
             _add_ai_response("risk_help")
     
     # Free text input
@@ -1402,7 +1402,7 @@ def render_ai_chat_panel():
         label_visibility="collapsed"
     )
     
-    if st.button("Send", key="send_chat", use_container_width=True):
+    if st.button("Send", key="send_chat", width="stretch"):
         if user_question.strip():
             _process_ai_chat(user_question)
 
@@ -1751,7 +1751,7 @@ def render_lite_mode():
     # Process button
     col_btn, col_clear = st.columns([3, 1])
     with col_btn:
-        if st.button("🔍 Run AI Screening", type="primary", use_container_width=True, disabled=valid_count == 0):
+        if st.button("🔍 Run AI Screening", type="primary", width="stretch", disabled=valid_count == 0):
             # Filter to valid entries only
             valid_entries = [e for e in all_entries if e.get('_valid', False)]
             
@@ -1764,7 +1764,7 @@ def render_lite_mode():
             process_screening(df_input)
     
     with col_clear:
-        if st.button("🗑️ Clear All", use_container_width=True):
+        if st.button("🗑️ Clear All", width="stretch"):
             st.session_state.lite_entries = [{'id': 0}]
             st.rerun()
 
@@ -1932,7 +1932,7 @@ def render_pro_mode():
             
             # Preview data
             st.markdown("#### Data Preview")
-            st.dataframe(df_input.head(10), use_container_width=True)
+            st.dataframe(df_input.head(10), width="stretch")
             
             # Statistical analysis suggestion
             st.markdown("#### 📊 Statistical Analysis Options")
@@ -2005,7 +2005,7 @@ def render_pro_mode():
             st.markdown("---")
             
             # Run analysis button
-            if st.button("🚀 Run Full Screening Analysis", type="primary", use_container_width=True):
+            if st.button("🚀 Run Full Screening Analysis", type="primary", width="stretch"):
                 # Rename columns to standard names
                 df_renamed = df_input.rename(columns={v: k for k, v in validation['column_mapping'].items()})
                 
@@ -2338,12 +2338,13 @@ def render_screening_results():
                                    "medium" if result.effect_size and result.effect_size > 0.5 else \
                                    "small" if result.effect_size and result.effect_size > 0.2 else "negligible"
 
+                    effect_size_str = f"{result.effect_size:.3f}" if result.effect_size else "N/A"
                     st.markdown(f"""
                     **Bottom Line:** Your product categories {significance_text} in their return rates.
 
                     - **{stat_name} ({result.statistic:.3f})**: {stat_help}
                     - **p-value ({result.p_value:.4f})**: {STATS_EXPLAINER['p_value']}
-                    - **Effect Size ({result.effect_size:.3f if result.effect_size else 'N/A'})**: The practical difference is **{effect_interp}**. {STATS_EXPLAINER['effect_size']}
+                    - **Effect Size ({effect_size_str})**: The practical difference is **{effect_interp}**. {STATS_EXPLAINER['effect_size']}
 
                     {"✅ **Action:** The differences are real and meaningful. Investigate high-return categories." if result.significant and effect_interp in ['large', 'medium']
                      else "⚠️ **Action:** Differences exist but may not be practically significant. Monitor trends." if result.significant
@@ -2369,7 +2370,7 @@ def render_screening_results():
                 tooltip=['SKU', 'Category', 'Return_Rate_Pct', 'Landed Cost', 'Risk_Score', 'Action']
             ).interactive().properties(height=400)
             
-            st.altair_chart(chart, use_container_width=True)
+            st.altair_chart(chart, width="stretch")
     
     # Claude Review (if available)
     claude_reviews = [c for c in st.session_state.ai_chat_history if c.get('role') == 'claude_review']
@@ -2406,7 +2407,7 @@ def render_screening_results():
     
     st.dataframe(
         display_df.style.apply(highlight_action, axis=1),
-        use_container_width=True,
+        width="stretch",
         height=400
     )
     
@@ -2897,7 +2898,7 @@ def render_screening_results():
                             preview_df = capa_plan.to_dataframe()
                             with st.expander("📋 Preview Plan", expanded=True):
                                 st.dataframe(preview_df[['Task ID', 'Task Name', 'Assigned To', 'Duration (Days)', 'Status', 'Priority']],
-                                           use_container_width=True, height=400)
+                                           width="stretch", height=400)
 
                             # Download options
                             col1, col2 = st.columns(2)
@@ -2998,7 +2999,7 @@ def render_screening_results():
                             preview_df = crit_plan.to_dataframe()
                             with st.expander("📋 Preview Plan", expanded=True):
                                 st.dataframe(preview_df[['Task ID', 'Task Name', 'Assigned To', 'Duration (Days)', 'Status', 'Priority']],
-                                           use_container_width=True, height=400)
+                                           width="stretch", height=400)
 
                             # Download options
                             col1, col2 = st.columns(2)
@@ -3148,7 +3149,7 @@ def render_screening_results():
                                 preview_df = rework_plan.to_dataframe()
                                 with st.expander("📋 Preview Plan", expanded=True):
                                     st.dataframe(preview_df[['Task ID', 'Task Name', 'Assigned To', 'Duration (Days)', 'Status', 'Priority']],
-                                               use_container_width=True, height=400)
+                                               width="stretch", height=400)
 
                                 # Download options
                                 col1, col2 = st.columns(2)
@@ -3239,7 +3240,7 @@ def render_screening_results():
             file_name=f"quality_screening_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
             mime="text/csv",
             help="Best for copy/paste into Google Sheets tracker",
-            use_container_width=True
+            width="stretch"
         )
     
     with col2:
@@ -3287,12 +3288,12 @@ def render_screening_results():
             file_name=f"quality_screening_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             help="Full report with metadata sheet",
-            use_container_width=True
+            width="stretch"
         )
     
     with col3:
         # Clear results
-        if st.button("🗑️ Clear Results", use_container_width=True):
+        if st.button("🗑️ Clear Results", width="stretch"):
             st.session_state.qc_results_df = None
             st.session_state.anova_result = None
             st.session_state.manova_result = None
@@ -3464,7 +3465,7 @@ def main():
                     file_name=st.session_state.export_filename,
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     type="primary",
-                    use_container_width=True
+                    width="stretch"
                 )
 
     # --- TAB 2: B2B Reports (PRESERVED) ---
@@ -3572,7 +3573,7 @@ def main():
             
             # Preview Table
             st.markdown("#### Preview (Top 10)")
-            st.dataframe(df_res.head(10), use_container_width=True)
+            st.dataframe(df_res.head(10), width="stretch")
             
             col1, col2 = st.columns(2)
             with col1:
@@ -3582,10 +3583,10 @@ def main():
                     file_name=st.session_state.b2b_export_filename,
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     type="primary",
-                    use_container_width=True
+                    width="stretch"
                 )
             with col2:
-                if st.button("🔄 Clear / Start Over", use_container_width=True):
+                if st.button("🔄 Clear / Start Over", width="stretch"):
                     st.session_state.b2b_processed_data = None
                     st.session_state.b2b_processing_complete = False
                     st.rerun()
