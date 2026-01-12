@@ -885,6 +885,294 @@ def process_dataframe_in_batches(df, analyzer, batch_size=20):
     
     return results
 
+# =============================================================================
+# DEEP DIVE ANALYSIS - Investigation Method Recommendations
+# =============================================================================
+
+class DeepDiveAnalyzer:
+    """
+    Advanced AI analysis for flagged products with investigation recommendations
+    """
+
+    def __init__(self, ai_analyzer: 'EnhancedAIAnalyzer'):
+        self.ai = ai_analyzer
+        self.investigation_methods = {
+            '5_whys': {
+                'name': '5 Whys Analysis',
+                'best_for': 'Simple, linear problems with clear cause-effect relationships',
+                'use_when': 'Problem has a clear starting point and you need to dig deep into root cause',
+                'example': 'Product defect → Why? → Manufacturing issue → Why? → Machine calibration → Why? (repeat 5x)'
+            },
+            'fishbone': {
+                'name': 'Fishbone Diagram (Ishikawa)',
+                'best_for': 'Complex problems with multiple potential contributing factors',
+                'use_when': 'Many possible causes from different categories (people, process, materials, equipment)',
+                'example': 'Analyzing all potential causes of product quality issues across manufacturing, design, materials, etc.'
+            },
+            'rca': {
+                'name': 'Root Cause Analysis (Formal RCA)',
+                'best_for': 'Critical/high-impact issues requiring comprehensive investigation',
+                'use_when': 'Safety concerns, regulatory issues, or high-value/high-volume problems',
+                'example': 'Medical device failure with potential patient impact - requires full documentation'
+            },
+            'fmea': {
+                'name': 'FMEA (Failure Mode Effects Analysis)',
+                'best_for': 'Proactive risk assessment of potential failures',
+                'use_when': 'New product launches, design changes, or preventing future issues',
+                'example': 'Analyzing all ways a product could fail and prioritizing prevention efforts'
+            },
+            '8d': {
+                'name': '8D Problem Solving',
+                'best_for': 'Team-based problem solving with customer impact',
+                'use_when': 'Customer complaints requiring cross-functional investigation and containment',
+                'example': 'Batch quality issue affecting multiple customers - requires immediate containment + long-term fix'
+            },
+            'pareto': {
+                'name': 'Pareto Analysis (80/20 Rule)',
+                'best_for': 'Prioritizing which issues to tackle first',
+                'use_when': 'Multiple issues and you need to focus resources on the biggest impact areas',
+                'example': 'Identifying that 20% of defect types cause 80% of returns'
+            }
+        }
+
+    def analyze_flagged_product(self, product_data: Dict[str, Any],
+                                 product_docs: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+        """
+        Deep dive analysis of a flagged product with AI recommendations
+
+        Args:
+            product_data: Product screening result data
+            product_docs: Optional dict with keys like 'manual', 'amazon_listing', 'ifu', 'specs'
+
+        Returns:
+            Comprehensive analysis with investigation recommendations
+        """
+
+        # Build context for AI
+        context_parts = []
+        context_parts.append(f"Product: {product_data.get('product_name', 'Unknown')}")
+        context_parts.append(f"SKU: {product_data.get('sku', 'Unknown')}")
+        context_parts.append(f"Category: {product_data.get('category', 'Unknown')}")
+        context_parts.append(f"Return Rate: {product_data.get('return_rate', 0):.1%}")
+        context_parts.append(f"Category Threshold: {product_data.get('category_threshold', 0):.1%}")
+        context_parts.append(f"Units Sold: {product_data.get('units_sold', 0):,}")
+        context_parts.append(f"Units Returned: {product_data.get('units_returned', 0):,}")
+        context_parts.append(f"Landed Cost: ${product_data.get('landed_cost', 0):.2f}")
+
+        if product_data.get('triggers'):
+            context_parts.append(f"Triggers: {', '.join(product_data['triggers'])}")
+
+        # Add document content if provided
+        doc_context = ""
+        if product_docs:
+            if 'manual' in product_docs:
+                doc_context += f"\n\nProduct Manual Excerpt:\n{product_docs['manual'][:2000]}"
+            if 'amazon_listing' in product_docs:
+                doc_context += f"\n\nAmazon Listing:\n{product_docs['amazon_listing'][:1000]}"
+            if 'ifu' in product_docs:
+                doc_context += f"\n\nInstructions for Use:\n{product_docs['ifu'][:1000]}"
+
+        # AI prompt for deep analysis
+        prompt = f"""Analyze this flagged medical device product and provide investigation guidance:
+
+{chr(10).join(context_parts)}
+{doc_context}
+
+Provide a comprehensive analysis with:
+
+1. PROBLEM SUMMARY: What is the core issue based on the data?
+
+2. RECOMMENDED INVESTIGATION METHOD: Choose the BEST investigation method from:
+   - 5 Whys: For simple, linear problems
+   - Fishbone Diagram: For complex, multi-factor problems
+   - Formal RCA: For critical/safety issues
+   - FMEA: For proactive risk assessment
+   - 8D Problem Solving: For customer-facing issues requiring team response
+   - Pareto Analysis: For prioritizing multiple issues
+
+3. INTENDED USE QUESTIONS: What critical questions should we ask about:
+   - How customers are actually using this product?
+   - What is the intended vs actual use case?
+   - Are there use environment factors we're missing?
+
+4. KEY INVESTIGATION AREAS: What specific areas should the investigation focus on?
+
+5. IMMEDIATE ACTIONS: What should happen right now?
+
+6. RISK LEVEL: Rate the urgency (Low/Medium/High/Critical) and explain why.
+
+Format your response as structured JSON."""
+
+        try:
+            response = self.ai._call_api(prompt, mode='enhanced', provider=self.ai.primary_provider)
+
+            # Try to parse as JSON, fallback to text
+            try:
+                import json
+                analysis = json.loads(response)
+            except:
+                # If not JSON, structure the text response
+                analysis = {
+                    'raw_analysis': response,
+                    'recommended_method': self._extract_method_from_text(response),
+                    'risk_level': self._extract_risk_level(response)
+                }
+
+            return analysis
+
+        except Exception as e:
+            logger.error(f"Deep dive analysis failed: {e}")
+            return {
+                'error': str(e),
+                'recommended_method': 'rca',  # Default to RCA for safety
+                'risk_level': 'Medium'
+            }
+
+    def _extract_method_from_text(self, text: str) -> str:
+        """Extract investigation method from text response"""
+        text_lower = text.lower()
+        for method_key in self.investigation_methods:
+            if method_key.replace('_', ' ') in text_lower or \
+               self.investigation_methods[method_key]['name'].lower() in text_lower:
+                return method_key
+        return 'rca'  # Default
+
+    def _extract_risk_level(self, text: str) -> str:
+        """Extract risk level from text"""
+        text_lower = text.lower()
+        if 'critical' in text_lower or 'immediate' in text_lower or 'urgent' in text_lower:
+            return 'Critical'
+        elif 'high' in text_lower:
+            return 'High'
+        elif 'low' in text_lower:
+            return 'Low'
+        else:
+            return 'Medium'
+
+    def get_method_details(self, method_key: str) -> Dict[str, str]:
+        """Get detailed info about an investigation method"""
+        return self.investigation_methods.get(method_key, self.investigation_methods['rca'])
+
+
+# =============================================================================
+# BULK OPERATIONS - Multiple Products
+# =============================================================================
+
+class BulkOperationsManager:
+    """
+    Handles bulk generation of vendor emails and investigation plans
+    """
+
+    def __init__(self, vendor_email_generator, investigation_plan_generator):
+        self.vendor_gen = vendor_email_generator
+        self.investigation_gen = investigation_plan_generator
+
+    def generate_bulk_vendor_emails(self, flagged_products: List[Dict[str, Any]],
+                                     vendor_info: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Generate vendor emails for multiple flagged products
+
+        Args:
+            flagged_products: List of product screening results
+            vendor_info: Common vendor information
+
+        Returns:
+            List of email objects with subject, body, product info
+        """
+        emails = []
+
+        for product in flagged_products:
+            try:
+                email_result = self.vendor_gen.generate_email(
+                    product_data=product,
+                    vendor_info=vendor_info
+                )
+
+                emails.append({
+                    'sku': product.get('sku'),
+                    'product_name': product.get('product_name'),
+                    'subject': email_result.get('subject', ''),
+                    'body': email_result.get('body', ''),
+                    'priority': product.get('action', 'Monitor'),
+                    'return_rate': product.get('return_rate', 0),
+                    'units_affected': product.get('units_returned', 0)
+                })
+
+            except Exception as e:
+                logger.error(f"Failed to generate email for {product.get('sku')}: {e}")
+                emails.append({
+                    'sku': product.get('sku'),
+                    'product_name': product.get('product_name'),
+                    'error': str(e)
+                })
+
+        return emails
+
+    def generate_bulk_investigation_plans(self, flagged_products: List[Dict[str, Any]],
+                                           investigation_methods: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
+        """
+        Generate investigation plans for multiple flagged products
+
+        Args:
+            flagged_products: List of product screening results
+            investigation_methods: Optional dict mapping SKU to investigation method
+
+        Returns:
+            List of investigation plan objects
+        """
+        plans = []
+
+        for product in flagged_products:
+            try:
+                sku = product.get('sku')
+                method = investigation_methods.get(sku) if investigation_methods else None
+
+                plan_result = self.investigation_gen.generate_plan(
+                    product_data=product,
+                    investigation_method=method
+                )
+
+                plans.append({
+                    'sku': sku,
+                    'product_name': product.get('product_name'),
+                    'method': method or 'rca',
+                    'plan': plan_result.get('plan', ''),
+                    'timeline': plan_result.get('timeline', ''),
+                    'team_required': plan_result.get('team', []),
+                    'priority': product.get('action', 'Monitor')
+                })
+
+            except Exception as e:
+                logger.error(f"Failed to generate plan for {product.get('sku')}: {e}")
+                plans.append({
+                    'sku': product.get('sku'),
+                    'product_name': product.get('product_name'),
+                    'error': str(e)
+                })
+
+        return plans
+
+    def export_bulk_emails_to_csv(self, emails: List[Dict[str, Any]]) -> str:
+        """Export emails to CSV format"""
+        import pandas as pd
+        import io
+
+        df = pd.DataFrame(emails)
+        csv_buffer = io.StringIO()
+        df.to_csv(csv_buffer, index=False)
+        return csv_buffer.getvalue()
+
+    def export_bulk_plans_to_csv(self, plans: List[Dict[str, Any]]) -> str:
+        """Export plans to CSV format"""
+        import pandas as pd
+        import io
+
+        df = pd.DataFrame(plans)
+        csv_buffer = io.StringIO()
+        df.to_csv(csv_buffer, index=False)
+        return csv_buffer.getvalue()
+
+
 # Export all components
 __all__ = [
     'EnhancedAIAnalyzer',
@@ -897,5 +1185,7 @@ __all__ = [
     'estimate_tokens',
     'calculate_cost',
     'process_dataframe_in_batches',
-    'quick_categorize'
+    'quick_categorize',
+    'DeepDiveAnalyzer',
+    'BulkOperationsManager'
 ]
