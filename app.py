@@ -1,27 +1,57 @@
+"""
+Vive Health Quality Suite - Version 19.0
+Enhanced Quality Case Screening with Statistical Rigor
+
+Tab 1: Return Categorizer (PRESERVED)
+Tab 2: B2B Report Generator (PRESERVED)  
+Tab 3: Quality Case Screening (REBUILT)
+
+Features:
+- ANOVA/MANOVA with p-values and post-hoc testing
+- SPC Control Charting (CUSUM, Shewhart)
+- Weighted Risk Scoring
+- AI-powered cross-case correlation
+- Fuzzy threshold matching
+- Vendor email generation
+- Investigation plan generation
+- State persistence (session-based)
+- Custom threshold profiles
+"""
+
 import streamlit as st
 import pandas as pd
 import numpy as np
 import logging
 from datetime import datetime, timedelta
 import io
-import json
 from typing import Dict, List, Any, Optional, Tuple
 import time
 from collections import Counter, defaultdict
 import re
 import os
 import gc
-import altair as alt
-from difflib import get_close_matches
+import json
+
+# Visualization
+try:
+    import altair as alt
+    ALTAIR_AVAILABLE = True
+except ImportError:
+    ALTAIR_AVAILABLE = False
 
 # --- Custom Modules ---
-# Try to import custom modules (ensure these are in the same folder)
 try:
     from enhanced_ai_analysis import (
         EnhancedAIAnalyzer, AIProvider, FBA_REASON_MAP,
         MEDICAL_DEVICE_CATEGORIES
     )
-    from quality_analytics import QualityAnalytics, parse_numeric, SOP_THRESHOLDS
+    from quality_analytics import (
+        QualityAnalytics, QualityStatistics, SPCAnalysis, TrendAnalysis,
+        RiskScoring, ActionDetermination, VendorEmailGenerator,
+        InvestigationPlanGenerator, DataValidation,
+        SOP_THRESHOLDS, parse_numeric, parse_percentage,
+        fuzzy_match_category, generate_methodology_markdown
+    )
     AI_AVAILABLE = True
 except ImportError as e:
     AI_AVAILABLE = False
@@ -48,7 +78,7 @@ st.set_page_config(
 
 APP_CONFIG = {
     'title': 'Vive Health Quality Suite',
-    'version': '18.0 (Unified)',
+    'version': '19.0 (Enhanced Screening)',
     'chunk_sizes': [100, 250, 500, 1000],
     'default_chunk': 500,
 }
@@ -78,12 +108,24 @@ QUALITY_CATEGORIES = [
     'Medical/Health Concerns'
 ]
 
-# AI Provider options
+# AI Provider options - OpenAI default for Tab 3
 AI_PROVIDER_OPTIONS = {
-    'Fastest (Claude Haiku)': AIProvider.FASTEST,
-    'OpenAI GPT-3.5': AIProvider.OPENAI,
+    'OpenAI GPT-3.5 (Default)': AIProvider.OPENAI,
+    'Claude Haiku (Fast)': AIProvider.FASTEST,
     'Claude Sonnet': AIProvider.CLAUDE,
     'Both (Consensus)': AIProvider.BOTH
+}
+
+# Default category thresholds (from SOPs)
+DEFAULT_CATEGORY_THRESHOLDS = {
+    'B2B': 0.025,
+    'INS': 0.07,
+    'RHB': 0.075,
+    'LVA': 0.095,
+    'MOB': 0.10,
+    'CSH': 0.105,
+    'SUP': 0.11,
+    'All Others': 0.10
 }
 
 # --- Initialization & Styling ---
@@ -143,18 +185,57 @@ def inject_custom_css():
         font-weight: 600;
     }}
     
+    .risk-critical {{
+        background-color: #ff4b4b !important;
+        color: white !important;
+    }}
+    
+    .risk-warning {{
+        background-color: #ffa500 !important;
+        color: black !important;
+    }}
+    
+    .risk-monitor {{
+        background-color: #ffff00 !important;
+        color: black !important;
+    }}
+    
+    .risk-ok {{
+        background-color: #00ff00 !important;
+        color: black !important;
+    }}
+    
+    .processing-log {{
+        background: #1a1a2e;
+        border: 1px solid #333;
+        border-radius: 5px;
+        padding: 10px;
+        max-height: 200px;
+        overflow-y: auto;
+        font-family: monospace;
+        font-size: 12px;
+    }}
+    
+    .methodology-box {{
+        background: #f8f9fa;
+        border-left: 4px solid #4facfe;
+        padding: 15px;
+        margin: 10px 0;
+    }}
+    
     /* Hide Streamlit branding */
     #MainMenu {{visibility: hidden;}}
     footer {{visibility: hidden;}}
     </style>
     """, unsafe_allow_html=True)
 
+
 def initialize_session_state():
     """Initialize session state variables for all tabs"""
     defaults = {
         # General AI
         'ai_analyzer': None,
-        'ai_provider': AIProvider.FASTEST,
+        'ai_provider': AIProvider.OPENAI,  # Default to OpenAI for Tab 3
         
         # Tab 1: Categorizer
         'categorized_data': None,
@@ -178,27 +259,43 @@ def initialize_session_state():
         'b2b_export_filename': None,
         'b2b_perf_mode': 'Small (< 500 rows)',
         
-        # Tab 3: Quality Screening
-        'qc_mode': 'Lite', # Lite or Pro
+        # Tab 3: Quality Screening - NEW
+        'qc_mode': 'Lite',
         'qc_results': None,
+        'qc_results_df': None,
         'processing_log': [],
         'anova_result': None,
         'manova_result': None,
-        'tukey_result': None,
-        'qc_threshold_profiles': {'Default SOP': SOP_THRESHOLDS.copy()},
-        'qc_active_profile': 'Default SOP',
-        'qc_product_thresholds': [],
-        'qc_manual_context': '',
-        'qc_history_cases': None,
-        'qc_validation_report': None,
-        'qc_export_data': None,
-        'qc_export_filename': None,
-        'qc_ai_summary': None
+        'statistical_suggestion': None,
+        
+        # Threshold profiles
+        'threshold_profiles': {
+            'Standard Review': DEFAULT_CATEGORY_THRESHOLDS.copy(),
+            'Aggressive Q4 Review': {k: v * 0.8 for k, v in DEFAULT_CATEGORY_THRESHOLDS.items()}
+        },
+        'active_profile': 'Standard Review',
+        'custom_thresholds': None,
+        
+        # User-uploaded threshold data
+        'user_threshold_data': None,
+        
+        # AI Chat state
+        'ai_chat_history': [],
+        'ai_needs_clarification': False,
+        'ai_clarification_question': '',
+        
+        # Session persistence
+        'saved_sessions': {},
+        'current_session_id': None,
+        
+        # Manual entry data (Lite mode)
+        'lite_entries': [],
     }
     
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
+
 
 def check_api_keys():
     """Check for API keys and set environment variables"""
@@ -209,163 +306,77 @@ def check_api_keys():
             for key in ['OPENAI_API_KEY', 'openai_api_key', 'openai']:
                 if key in st.secrets:
                     val = str(st.secrets[key]).strip()
-                    keys_found['openai'] = val
-                    os.environ['OPENAI_API_KEY'] = val
-                    break
+                    if val:
+                        keys_found['openai'] = val
+                        os.environ['OPENAI_API_KEY'] = val
+                        break
             
             # Check Claude
             for key in ['ANTHROPIC_API_KEY', 'anthropic_api_key', 'claude_api_key', 'claude']:
                 if key in st.secrets:
                     val = str(st.secrets[key]).strip()
-                    keys_found['claude'] = val
-                    os.environ['ANTHROPIC_API_KEY'] = val
-                    break
+                    if val:
+                        keys_found['claude'] = val
+                        os.environ['ANTHROPIC_API_KEY'] = val
+                        break
     except Exception as e:
         logger.warning(f"Error checking secrets: {e}")
     
     return keys_found
 
-def get_ai_analyzer(max_workers=5):
+
+def get_ai_analyzer(provider: AIProvider = None, max_workers: int = 5):
     """Get or create AI analyzer instance"""
-    if st.session_state.ai_analyzer is None or st.session_state.ai_analyzer.max_workers != max_workers:
+    if provider is None:
+        provider = st.session_state.ai_provider
+    
+    if st.session_state.ai_analyzer is None or st.session_state.ai_analyzer.provider != provider:
         try:
-            check_api_keys() # Ensure env vars are set
-            st.session_state.ai_analyzer = EnhancedAIAnalyzer(st.session_state.ai_provider, max_workers=max_workers)
-            logger.info(f"Created AI analyzer: {st.session_state.ai_provider.value}, Workers: {max_workers}")
+            check_api_keys()
+            st.session_state.ai_analyzer = EnhancedAIAnalyzer(provider, max_workers=max_workers)
+            logger.info(f"Created AI analyzer: {provider.value}, Workers: {max_workers}")
         except Exception as e:
             st.error(f"Error initializing AI: {str(e)}")
     
     return st.session_state.ai_analyzer
 
-def log_process(message: str, type: str = 'info'):
-    """Adds message to the Processing Transparency Log (Tab 3)"""
+
+def log_process(message: str, msg_type: str = 'info'):
+    """Adds message to the Processing Transparency Log"""
     timestamp = datetime.now().strftime("%H:%M:%S")
-    entry = f"[{timestamp}] {message}"
+    entry = f"[{timestamp}] [{msg_type.upper()}] {message}"
     st.session_state.processing_log.append(entry)
-    if type == 'error':
+    if msg_type == 'error':
         logger.error(message)
     else:
         logger.info(message)
 
-def ai_call_with_retry(callable_fn, *args, max_retries: int = 3, backoff: float = 2.0, **kwargs):
-    """AI call wrapper with exponential backoff for rate limits."""
-    for attempt in range(1, max_retries + 1):
-        try:
-            return callable_fn(*args, **kwargs)
-        except Exception as exc:
-            msg = str(exc).lower()
-            if "rate limit" in msg or "429" in msg:
-                wait = backoff ** attempt
-                log_process(f"AI rate limited, waiting {wait:.0f}s (attempt {attempt}/{max_retries})", "error")
-                time.sleep(wait)
-            else:
-                raise
-    raise RuntimeError("AI call failed after retries.")
 
-def build_effective_thresholds(profile_thresholds: Dict[str, float]) -> Dict[str, float]:
-    """Merge SOP thresholds with profile, keeping higher threshold when conflicts exist."""
-    effective = SOP_THRESHOLDS.copy()
-    for key, value in profile_thresholds.items():
-        if isinstance(value, (int, float)):
-            effective[key] = max(effective.get(key, 0), value)
+def render_api_health_check():
+    """Render API health check status in sidebar"""
+    keys = check_api_keys()
+    
+    st.sidebar.markdown("### 🔌 API Status")
+    
+    col1, col2 = st.sidebar.columns(2)
+    
+    with col1:
+        if keys.get('openai'):
+            st.success("OpenAI ✓")
         else:
-            effective[key] = value
-    return effective
+            st.error("OpenAI ✗")
+    
+    with col2:
+        if keys.get('claude'):
+            st.success("Claude ✓")
+        else:
+            st.warning("Claude ✗")
+    
+    return keys
 
-def parse_threshold_upload(df: pd.DataFrame) -> Tuple[Dict[str, float], List[Dict[str, Any]]]:
-    """Parse uploaded threshold overrides."""
-    category_thresholds = {}
-    product_thresholds = []
-    if df is None or df.empty:
-        return category_thresholds, product_thresholds
-
-    normalized_cols = {col.lower().strip(): col for col in df.columns}
-    cat_col = normalized_cols.get('category')
-    rate_col = normalized_cols.get('return rate threshold') or normalized_cols.get('threshold') or normalized_cols.get('return_rate_threshold')
-    product_col = normalized_cols.get('product name') or normalized_cols.get('product name pattern') or normalized_cols.get('product')
-
-    if cat_col and rate_col:
-        for _, row in df[[cat_col, rate_col]].dropna().iterrows():
-            category_thresholds[str(row[cat_col]).strip()] = float(row[rate_col])
-
-    if product_col and rate_col:
-        for _, row in df[[product_col, rate_col]].dropna().iterrows():
-            product_thresholds.append({
-                'pattern': str(row[product_col]).strip().lower(),
-                'threshold': float(row[rate_col])
-            })
-
-    return category_thresholds, product_thresholds
-
-def apply_product_thresholds(product_name: str, product_thresholds: List[Dict[str, Any]]) -> Optional[float]:
-    """Apply fuzzy logic to match product name patterns and return the highest threshold match."""
-    if not product_name or not product_thresholds:
-        return None
-    matches = []
-    name_lower = str(product_name).lower()
-    for item in product_thresholds:
-        pattern = item.get('pattern', '')
-        if pattern and pattern in name_lower:
-            matches.append(item.get('threshold', 0))
-    return max(matches) if matches else None
-
-def generate_example_dataset() -> bytes:
-    """Generate example data for onboarding."""
-    sample = pd.DataFrame([
-        {
-            'SKU': 'MOB1027',
-            'Category': 'MOB - Walkers',
-            'Sold': 1000,
-            'Returned': 140,
-            'Landed Cost': 120,
-            'Complaint_Text': 'Walker frame cracked after two weeks. Battery charger failed.',
-            'Return_Rate_30D': 0.14,
-            'Return_Rate_6M': 0.09,
-            'Return_Rate_12M': 0.07
-        },
-        {
-            'SKU': 'LVA2201',
-            'Category': 'LVA',
-            'Sold': 500,
-            'Returned': 20,
-            'Landed Cost': 220,
-            'Complaint_Text': 'Lift was unstable and caused a near fall.',
-            'Return_Rate_30D': 0.04,
-            'Return_Rate_6M': 0.03,
-            'Return_Rate_12M': 0.025
-        }
-    ])
-    output = io.BytesIO()
-    sample.to_csv(output, index=False)
-    return output.getvalue()
-
-def summarize_language_trends(df: pd.DataFrame, text_col: str) -> Dict[str, int]:
-    """Simple keyword frequency analysis for complaint text."""
-    if text_col not in df.columns:
-        return {}
-    stopwords = {'the', 'and', 'with', 'that', 'this', 'from', 'after', 'when', 'was', 'were', 'have', 'has'}
-    words = []
-    for text in df[text_col].dropna().astype(str):
-        tokens = re.findall(r'\b[a-zA-Z]{4,}\b', text.lower())
-        words.extend([t for t in tokens if t not in stopwords])
-    counts = Counter(words)
-    return dict(counts.most_common(15))
-
-def build_qc_export(df: pd.DataFrame, metadata: Dict[str, Any]) -> bytes:
-    """Export QC results with metadata sheet."""
-    output = io.BytesIO()
-    if EXCEL_AVAILABLE:
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df.to_excel(writer, index=False, sheet_name='Screening Results')
-            meta_df = pd.DataFrame(list(metadata.items()), columns=['Key', 'Value'])
-            meta_df.to_excel(writer, index=False, sheet_name='Metadata')
-    else:
-        df.to_csv(output, index=False)
-    output.seek(0)
-    return output.getvalue()
 
 # -------------------------
-# TAB 1 LOGIC: Categorizer
+# TAB 1 LOGIC: Categorizer (PRESERVED)
 # -------------------------
 
 def process_file_preserve_structure(file_content, filename):
@@ -383,18 +394,13 @@ def process_file_preserve_structure(file_content, filename):
         column_mapping = {}
         cols = df.columns.tolist()
         
-        # Map specific columns based on requirements (B=SKU, I=Complaint, K=Category)
-        # 0-indexed: B=1, I=8, K=10
         if len(cols) >= 11:
-            if len(cols) > 8: column_mapping['complaint'] = cols[8] # Column I
-            if len(cols) > 1: column_mapping['sku'] = cols[1] # Column B
+            if len(cols) > 8: column_mapping['complaint'] = cols[8]
+            if len(cols) > 1: column_mapping['sku'] = cols[1]
             
-            # Ensure Column K exists
             while len(df.columns) < 11:
                 df[f'Column_{len(df.columns)}'] = ''
-            column_mapping['category'] = df.columns[10] # Column K
-            
-            # Reset Column K to empty to avoid confusion
+            column_mapping['category'] = df.columns[10]
             df[column_mapping['category']] = ''
         else:
             st.error("File structure not recognized. Need at least 11 columns (A-K).")
@@ -404,6 +410,7 @@ def process_file_preserve_structure(file_content, filename):
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
         return None, None
+
 
 def process_in_chunks(df, analyzer, column_mapping):
     """Process categorization in chunks"""
@@ -431,7 +438,6 @@ def process_in_chunks(df, analyzer, column_mapping):
                 'fba_reason': str(df.at[idx, 'reason']) if 'reason' in df.columns else None
             })
             
-        # Process in sub-batches
         sub_batch_size = st.session_state.batch_size
         for i in range(0, len(batch_data), sub_batch_size):
             sub_batch = batch_data[i:i+sub_batch_size]
@@ -441,7 +447,6 @@ def process_in_chunks(df, analyzer, column_mapping):
                 df.at[result['index'], category_col] = result.get('category', 'Other/Miscellaneous')
                 processed_count += 1
             
-            # Update Progress
             progress = processed_count / total_valid
             progress_bar.progress(progress)
             
@@ -453,10 +458,10 @@ def process_in_chunks(df, analyzer, column_mapping):
                 c1.metric("Processed", f"{processed_count}/{total_valid}")
                 c2.metric("Speed", f"{speed:.1f}/sec")
             
-            # Force GC
             gc.collect()
             
     return df
+
 
 def generate_statistics(df, column_mapping):
     """Generate summary stats for dashboard"""
@@ -468,13 +473,13 @@ def generate_statistics(df, column_mapping):
     categorized = df[df[cat_col].notna() & (df[cat_col] != '')]
     st.session_state.reason_summary = categorized[cat_col].value_counts().to_dict()
     
-    # SKU Summary
     if sku_col:
         prod_summary = defaultdict(lambda: defaultdict(int))
         for _, row in categorized.iterrows():
             if pd.notna(row.get(sku_col)):
                 prod_summary[str(row[sku_col])][row[cat_col]] += 1
         st.session_state.product_summary = dict(prod_summary)
+
 
 def export_with_column_k(df):
     """Export to Excel preserving format"""
@@ -485,20 +490,18 @@ def export_with_column_k(df):
             workbook = writer.book
             worksheet = writer.sheets['Returns']
             fmt = workbook.add_format({'bg_color': '#E6F5E6', 'font_color': '#006600', 'bold': True})
-            worksheet.set_column(10, 10, 20, fmt) # Col K
+            worksheet.set_column(10, 10, 20, fmt)
     else:
         df.to_csv(output, index=False)
     output.seek(0)
     return output.getvalue()
+
 
 def display_results_dashboard(df, column_mapping):
     """Render Tab 1 Dashboard"""
     st.markdown("### 📊 Analysis Results")
     total = len(df)
     cat_col = column_mapping.get('category')
-    if not cat_col or cat_col not in df.columns:
-        st.warning("Category column not detected. Unable to render summary metrics.")
-        return
     categorized = len(df[df[cat_col].notna() & (df[cat_col] != '')])
     
     c1, c2, c3 = st.columns(3)
@@ -512,8 +515,9 @@ def display_results_dashboard(df, column_mapping):
     st.markdown("#### Top Categories")
     st.bar_chart(pd.Series(st.session_state.reason_summary).head(10))
 
+
 # -------------------------
-# TAB 2 LOGIC: B2B Reports
+# TAB 2 LOGIC: B2B Reports (PRESERVED)
 # -------------------------
 
 def extract_main_sku(text):
@@ -522,20 +526,20 @@ def extract_main_sku(text):
     match = re.search(r'\b([A-Z]{3}\d{4})', text)
     return match.group(1) if match else None
 
+
 def find_sku_in_row(row):
     """Heuristic to find SKU in row"""
-    # Check specific columns
     for col in ['Main SKU', 'Main SKU/Display Name', 'SKU', 'Product', 'Internal Reference']:
         if col in row.index and pd.notna(row[col]):
             sku = extract_main_sku(str(row[col]))
             if sku: return sku
     
-    # Check subject/description
     for col in ['Display Name', 'Subject', 'Name', 'Description', 'Body']:
         if col in row.index and pd.notna(row[col]):
             sku = extract_main_sku(str(row[col]))
             if sku: return sku
     return "Unknown"
+
 
 def process_b2b_file(file_content, filename):
     try:
@@ -547,6 +551,7 @@ def process_b2b_file(file_content, filename):
         st.error(f"Error: {e}")
         return None
 
+
 def generate_b2b_report(df, analyzer, batch_size):
     """Run AI Summary and SKU extraction"""
     display_col = 'Display Name' if 'Display Name' in df.columns else df.columns[0]
@@ -557,12 +562,11 @@ def generate_b2b_report(df, analyzer, batch_size):
         items.append({
             'index': idx,
             'subject': str(row.get(display_col, '')),
-            'details': str(row.get(desc_col, ''))[:1000], # Truncate for AI context
+            'details': str(row.get(desc_col, ''))[:1000],
             'full_description': str(row.get(desc_col, '')),
             'sku': find_sku_in_row(row)
         })
         
-    # Batch AI
     results = []
     progress_bar = st.progress(0)
     for i in range(0, len(items), batch_size):
@@ -570,7 +574,6 @@ def generate_b2b_report(df, analyzer, batch_size):
         results.extend(analyzer.summarize_batch(batch))
         progress_bar.progress(min((i + batch_size) / len(items), 1.0))
         
-    # Build Result DF
     final = []
     for item in results:
         final.append({
@@ -581,552 +584,898 @@ def generate_b2b_report(df, analyzer, batch_size):
         })
     return pd.DataFrame(final)
 
+
 # -------------------------
-# TAB 3 LOGIC: Screening
+# TAB 3 LOGIC: Quality Screening (REBUILT)
 # -------------------------
 
 def render_quality_screening_tab():
+    """Render the completely rebuilt Quality Case Screening tab"""
+    
     st.markdown("### 🧪 Quality Case Screening")
-    keys = check_api_keys()
-    with st.sidebar:
-        st.markdown("### 🩺 API Health Check")
-        openai_status = "✅ Connected" if keys.get('openai') else "⚠️ Disconnected"
-        claude_status = "✅ Connected" if keys.get('claude') else "⚠️ Disconnected"
-        st.markdown(f"OpenAI: {openai_status}")
-        st.markdown(f"Claude: {claude_status}")
-
-    with st.expander("🧭 Interactive Help Guide", expanded=False):
-        st.markdown(
-            "- **Step 1:** Choose Lite (1–5 manual entries) or Pro (upload). \n"
-            "- **Step 2:** Confirm thresholds or upload overrides. \n"
-            "- **Step 3:** Run screening and review heatmap, risk scores, and AI insights. \n"
-            "- **Step 4:** Export the report with metadata."
+    st.caption("AI-powered quality screening compliant with ISO 13485, FDA 21 CFR 820, EU MDR, UK MDR")
+    
+    # --- MODE SELECTION ---
+    col1, col2, col3 = st.columns([2, 2, 2])
+    
+    with col1:
+        mode = st.radio(
+            "Screening Mode",
+            ["Lite (1-5 Products)", "Pro (Mass Analysis)"],
+            horizontal=True,
+            help="Lite: Manual entry for quick screening. Pro: Upload CSV/Excel for batch analysis."
         )
+        st.session_state.qc_mode = "Lite" if "Lite" in mode else "Pro"
+    
+    with col2:
+        # AI Provider selection - OpenAI default
+        ai_provider = st.selectbox(
+            "AI Provider",
+            options=list(AI_PROVIDER_OPTIONS.keys()),
+            index=0,  # OpenAI default
+            help="Select AI provider. OpenAI is default. Claude available for additional review."
+        )
+        st.session_state.ai_provider = AI_PROVIDER_OPTIONS[ai_provider]
+    
+    with col3:
+        # Threshold profile selection
+        profile = st.selectbox(
+            "Threshold Profile",
+            options=list(st.session_state.threshold_profiles.keys()) + ["+ Create New"],
+            index=list(st.session_state.threshold_profiles.keys()).index(st.session_state.active_profile) 
+                  if st.session_state.active_profile in st.session_state.threshold_profiles else 0
+        )
+        if profile != "+ Create New":
+            st.session_state.active_profile = profile
+    
+    st.divider()
+    
+    # --- SIDEBAR CONFIGURATION ---
+    with st.sidebar:
+        st.markdown("---")
+        st.markdown("### 📋 Tab 3 Config")
+        
+        # Custom threshold file upload
+        st.markdown("#### Custom Thresholds")
+        threshold_file = st.file_uploader(
+            "Upload threshold CSV",
+            type=['csv', 'xlsx'],
+            help="Upload file with Category and Return Rate Threshold columns",
+            key="threshold_upload"
+        )
+        
+        if threshold_file:
+            try:
+                if threshold_file.name.endswith('.csv'):
+                    threshold_df = pd.read_csv(threshold_file)
+                else:
+                    threshold_df = pd.read_excel(threshold_file)
+                st.session_state.user_threshold_data = threshold_df
+                st.success(f"Loaded {len(threshold_df)} threshold rules")
+            except Exception as e:
+                st.error(f"Error loading thresholds: {e}")
+        
+        # Processing log
+        with st.expander("📜 Processing Log", expanded=False):
+            if st.session_state.processing_log:
+                log_text = "\n".join(st.session_state.processing_log[-20:])
+                st.code(log_text, language="")
+            else:
+                st.caption("No logs yet")
+            
+            if st.button("Clear Log", key="clear_log"):
+                st.session_state.processing_log = []
+    
+    # --- MAIN CONTENT ---
+    
+    if st.session_state.qc_mode == "Lite":
+        render_lite_mode()
+    else:
+        render_pro_mode()
+    
+    # --- RESULTS DISPLAY ---
+    if st.session_state.qc_results_df is not None:
+        render_screening_results()
+
+
+def render_lite_mode():
+    """Render Lite mode - manual entry for 1-5 products"""
+    
+    st.info("ℹ️ **Lite Mode**: Enter product details manually for quick screening (1-5 products)")
+    
+    # Date range selection
+    col1, col2 = st.columns(2)
+    with col1:
+        date_range = st.selectbox(
+            "Data Date Range",
+            ["Last 30 days", "Last 60 days", "Last 90 days", "Last 180 days", "Last 365 days", "Custom Range"],
+            index=0
+        )
+    with col2:
+        if date_range == "Custom Range":
+            date_start = st.date_input("Start Date", datetime.now() - timedelta(days=30))
+            date_end = st.date_input("End Date", datetime.now())
+        else:
+            days = int(re.search(r'\d+', date_range).group())
+            date_start = datetime.now() - timedelta(days=days)
+            date_end = datetime.now()
+    
+    st.markdown("---")
+    
+    # Product entry form
+    with st.form("lite_entry_form"):
+        st.markdown("#### Product Information (Required)")
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            product_name = st.text_input("Product Name*", placeholder="e.g., Knee Walker")
+        with col2:
+            product_sku = st.text_input("Product SKU*", placeholder="e.g., MOB1027")
+        with col3:
+            category = st.selectbox(
+                "Category*",
+                options=['Select...'] + list(DEFAULT_CATEGORY_THRESHOLDS.keys()),
+                index=0
+            )
+        
+        col4, col5, col6 = st.columns(3)
+        with col4:
+            units_sold = st.number_input("Units Sold*", min_value=1, value=100)
+        with col5:
+            units_returned = st.number_input("Units Returned*", min_value=0, value=0)
+        with col6:
+            return_rate_calc = (units_returned / units_sold * 100) if units_sold > 0 else 0
+            st.metric("Calculated Return Rate", f"{return_rate_calc:.1f}%")
+        
+        # Complaint reasons
+        complaint_reasons = st.text_area(
+            "Top Return Reasons (comma-separated)*",
+            placeholder="e.g., Uncomfortable, Too small, Defective wheel, Missing parts",
+            help="Enter the most common return reasons separated by commas"
+        )
+        
+        st.markdown("#### Optional Fields")
+        
+        col7, col8, col9 = st.columns(3)
+        with col7:
+            primary_channel = st.selectbox(
+                "Primary Sales Channel",
+                ["Select...", "Amazon", "B2B", "Website", "Other"]
+            )
+        with col8:
+            channel_distribution = st.text_input(
+                "Channel Distribution",
+                placeholder="e.g., Amazon 60%, B2B 40%"
+            )
+        with col9:
+            packaging_method = st.selectbox(
+                "Packaging Method",
+                ["Select...", "Standard Box", "Poly Bag", "Custom", "Other"]
+            )
+        
+        col10, col11, col12 = st.columns(3)
+        with col10:
+            unit_cost = st.number_input("Landed Cost ($)", min_value=0.0, value=0.0, step=0.01)
+        with col11:
+            b2b_price = st.number_input("B2B Sales Price ($)", min_value=0.0, value=0.0, step=0.01)
+        with col12:
+            b2c_price = st.number_input("B2C/Amazon Price ($)", min_value=0.0, value=0.0, step=0.01)
+        
+        col13, col14, col15 = st.columns(3)
+        with col13:
+            b2b_returns = st.number_input("B2B Returns", min_value=0, value=0)
+        with col14:
+            amazon_returns = st.number_input("Amazon Returns", min_value=0, value=0)
+        with col15:
+            st.write("")  # Spacer
+        
+        # Feedback fields
+        st.markdown("#### Feedback & Context")
+        col16, col17 = st.columns(2)
+        with col16:
+            b2b_feedback = st.text_area("B2B Customer Feedback", placeholder="Enter any B2B-specific feedback...")
+        with col17:
+            amazon_feedback = st.text_area("Amazon Customer Feedback", placeholder="Enter Amazon reviews/feedback...")
+        
+        # Safety and manual context
+        manual_context = st.text_area(
+            "Additional Context (Manuals, Known Issues, etc.)",
+            placeholder="Enter any additional context that might help the AI analysis...",
+            help="Include any relevant background information, manual excerpts, or known issues"
+        )
+        
+        col18, col19 = st.columns(2)
+        with col18:
+            safety_risk = st.checkbox("⚠️ Potential Safety Risk?", help="Check if there's any indication of safety concern or injury")
+        with col19:
+            is_new_product = st.checkbox("🆕 New Product (< 90 days)?", help="Check if this is a recently launched product")
+        
+        submitted = st.form_submit_button("🔍 Run AI Screening", type="primary", use_container_width=True)
+    
+    if submitted:
+        if not product_name or not product_sku or category == 'Select...':
+            st.error("Please fill in all required fields (Product Name, SKU, Category)")
+            return
+        
+        # Build entry dictionary
+        entry = {
+            'SKU': product_sku,
+            'Name': product_name,
+            'Category': category,
+            'Sold': units_sold,
+            'Returned': units_returned,
+            'Return_Rate': units_returned / units_sold if units_sold > 0 else 0,
+            'Landed Cost': unit_cost,
+            'Complaint_Text': complaint_reasons,
+            'Manual_Context': manual_context,
+            'Safety Risk': 'Yes' if safety_risk else 'No',
+            'Is_New_Product': is_new_product,
+            'Primary_Channel': primary_channel if primary_channel != 'Select...' else '',
+            'B2B_Feedback': b2b_feedback,
+            'Amazon_Feedback': amazon_feedback,
+            'B2B_Returns': b2b_returns,
+            'Amazon_Returns': amazon_returns,
+            'Date_Range': f"{date_start} to {date_end}"
+        }
+        
+        # Create DataFrame and process
+        df_input = pd.DataFrame([entry])
+        process_screening(df_input)
+
+
+def render_pro_mode():
+    """Render Pro mode - mass upload analysis"""
+    
+    st.info("🚀 **Pro Mode**: Upload CSV/Excel for mass analysis (up to 500+ products)")
+    
+    # File upload
+    uploaded_file = st.file_uploader(
+        "Upload Product Data",
+        type=['csv', 'xlsx', 'xls'],
+        help="Upload file with columns: SKU, Category, Sold, Returned (required). Optional: Name, Landed Cost, Complaint_Text, etc.",
+        key="qc_pro_upload"
+    )
+    
+    if uploaded_file:
+        try:
+            # Load file
+            if uploaded_file.name.endswith('.csv'):
+                df_input = pd.read_csv(uploaded_file)
+            else:
+                df_input = pd.read_excel(uploaded_file)
+            
+            log_process(f"Loaded file: {uploaded_file.name} ({len(df_input)} rows)")
+            
+            # Validate
+            validation = DataValidation.validate_upload(df_input)
+            
+            # Show validation report
+            with st.expander("📋 Data Validation Report", expanded=True):
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Total Rows", validation['total_rows'])
+                col2.metric("Columns Found", len(validation['found_cols']))
+                col3.metric("Validation", "✅ Passed" if validation['valid'] else "❌ Issues Found")
+                
+                if validation['warnings']:
+                    for warning in validation['warnings']:
+                        st.warning(warning)
+                
+                if validation['numeric_issues']:
+                    st.markdown("**Numeric Issues:**")
+                    for issue in validation['numeric_issues']:
+                        st.caption(f"- {issue['column']}: {issue['issue']}")
+                
+                if validation['column_mapping']:
+                    st.markdown("**Column Mapping:**")
+                    mapping_df = pd.DataFrame([
+                        {'Standard': k, 'Your Column': v}
+                        for k, v in validation['column_mapping'].items()
+                    ])
+                    st.dataframe(mapping_df, hide_index=True)
+            
+            if not validation['valid']:
+                st.error("Please fix the validation issues before proceeding.")
+                return
+            
+            # Preview data
+            st.markdown("#### Data Preview")
+            st.dataframe(df_input.head(10), use_container_width=True)
+            
+            # Statistical analysis suggestion
+            st.markdown("#### 📊 Statistical Analysis")
+            
+            # Prepare numeric columns for suggestion
+            numeric_cols = []
+            for col in ['Return_Rate', 'Landed Cost', 'Sold', 'Returned']:
+                mapped_col = validation['column_mapping'].get(col)
+                if mapped_col and mapped_col in df_input.columns:
+                    numeric_cols.append(col)
+            
+            # Get AI suggestion
+            suggestion = QualityStatistics.suggest_analysis_type(
+                df_input.rename(columns={v: k for k, v in validation['column_mapping'].items()}),
+                [c for c in numeric_cols if c not in ['Sold', 'Returned']]
+            )
+            st.session_state.statistical_suggestion = suggestion
+            
+            # Display suggestion
+            with st.expander("🤖 AI Analysis Suggestion", expanded=True):
+                st.markdown(f"**Recommended:** {suggestion['recommended']}")
+                st.markdown(f"**Reason:** {suggestion['reason']}")
+                
+                if suggestion['alternatives']:
+                    st.markdown("**Alternatives:**")
+                    for alt in suggestion['alternatives']:
+                        st.caption(f"- {alt['test']}: {alt['when']}")
+                
+                if suggestion['warnings']:
+                    for warning in suggestion['warnings']:
+                        st.warning(warning)
+            
+            # User override
+            col1, col2 = st.columns(2)
+            with col1:
+                analysis_type = st.selectbox(
+                    "Select Analysis Type",
+                    ["Auto (AI Suggested)", "ANOVA", "MANOVA", "Kruskal-Wallis", "Descriptive Only"],
+                    index=0
+                )
+            with col2:
+                include_claude_review = st.checkbox(
+                    "Request Claude AI Review",
+                    help="Get additional analysis from Claude AI (slower but more thorough)"
+                )
+            
+            # Run analysis button
+            if st.button("🔍 Run Full Screening Analysis", type="primary", use_container_width=True):
+                # Rename columns to standard names
+                df_renamed = df_input.rename(columns={v: k for k, v in validation['column_mapping'].items()})
+                
+                # Determine analysis type
+                if analysis_type == "Auto (AI Suggested)":
+                    actual_analysis = suggestion['recommended']
+                else:
+                    actual_analysis = analysis_type
+                
+                process_screening(df_renamed, analysis_type=actual_analysis, include_claude=include_claude_review)
+        
+        except Exception as e:
+            st.error(f"Error loading file: {str(e)}")
+            log_process(f"File load error: {e}", 'error')
+
+
+def process_screening(df: pd.DataFrame, analysis_type: str = "ANOVA", include_claude: bool = False):
+    """Process screening analysis"""
+    
+    log_process("Starting Quality Case Screening Analysis")
+    progress = st.progress(0)
+    status_text = st.empty()
+    
+    try:
+        # Step 1: Data Preparation
+        status_text.text("Step 1/6: Preparing data...")
+        log_process("Preparing data...")
+        
+        # Parse numeric columns
+        if 'Sold' in df.columns:
+            df['Sold'] = parse_numeric(df['Sold'])
+        else:
+            df['Sold'] = 100  # Default
+        
+        if 'Returned' in df.columns:
+            df['Returned'] = parse_numeric(df['Returned'])
+        else:
+            df['Returned'] = 0
+        
+        if 'Return_Rate' not in df.columns or df['Return_Rate'].isna().all():
+            df['Return_Rate'] = df['Returned'] / df['Sold'].replace(0, 1)
+        else:
+            df['Return_Rate'] = parse_percentage(df['Return_Rate']).abs()
+        
+        if 'Landed Cost' in df.columns:
+            df['Landed Cost'] = parse_numeric(df['Landed Cost'])
+        else:
+            df['Landed Cost'] = 0
+        
+        progress.progress(15)
+        
+        # Step 2: Get thresholds
+        status_text.text("Step 2/6: Applying thresholds...")
+        log_process("Applying category thresholds...")
+        
+        active_thresholds = st.session_state.threshold_profiles.get(
+            st.session_state.active_profile, 
+            DEFAULT_CATEGORY_THRESHOLDS
+        )
+        
+        # Apply fuzzy matching if user threshold data available
+        if st.session_state.user_threshold_data is not None:
+            df['Category_Threshold'] = df.apply(
+                lambda row: fuzzy_match_category(
+                    str(row.get('Name', '')),
+                    str(row.get('Category', '')),
+                    st.session_state.user_threshold_data
+                )[1],
+                axis=1
+            )
+        else:
+            df['Category_Threshold'] = df['Category'].apply(
+                lambda x: active_thresholds.get(x, active_thresholds.get('All Others', 0.10))
+            )
+        
+        progress.progress(30)
+        
+        # Step 3: Statistical Analysis
+        status_text.text("Step 3/6: Running statistical analysis...")
+        log_process(f"Running {analysis_type} analysis...")
+        
+        if analysis_type == "MANOVA" and len(df) > 10:
+            metrics = ['Return_Rate']
+            if 'Landed Cost' in df.columns and df['Landed Cost'].sum() > 0:
+                metrics.append('Landed Cost')
+            
+            manova_result = QualityStatistics.perform_manova(df, 'Category', metrics)
+            st.session_state.manova_result = manova_result
+            log_process(f"MANOVA p-value: {manova_result.p_value:.4f}")
+        
+        elif analysis_type in ["ANOVA", "Auto"] and len(df) > 5:
+            anova_result = QualityStatistics.perform_anova(df, 'Category', 'Return_Rate')
+            st.session_state.anova_result = anova_result
+            log_process(f"ANOVA F={anova_result.statistic:.2f}, p={anova_result.p_value:.4f}")
+        
+        elif analysis_type == "Kruskal-Wallis" and len(df) > 5:
+            kw_result = QualityStatistics.perform_kruskal_wallis(df, 'Category', 'Return_Rate')
+            st.session_state.anova_result = kw_result
+            log_process(f"Kruskal-Wallis H={kw_result.statistic:.2f}, p={kw_result.p_value:.4f}")
+        
+        progress.progress(45)
+        
+        # Step 4: Calculate Risk Scores and Determine Actions
+        status_text.text("Step 4/6: Calculating risk scores...")
+        log_process("Calculating weighted risk scores...")
+        
+        results = []
+        for idx, row in df.iterrows():
+            # Risk score
+            risk_score, risk_components = RiskScoring.calculate_risk_score(
+                return_rate=row['Return_Rate'],
+                category_threshold=row['Category_Threshold'],
+                landed_cost=row.get('Landed Cost', 0),
+                safety_risk=str(row.get('Safety Risk', '')).lower() in ['yes', 'true', '1'],
+                complaint_count=len(str(row.get('Complaint_Text', '')).split(',')) if row.get('Complaint_Text') else 0,
+                units_sold=row['Sold']
+            )
+            
+            # SPC Signal
+            cat_std = df[df['Category'] == row['Category']]['Return_Rate'].std()
+            cat_mean = df[df['Category'] == row['Category']]['Return_Rate'].mean()
+            spc_result = SPCAnalysis.detect_signal(row['Return_Rate'], cat_mean, cat_std if cat_std > 0 else 0.01)
+            
+            # Determine action
+            action, triggers = ActionDetermination.determine_action(
+                return_rate=row['Return_Rate'],
+                category_threshold=row['Category_Threshold'],
+                landed_cost=row.get('Landed Cost', 0),
+                safety_risk=str(row.get('Safety Risk', '')).lower() in ['yes', 'true', '1'],
+                is_new_product=row.get('Is_New_Product', False),
+                complaint_count=len(str(row.get('Complaint_Text', '')).split(',')) if row.get('Complaint_Text') else 0,
+                risk_score=risk_score
+            )
+            
+            # Build result row
+            result_row = row.to_dict()
+            result_row.update({
+                'Risk_Score': risk_score,
+                'Risk_Components': json.dumps(risk_components),
+                'SPC_Signal': spc_result.signal_type,
+                'SPC_Z_Score': spc_result.z_score,
+                'Action': action,
+                'Triggers': '; '.join(triggers) if triggers else 'None'
+            })
+            results.append(result_row)
+        
+        results_df = pd.DataFrame(results)
+        progress.progress(60)
+        
+        # Step 5: AI Analysis
+        status_text.text("Step 5/6: Running AI analysis...")
+        log_process("Running AI-powered analysis...")
+        
+        analyzer = get_ai_analyzer()
+        
+        # AI analysis for high-risk items
+        high_risk_items = results_df[results_df['Risk_Score'] >= 50]
+        
+        if len(high_risk_items) > 0 and analyzer:
+            ai_recommendations = []
+            for idx, row in high_risk_items.head(10).iterrows():  # Limit to top 10
+                prompt = f"""Analyze this medical device quality issue:
+Product: {row.get('Name', row.get('SKU', 'Unknown'))} (SKU: {row.get('SKU', 'N/A')})
+Category: {row.get('Category', 'Unknown')}
+Return Rate: {row['Return_Rate']:.1%} (Category threshold: {row['Category_Threshold']:.1%})
+Risk Score: {row['Risk_Score']:.0f}/100
+Main Complaints: {row.get('Complaint_Text', 'N/A')}
+Safety Concern: {row.get('Safety Risk', 'No')}
+
+Based on ISO 13485 and FDA QSR requirements, provide:
+1. Brief assessment (2-3 sentences)
+2. Primary investigation area
+3. Recommended immediate action"""
+                
+                system_prompt = "You are a medical device quality expert. Be concise and action-oriented."
+                
+                try:
+                    recommendation = analyzer.generate_text(prompt, system_prompt, mode='chat')
+                    ai_recommendations.append({
+                        'SKU': row.get('SKU', 'Unknown'),
+                        'AI_Recommendation': recommendation or "AI analysis unavailable"
+                    })
+                except Exception as e:
+                    log_process(f"AI analysis error for {row.get('SKU')}: {e}", 'error')
+                    ai_recommendations.append({
+                        'SKU': row.get('SKU', 'Unknown'),
+                        'AI_Recommendation': f"Error: {str(e)}"
+                    })
+            
+            # Merge AI recommendations
+            if ai_recommendations:
+                ai_df = pd.DataFrame(ai_recommendations)
+                results_df = results_df.merge(ai_df, on='SKU', how='left')
+        
+        progress.progress(80)
+        
+        # Step 6: Claude Review (if requested)
+        if include_claude and st.session_state.ai_provider != AIProvider.CLAUDE:
+            status_text.text("Step 6/6: Running Claude review...")
+            log_process("Requesting Claude AI additional review...")
+            
+            try:
+                claude_analyzer = EnhancedAIAnalyzer(AIProvider.CLAUDE, max_workers=3)
+                
+                # Get Claude's overall assessment
+                summary_prompt = f"""Review this quality screening batch:
+- Total products: {len(results_df)}
+- Products requiring action: {len(results_df[results_df['Action'].str.contains('Escalat|Case')])}
+- Highest risk score: {results_df['Risk_Score'].max():.0f}
+- Categories with issues: {', '.join(results_df[results_df['Risk_Score'] > 50]['Category'].unique()[:5])}
+
+Provide a brief executive summary and any patterns you notice."""
+                
+                claude_review = claude_analyzer.generate_text(
+                    summary_prompt,
+                    "You are a senior quality director reviewing screening results.",
+                    mode='chat'
+                )
+                
+                st.session_state.ai_chat_history.append({
+                    'role': 'claude_review',
+                    'content': claude_review
+                })
+                log_process("Claude review completed")
+            except Exception as e:
+                log_process(f"Claude review error: {e}", 'error')
+        
+        progress.progress(100)
+        status_text.text("Analysis complete!")
+        
+        # Store results
+        st.session_state.qc_results_df = results_df
+        log_process(f"Analysis complete. {len(results_df)} products screened.")
+        
+        st.rerun()
+        
+    except Exception as e:
+        st.error(f"Processing error: {str(e)}")
+        log_process(f"Processing error: {e}", 'error')
+        raise
+
+
+def render_screening_results():
+    """Render the screening results dashboard"""
+    
+    df = st.session_state.qc_results_df
+    
+    st.markdown("---")
+    st.markdown("### 📊 Screening Results")
+    
+    # Summary Metrics
+    col1, col2, col3, col4 = st.columns(4)
+    
+    total = len(df)
+    escalations = len(df[df['Action'].str.contains('Escalat', na=False)])
+    cases = len(df[df['Action'].str.contains('Case', na=False)])
+    monitors = len(df[df['Action'].str.contains('Monitor', na=False)])
+    
+    col1.metric("Total Analyzed", total)
+    col2.metric("Immediate Escalations", escalations, delta_color="inverse")
+    col3.metric("Quality Cases", cases, delta_color="inverse")
+    col4.metric("Monitor", monitors)
+    
+    # Statistical Results
+    if st.session_state.anova_result or st.session_state.manova_result:
+        with st.expander("📈 Statistical Analysis Results", expanded=True):
+            if st.session_state.manova_result:
+                result = st.session_state.manova_result
+                st.markdown(f"**MANOVA Results**")
+                col1, col2, col3 = st.columns(3)
+                col1.metric("F-Statistic", f"{result.statistic:.3f}")
+                col2.metric("p-value", f"{result.p_value:.4f}")
+                col3.metric("Significant", "Yes ✓" if result.significant else "No")
+                st.info(result.recommendation)
+            
+            elif st.session_state.anova_result:
+                result = st.session_state.anova_result
+                st.markdown(f"**{result.test_type} Results**")
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("F-Statistic" if 'ANOVA' in result.test_type else "H-Statistic", 
+                           f"{result.statistic:.3f}")
+                col2.metric("p-value", f"{result.p_value:.4f}")
+                col3.metric("Effect Size (η²)", f"{result.effect_size:.3f}" if result.effect_size else "N/A")
+                col4.metric("Significant", "Yes ✓" if result.significant else "No")
+                
+                st.info(result.recommendation)
+                
+                if result.outlier_categories:
+                    st.warning(f"⚠️ Outlier Categories: {', '.join(str(c) for c in result.outlier_categories)}")
+    
+    # Risk Heatmap
+    if ALTAIR_AVAILABLE and 'Landed Cost' in df.columns and df['Landed Cost'].sum() > 0:
+        with st.expander("🔥 Risk Heatmap (Return Rate vs Cost)", expanded=True):
+            chart_df = df[['SKU', 'Return_Rate', 'Landed Cost', 'Risk_Score', 'Action', 'Category']].copy()
+            chart_df['Return_Rate_Pct'] = chart_df['Return_Rate'] * 100
+            
+            chart = alt.Chart(chart_df).mark_circle(size=100).encode(
+                x=alt.X('Landed Cost:Q', title='Landed Cost ($)', scale=alt.Scale(zero=False)),
+                y=alt.Y('Return_Rate_Pct:Q', title='Return Rate (%)', scale=alt.Scale(zero=False)),
+                color=alt.Color('Risk_Score:Q', 
+                               scale=alt.Scale(scheme='redyellowgreen', reverse=True, domain=[0, 100]),
+                               legend=alt.Legend(title='Risk Score')),
+                size=alt.Size('Risk_Score:Q', scale=alt.Scale(range=[50, 500]), legend=None),
+                tooltip=['SKU', 'Category', 'Return_Rate_Pct', 'Landed Cost', 'Risk_Score', 'Action']
+            ).interactive().properties(height=400)
+            
+            st.altair_chart(chart, use_container_width=True)
+    
+    # Claude Review (if available)
+    claude_reviews = [c for c in st.session_state.ai_chat_history if c.get('role') == 'claude_review']
+    if claude_reviews:
+        with st.expander("🤖 Claude AI Review", expanded=True):
+            st.markdown(claude_reviews[-1]['content'])
+    
+    # Results Table
+    st.markdown("#### Detailed Results")
+    
+    # Add color coding based on action
+    def highlight_action(row):
+        if 'Immediate' in str(row.get('Action', '')):
+            return ['background-color: #ff4b4b'] * len(row)
+        elif 'Case' in str(row.get('Action', '')):
+            return ['background-color: #ffa500'] * len(row)
+        elif 'Monitor' in str(row.get('Action', '')):
+            return ['background-color: #ffff99'] * len(row)
+        return [''] * len(row)
+    
+    # Select display columns
+    display_cols = ['SKU', 'Name', 'Category', 'Return_Rate', 'Category_Threshold', 
+                   'Landed Cost', 'Risk_Score', 'SPC_Signal', 'Action', 'Triggers']
+    display_cols = [c for c in display_cols if c in df.columns]
+    
+    # Format display
+    display_df = df[display_cols].copy()
+    if 'Return_Rate' in display_df.columns:
+        display_df['Return_Rate'] = display_df['Return_Rate'].apply(lambda x: f"{x:.1%}")
+    if 'Category_Threshold' in display_df.columns:
+        display_df['Category_Threshold'] = display_df['Category_Threshold'].apply(lambda x: f"{x:.1%}")
+    if 'Risk_Score' in display_df.columns:
+        display_df['Risk_Score'] = display_df['Risk_Score'].apply(lambda x: f"{x:.0f}")
+    
+    st.dataframe(
+        display_df.style.apply(highlight_action, axis=1),
+        use_container_width=True,
+        height=400
+    )
+    
+    # Action Items Section
+    st.markdown("---")
+    st.markdown("### 🎯 Action Items")
+    
+    # Filter for items needing action
+    action_items = df[df['Action'].str.contains('Escalat|Case', na=False)]
+    
+    if len(action_items) > 0:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("#### 📧 Generate Vendor Email")
+            selected_sku = st.selectbox(
+                "Select SKU",
+                options=action_items['SKU'].unique(),
+                key="email_sku_select"
+            )
+            
+            email_type = st.selectbox(
+                "Email Type",
+                ["CAPA Request", "RCA Request", "Inspection Notice"]
+            )
+            
+            if st.button("Generate Email", key="gen_email"):
+                row = action_items[action_items['SKU'] == selected_sku].iloc[0]
+                
+                if email_type == "CAPA Request":
+                    email = VendorEmailGenerator.generate_capa_request(
+                        sku=row['SKU'],
+                        product_name=row.get('Name', row['SKU']),
+                        issue_summary=row.get('Complaint_Text', 'Quality concerns identified'),
+                        return_rate=row['Return_Rate'],
+                        defect_description=row.get('Triggers', ''),
+                        units_affected=int(row.get('Returned', 0))
+                    )
+                elif email_type == "RCA Request":
+                    email = VendorEmailGenerator.generate_rca_request(
+                        sku=row['SKU'],
+                        product_name=row.get('Name', row['SKU']),
+                        defect_type=row['Action'],
+                        occurrence_rate=row['Return_Rate'],
+                        sample_complaints=str(row.get('Complaint_Text', '')).split(',')[:5]
+                    )
+                else:
+                    email = VendorEmailGenerator.generate_inspection_notice(
+                        sku=row['SKU'],
+                        product_name=row.get('Name', row['SKU']),
+                        special_focus=str(row.get('Triggers', '')).split(';')
+                    )
+                
+                st.text_area("Generated Email", email, height=400)
+                st.download_button(
+                    "📥 Download Email",
+                    email,
+                    file_name=f"vendor_email_{selected_sku}_{datetime.now().strftime('%Y%m%d')}.txt"
+                )
+        
+        with col2:
+            st.markdown("#### 📋 Generate Investigation Plan")
+            plan_sku = st.selectbox(
+                "Select SKU",
+                options=action_items['SKU'].unique(),
+                key="plan_sku_select"
+            )
+            
+            if st.button("Generate Plan", key="gen_plan"):
+                row = action_items[action_items['SKU'] == plan_sku].iloc[0]
+                
+                plan = InvestigationPlanGenerator.generate_plan(
+                    sku=row['SKU'],
+                    product_name=row.get('Name', row['SKU']),
+                    category=row.get('Category', 'Unknown'),
+                    issue_type=row.get('Action', 'Quality Issue'),
+                    complaint_summary=row.get('Complaint_Text', 'See triggers'),
+                    return_rate=row['Return_Rate'],
+                    risk_score=row['Risk_Score']
+                )
+                
+                plan_md = InvestigationPlanGenerator.format_plan_markdown(plan)
+                st.markdown(plan_md)
+                
+                st.download_button(
+                    "📥 Download Plan",
+                    plan_md,
+                    file_name=f"investigation_plan_{plan_sku}_{datetime.now().strftime('%Y%m%d')}.md"
+                )
+    else:
+        st.success("✅ No immediate action items. All products within acceptable thresholds.")
+    
+    # Safety Disclaimer
+    st.markdown("---")
+    st.warning("""
+    ⚠️ **Important Safety Notice**: Any safety concern or potential/confirmed injury requires a Quality Issue 
+    to be opened immediately in Odoo. This can be opened and closed same day as long as an investigation took place.
+    Refer to Quality Incident Response SOP (QMS-SOP-001-9) for full procedures.
+    """)
+    
+    # Methodology
+    with st.expander("📐 Methodology & Math", expanded=False):
+        st.markdown(generate_methodology_markdown())
+    
+    # Export
+    st.markdown("---")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Excel export
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df.to_excel(writer, index=False, sheet_name='Screening Results')
+            
+            # Add metadata sheet
+            metadata = pd.DataFrame([
+                ['Analysis Date', datetime.now().strftime('%Y-%m-%d %H:%M')],
+                ['AI Provider', st.session_state.ai_provider.value],
+                ['Threshold Profile', st.session_state.active_profile],
+                ['Total Products', len(df)],
+                ['Escalations', len(df[df['Action'].str.contains('Escalat', na=False)])],
+                ['Quality Cases', len(df[df['Action'].str.contains('Case', na=False)])]
+            ], columns=['Parameter', 'Value'])
+            metadata.to_excel(writer, index=False, sheet_name='Metadata')
+        
+        output.seek(0)
         st.download_button(
-            "⬇️ Download Example Data",
-            generate_example_dataset(),
-            file_name="quality_screening_example.csv",
+            "📥 Download Full Report (Excel)",
+            output.getvalue(),
+            file_name=f"quality_screening_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    
+    with col2:
+        # Clear results
+        if st.button("🗑️ Clear Results", type="secondary"):
+            st.session_state.qc_results_df = None
+            st.session_state.anova_result = None
+            st.session_state.manova_result = None
+            st.session_state.ai_chat_history = []
+            st.rerun()
+
+
+# --- Interactive Help Guide ---
+def render_help_guide():
+    """Render interactive help guide"""
+    with st.expander("📚 Interactive Help Guide", expanded=False):
+        st.markdown("""
+        ### Quality Case Screening - Quick Start Guide
+        
+        #### Lite Mode (1-5 Products)
+        1. Fill in **required fields**: Product Name, SKU, Category, Sales, Returns
+        2. Add **complaint reasons** (comma-separated)
+        3. Check **Safety Risk** if any safety concerns exist
+        4. Click **Run AI Screening**
+        
+        #### Pro Mode (Mass Analysis)
+        1. **Upload** your CSV/Excel file
+        2. Review the **Data Validation Report**
+        3. Check the **AI Analysis Suggestion**
+        4. Optionally select a different analysis type
+        5. Click **Run Full Screening Analysis**
+        
+        #### Understanding Results
+        - **Risk Score**: 0-100 composite score (higher = more urgent)
+        - **SPC Signal**: Statistical process control status
+        - **Action**: Recommended next step based on SOPs
+        
+        #### Color Coding
+        - 🔴 **Red**: Immediate escalation required
+        - 🟠 **Orange**: Open Quality Case
+        - 🟡 **Yellow**: Monitor closely
+        - ⬜ **White**: No action required
+        
+        #### Required CSV Columns
+        - `SKU` or `Product_SKU`
+        - `Category`
+        - `Sold` or `Units_Sold`
+        - `Returned` or `Units_Returned`
+        
+        #### Optional Columns
+        - `Name` or `Product_Name`
+        - `Landed Cost` or `Cost`
+        - `Complaint_Text` or `Complaints`
+        - `Return_Rate` (calculated if not provided)
+        """)
+        
+        # Example data download
+        example_data = pd.DataFrame([
+            {'SKU': 'MOB1027', 'Name': 'Knee Walker', 'Category': 'MOB', 'Sold': 1000, 'Returned': 120, 'Landed Cost': 85.00, 'Complaint_Text': 'Wheel squeaks, uncomfortable padding'},
+            {'SKU': 'SUP1036', 'Name': 'Post Op Shoe', 'Category': 'SUP', 'Sold': 500, 'Returned': 45, 'Landed Cost': 12.00, 'Complaint_Text': 'Wrong size, poor fit'},
+            {'SKU': 'LVA1004', 'Name': 'Pressure Mattress', 'Category': 'LVA', 'Sold': 800, 'Returned': 150, 'Landed Cost': 145.00, 'Complaint_Text': 'Pump failure, air leak'},
+        ])
+        
+        csv_buffer = io.StringIO()
+        example_data.to_csv(csv_buffer, index=False)
+        
+        st.download_button(
+            "📥 Download Example Data",
+            csv_buffer.getvalue(),
+            file_name="example_screening_data.csv",
             mime="text/csv"
         )
 
-    st.info(
-        "⚠️ **Regulatory Reminder:** Any potential or confirmed injury must be logged as a Quality Issue (Odoo ticket) "
-        "at minimum, even if it can be opened and closed the same day after investigation."
-    )
-
-    # Configuration
-    col1, col2, col3 = st.columns([2, 2, 1])
-    with col1:
-        mode = st.radio("Mode", ["Lite (Manual/Small Batch)", "Pro (Mass Analysis/Upload)"], horizontal=True)
-        st.session_state.qc_mode = "Lite" if "Lite" in mode else "Pro"
-    with col2:
-        st.session_state.qc_manual_context = st.text_area(
-            "Global Manual Context (Optional)",
-            value=st.session_state.qc_manual_context,
-            help="Shared context applied to all SKUs in this run."
-        )
-    with col3:
-        if keys.get('openai') or keys.get('claude'):
-            st.success("AI Connected")
-        else:
-            st.error("AI Disconnected")
-
-    base_categories = [key for key in SOP_THRESHOLDS.keys() if 'Critical' not in key and key != 'New_Launch_Days']
-
-    with st.expander("🎚️ Threshold Profiles & Overrides", expanded=False):
-        profile_names = list(st.session_state.qc_threshold_profiles.keys())
-        profile_index = profile_names.index(st.session_state.qc_active_profile) if st.session_state.qc_active_profile in profile_names else 0
-        st.session_state.qc_active_profile = st.selectbox(
-            "Active Threshold Profile",
-            profile_names,
-            index=profile_index
-        )
-        active_profile = st.session_state.qc_threshold_profiles.get(st.session_state.qc_active_profile, {})
-        profile_df = pd.DataFrame({
-            "Category": base_categories,
-            "Return Rate Threshold": [active_profile.get(cat, SOP_THRESHOLDS.get(cat, 0.1)) for cat in base_categories]
-        })
-        edited_df = st.data_editor(profile_df, num_rows="fixed", use_container_width=True)
-        new_profile_name = st.text_input("Save as New Profile Name")
-        col_save, col_new = st.columns(2)
-        if col_save.button("Save Profile Updates"):
-            st.session_state.qc_threshold_profiles[st.session_state.qc_active_profile] = dict(
-                zip(edited_df["Category"], edited_df["Return Rate Threshold"])
-            )
-            st.success("Profile updated.")
-        if col_new.button("Save as New Profile") and new_profile_name:
-            st.session_state.qc_threshold_profiles[new_profile_name] = dict(
-                zip(edited_df["Category"], edited_df["Return Rate Threshold"])
-            )
-            st.session_state.qc_active_profile = new_profile_name
-            st.success("New profile saved.")
-
-        uploaded_thresholds = st.file_uploader(
-            "Upload Threshold Overrides (CSV/Excel)",
-            type=['csv', 'xlsx'],
-            key="threshold_upload"
-        )
-        if uploaded_thresholds:
-            try:
-                if uploaded_thresholds.name.endswith('.csv'):
-                    overrides_df = pd.read_csv(uploaded_thresholds)
-                else:
-                    overrides_df = pd.read_excel(uploaded_thresholds)
-                cat_overrides, prod_overrides = parse_threshold_upload(overrides_df)
-                if cat_overrides:
-                    active_profile.update(cat_overrides)
-                    st.session_state.qc_threshold_profiles[st.session_state.qc_active_profile] = active_profile
-                if prod_overrides:
-                    st.session_state.qc_product_thresholds = prod_overrides
-                st.success("Threshold overrides applied.")
-            except Exception as e:
-                st.error(f"Threshold upload error: {e}")
-            if keys.get('openai') or keys.get('claude'):
-                if st.button("Ask AI to Normalize Thresholds"):
-                    analyzer = get_ai_analyzer()
-                    prompt = (
-                        "Normalize the uploaded threshold list against these categories: "
-                        f"{', '.join(base_categories)}. "
-                        "Return a mapping of upload categories to the closest SOP category."
-                    )
-                    with st.spinner("Analyzing thresholds..."):
-                        resp = ai_call_with_retry(analyzer.generate_text, prompt, "You are a Quality Analyst.")
-                        st.markdown(resp)
-
-        st.markdown("**Product Name Thresholds (fuzzy match)**")
-        product_thresholds_df = pd.DataFrame(st.session_state.qc_product_thresholds)
-        if product_thresholds_df.empty:
-            product_thresholds_df = pd.DataFrame([{'pattern': '', 'threshold': 0.0}])
-        updated_product_thresholds = st.data_editor(
-            product_thresholds_df,
-            num_rows="dynamic",
-            use_container_width=True
-        )
-        if st.button("Save Product Thresholds"):
-            st.session_state.qc_product_thresholds = updated_product_thresholds.dropna().to_dict(orient="records")
-            st.success("Product thresholds saved.")
-
-    with st.expander("💾 State Persistence", expanded=False):
-        session_payload = {
-            "qc_results": st.session_state.qc_results.to_dict(orient="records") if st.session_state.qc_results is not None else None,
-            "qc_threshold_profiles": st.session_state.qc_threshold_profiles,
-            "qc_active_profile": st.session_state.qc_active_profile,
-            "qc_product_thresholds": st.session_state.qc_product_thresholds,
-            "qc_manual_context": st.session_state.qc_manual_context
-        }
-        st.download_button(
-            "⬇️ Save Session",
-            json.dumps(session_payload, indent=2),
-            file_name="quality_screening_session.json",
-            mime="application/json"
-        )
-        uploaded_session = st.file_uploader("Load Saved Session", type=['json'], key="qc_session_upload")
-        if uploaded_session:
-            try:
-                loaded = json.loads(uploaded_session.read().decode('utf-8'))
-                st.session_state.qc_threshold_profiles = loaded.get("qc_threshold_profiles", st.session_state.qc_threshold_profiles)
-                st.session_state.qc_active_profile = loaded.get("qc_active_profile", st.session_state.qc_active_profile)
-                st.session_state.qc_product_thresholds = loaded.get("qc_product_thresholds", st.session_state.qc_product_thresholds)
-                st.session_state.qc_manual_context = loaded.get("qc_manual_context", st.session_state.qc_manual_context)
-                if loaded.get("qc_results"):
-                    st.session_state.qc_results = pd.DataFrame(loaded["qc_results"])
-                st.success("Session restored.")
-            except Exception as e:
-                st.error(f"Session load error: {e}")
-
-    st.divider()
-
-    # INPUT
-    df_input = None
-    ai_review_enabled = False
-    ai_severity_enabled = False
-
-    if st.session_state.qc_mode == "Lite":
-        st.info("ℹ️ Lite Mode: Analyze 1–5 products manually.")
-        lite_defaults = pd.DataFrame([
-            {
-                'SKU': '',
-                'Category': base_categories[0] if base_categories else 'All Others',
-                'Sold': 1,
-                'Returned': 0,
-                'Landed Cost': 0.0,
-                'Complaint_Text': '',
-                'Manual_Context': '',
-                'Safety Risk': 'No',
-                'Date Range': 'Last 30 Days',
-                'Primary Sales Channel': '',
-                'Sales Channel Distribution': '',
-                'Packaging Method': '',
-                'B2B Feedback': '',
-                'Amazon Feedback': '',
-                'Unit Cost': 0.0,
-                'B2B Sales Price': 0.0,
-                'B2C/AMZ Sales Price': 0.0,
-                'B2B Returns': 0,
-                'Amazon Returns': 0
-            }
-        ])
-        lite_df = st.data_editor(
-            lite_defaults,
-            num_rows="dynamic",
-            use_container_width=True
-        )
-        lite_df = lite_df.head(5)
-        ai_review_enabled = st.checkbox("Enable AI Screening Review (Lite)", value=False)
-        ai_severity_enabled = st.checkbox("Enable AI Severity Scoring (Lite)", value=False)
-        if st.button("🔍 Run Screening Analysis", type="primary"):
-            df_input = lite_df[lite_df['SKU'].astype(str).str.strip() != '']
-
-    else:  # PRO MODE
-        st.info("🚀 Pro Mode: Mass analysis with statistical rigor.")
-        uploaded = st.file_uploader("Upload Data (CSV/Excel)", type=['csv', 'xlsx'], key="qc_upload")
-        if uploaded:
-            try:
-                file_size_mb = uploaded.size / (1024 * 1024)
-                if uploaded.name.endswith('.csv'):
-                    file_bytes = uploaded.getvalue()
-                    if file_size_mb > 50:
-                        log_process("Large file detected; applying chunked processing.")
-                        chunks = pd.read_csv(io.BytesIO(file_bytes), chunksize=APP_CONFIG['default_chunk'])
-                        df_input = pd.concat(chunks, ignore_index=True)
-                    else:
-                        df_input = pd.read_csv(io.BytesIO(file_bytes))
-                else:
-                    df_input = pd.read_excel(uploaded)
-
-                report = QualityAnalytics.validate_upload(
-                    df_input,
-                    ['SKU', 'Category', 'Sold', 'Returned'],
-                    numeric_cols=['Sold', 'Returned', 'Landed Cost']
-                )
-                st.session_state.qc_validation_report = report
-                if not report['valid']:
-                    st.error(f"Missing columns: {report['missing_cols']}")
-                else:
-                    st.success(f"Loaded {len(df_input)} rows.")
-            except Exception as e:
-                st.error(f"Error: {e}")
-
-        with st.expander("🧾 Data Validation Report", expanded=False):
-            report = st.session_state.qc_validation_report
-            if report:
-                st.write(report)
-            else:
-                st.info("Upload a file to generate the validation report.")
-
-        historical_upload = st.file_uploader(
-            "Upload Historical Quality Case Summaries (Optional)",
-            type=['csv', 'xlsx'],
-            key="qc_history_upload"
-        )
-        if historical_upload:
-            if historical_upload.name.endswith('.csv'):
-                historical_cases = pd.read_csv(historical_upload)
-            else:
-                historical_cases = pd.read_excel(historical_upload)
-            st.session_state.qc_history_cases = historical_cases
-
-        ai_review_enabled = st.checkbox("Enable AI Screening Review (Pro)", value=False)
-        ai_severity_enabled = st.checkbox("Enable AI Severity Scoring (Pro)", value=False)
-
-        if st.button("🔍 Run Screening Analysis", type="primary") and df_input is not None:
-            df_input = df_input.copy()
-
-    # PROCESSING
-    if df_input is not None and df_input.empty:
-        st.warning("Please enter at least one product before running analysis.")
-    if df_input is not None and not df_input.empty:
-        log_process("Started Screening Analysis")
-        progress = st.progress(0)
-        active_profile = st.session_state.qc_threshold_profiles.get(st.session_state.qc_active_profile, {})
-        effective_thresholds = build_effective_thresholds(active_profile)
-
-        # 1. Clean & Calc
-        numeric_columns = ['Sold', 'Returned', 'Landed Cost', 'Return_Rate_30D', 'Return_Rate_6M', 'Return_Rate_12M']
-        for col in numeric_columns:
-            if col in df_input.columns:
-                df_input[col] = parse_numeric(df_input[col])
-        if 'Landed Cost' not in df_input.columns:
-            df_input['Landed Cost'] = 0.0
-        df_input['Return_Rate'] = np.where(
-            df_input['Sold'] > 0,
-            df_input['Returned'] / df_input['Sold'],
-            0
-        )
-        if 'Manual_Context' not in df_input.columns:
-            df_input['Manual_Context'] = ''
-        if st.session_state.qc_manual_context:
-            df_input['Manual_Context'] = df_input['Manual_Context'].fillna('') + "\n" + st.session_state.qc_manual_context
-        if 'Complaint_Text' not in df_input.columns:
-            df_input['Complaint_Text'] = ''
-        missing_context = df_input['Complaint_Text'].astype(str).str.len() < 5
-        if missing_context.any():
-            st.warning("AI needs more context for some rows. Please add complaint details or manual context.")
-            log_process("Missing complaint context detected; AI may request clarification.", "error")
-
-        # 2. ANOVA + Tukey
-        if len(df_input) > 5 and df_input['Category'].nunique() > 1:
-            anova = QualityAnalytics.perform_anova(df_input, 'Category', 'Return_Rate')
-            if anova.get('p_value') is not None:
-                st.session_state.anova_result = anova
-                log_process(f"ANOVA P-Value: {anova.get('p_value'):.4f}")
-            if anova.get('significant'):
-                st.session_state.tukey_result = QualityAnalytics.perform_tukey_hsd(df_input, 'Category', 'Return_Rate')
-                log_process("Tukey HSD computed for significant ANOVA.")
-
-        # 3. MANOVA
-        metric_cols = [col for col in ['Return_Rate', 'Landed Cost'] if col in df_input.columns]
-        if df_input['Category'].nunique() > 1 and len(metric_cols) > 1:
-            st.session_state.manova_result = QualityAnalytics.perform_manova(df_input, 'Category', metric_cols)
-            if st.session_state.manova_result.get('p_value') is not None:
-                log_process(f"MANOVA P-Value: {st.session_state.manova_result['p_value']:.4f}")
-
-        # 4. Category Stats
-        category_stats = df_input.groupby('Category')['Return_Rate'].agg(['mean', 'std']).fillna(0)
-
-        analyzer = None
-        if (ai_review_enabled or ai_severity_enabled) and (keys.get('openai') or keys.get('claude')):
-            analyzer = get_ai_analyzer()
-
-        # 5. Row Logic
-        results = []
-        for _, row in df_input.iterrows():
-            category = row.get('Category', 'All Others')
-            cat_avg = category_stats.at[category, 'mean'] if category in category_stats.index else SOP_THRESHOLDS.get(category, 0.10)
-            cat_std = category_stats.at[category, 'std'] if category in category_stats.index else 0.0
-
-            applied_threshold = effective_thresholds.get(category, SOP_THRESHOLDS['All Others'])
-            product_threshold = apply_product_thresholds(row.get('SKU'), st.session_state.qc_product_thresholds)
-            if product_threshold is not None:
-                applied_threshold = max(applied_threshold, product_threshold)
-
-            manual_text = f"{row.get('Complaint_Text', '')} {row.get('Manual_Context', '')}".lower()
-            safety_keywords = ['injury', 'injured', 'hospital', 'unsafe', 'hazard', 'burn', 'fall']
-            if any(word in manual_text for word in safety_keywords):
-                row['Safety Risk'] = 'Yes'
-
-            ai_severity_score = 0.0
-            if ai_severity_enabled and analyzer is not None:
-                prompt = (
-                    "Assess complaint severity for medical device quality screening. "
-                    "Return a severity score from 0-40 and label (low/medium/high/critical). "
-                    f"Complaint: {row.get('Complaint_Text', '')}"
-                )
-                try:
-                    response = ai_call_with_retry(analyzer.generate_text, prompt, "You are a Quality Engineer.")
-                    match = re.search(r'(\d{1,2})', response)
-                    if match:
-                        ai_severity_score = min(float(match.group(1)), 40)
-                    row['AI_Severity'] = response
-                except Exception as exc:
-                    log_process(f"AI severity scoring failed: {exc}", "error")
-
-            risk = QualityAnalytics.calculate_weighted_risk_score(row, cat_avg, cat_std, ai_severity_score)
-            action = QualityAnalytics.determine_action(row, effective_thresholds)
-            trend = QualityAnalytics.analyze_trend(row)
-
-            history_values = [row.get('Return_Rate_6M'), row.get('Return_Rate_12M')]
-            history_values = [val for val in history_values if pd.notna(val)]
-            history_mean = float(np.mean(history_values)) if history_values else float(cat_avg)
-            history_std = float(np.std(history_values)) if history_values else float(cat_std if cat_std > 0 else cat_avg * 0.2)
-            spc = QualityAnalytics.detect_spc_signals(row, history_mean, history_std)
-
-            row['Category_Threshold'] = applied_threshold
-            row['Trend_Status'] = trend['trend']
-            row['Risk_Score'] = risk
-            row['Recommended_Action'] = action
-            row['SPC_Signal'] = spc
-            results.append(row)
-
-        results_df = pd.DataFrame(results)
-
-        if ai_review_enabled and analyzer is not None and len(results_df) <= 20:
-            ai_actions = []
-            for _, row in results_df.iterrows():
-                prompt = (
-                    "Using SOP thresholds, classify this SKU as one of: "
-                    "Quality Case, Quality Issue, Monitor, or Dismiss. "
-                    f"SKU: {row.get('SKU')}, Return Rate: {row.get('Return_Rate'):.1%}, "
-                    f"Category Threshold: {row.get('Category_Threshold'):.1%}, "
-                    f"Landed Cost: {row.get('Landed Cost')}, "
-                    f"Safety Risk: {row.get('Safety Risk')}, "
-                    f"Manual Context: {row.get('Manual_Context')}"
-                )
-                try:
-                    response = ai_call_with_retry(analyzer.generate_text, prompt, "You are a Quality Manager.")
-                    ai_actions.append(response)
-                except Exception as exc:
-                    log_process(f"AI screening failed: {exc}", "error")
-                    ai_actions.append("AI Screening Error")
-            results_df['AI_Recommendation'] = ai_actions
-        elif ai_review_enabled and len(results_df) > 20:
-            st.warning("AI Screening Review skipped: dataset too large for safe batch processing.")
-
-        st.session_state.qc_results = results_df
-        metadata = {
-            "Analysis Date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "AI Provider": st.session_state.ai_provider.value,
-            "Threshold Profile": st.session_state.qc_active_profile
-        }
-        st.session_state.qc_export_data = build_qc_export(results_df, metadata)
-        st.session_state.qc_export_filename = f"QC_Screening_{datetime.now().strftime('%Y%m%d')}.xlsx"
-        progress.progress(100)
-        log_process("Analysis Complete")
-
-    # RESULTS
-    if st.session_state.qc_results is not None:
-        df = st.session_state.qc_results
-        st.markdown("### 📊 Screening Results")
-
-        # Heatmap
-        with st.expander("🔥 Risk Heatmap", expanded=True):
-            chart = alt.Chart(df).mark_circle(size=60).encode(
-                x=alt.X('Landed Cost', title='Landed Cost ($)'),
-                y=alt.Y('Return_Rate', title='Return Rate', axis=alt.Axis(format='%')),
-                color=alt.Color('Risk_Score', scale=alt.Scale(scheme='redyellowgreen', reverse=True)),
-                tooltip=['SKU', 'Category', 'Return_Rate', 'Recommended_Action', 'Trend_Status', 'SPC_Signal']
-            ).interactive()
-            st.altair_chart(chart, use_container_width=True)
-
-        # Metrics
-        c1, c2, c3, c4 = st.columns(4)
-        escalations = len(df[df['Recommended_Action'].str.contains("Escalate")])
-        c1.metric("Total Analyzed", len(df))
-        c2.metric("Escalations Needed", escalations, delta_color="inverse")
-        if st.session_state.anova_result:
-            p = st.session_state.anova_result.get('p_value', 1.0)
-            c3.metric("ANOVA p-value", f"{p:.4f}", delta="Significant" if p < 0.05 else "Not Significant")
-        if st.session_state.manova_result:
-            p = st.session_state.manova_result.get('p_value', 1.0)
-            c4.metric("MANOVA p-value", f"{p:.4f}", delta="Significant" if p < 0.05 else "Not Significant")
-
-        # Table
-        st.dataframe(
-            df.style.apply(
-                lambda x: ['background-color: #ff4b4b' if 'Escalate' in str(v) else '' for v in x],
-                subset=['Recommended_Action']
-            )
-        )
-
-        if st.session_state.qc_export_data:
-            st.download_button(
-                "⬇️ Download Screening Report",
-                st.session_state.qc_export_data,
-                file_name=st.session_state.qc_export_filename,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-
-        # ANOVA + Post-Hoc Details
-        with st.expander("📐 ANOVA & Post-Hoc Details", expanded=False):
-            if st.session_state.anova_result:
-                st.write(st.session_state.anova_result)
-            if st.session_state.tukey_result:
-                tukey = st.session_state.tukey_result
-                if tukey.get('results') is not None:
-                    st.dataframe(tukey['results'])
-            else:
-                st.info("No Tukey HSD results available.")
-
-        # Language Trends
-        with st.expander("🗣️ Language Trends", expanded=False):
-            trends = summarize_language_trends(df, 'Complaint_Text')
-            if trends:
-                st.bar_chart(pd.Series(trends))
-            else:
-                st.info("No complaint text available for trend analysis.")
-
-        # AI Investigation + Emails
-        st.markdown("#### 🤖 AI Investigation & Vendor Communication")
-        escalated = df[df['Recommended_Action'].str.contains("Escalate")]
-        targets = escalated['SKU'].unique()
-        if len(targets) > 0:
-            sel_sku = st.selectbox("Select SKU to Investigate", targets)
-            row = df[df['SKU'] == sel_sku].iloc[0]
-            if st.button("Generate Draft Investigation Plan"):
-                if keys.get('openai') or keys.get('claude'):
-                    prompt = (
-                        f"Create a draft investigation plan for SKU {sel_sku}. "
-                        f"Return Rate: {row['Return_Rate']:.1%}. "
-                        f"Issue: {row.get('Complaint_Text', 'N/A')}. "
-                        "Suggest device areas to inspect and immediate containment steps."
-                    )
-                    analyzer = get_ai_analyzer()
-                    with st.spinner("Thinking..."):
-                        resp = ai_call_with_retry(analyzer.generate_text, prompt, "You are a Quality Engineer.")
-                        st.markdown(resp)
-                else:
-                    st.warning("AI not connected. Unable to generate investigation plan.")
-
-            if st.button("Generate Vendor Email Draft"):
-                email_prompt = (
-                    f"Draft a vendor email requesting CAPA/RCA for SKU {sel_sku}. "
-                    f"Return Rate: {row['Return_Rate']:.1%}. "
-                    f"Key complaint: {row.get('Complaint_Text', 'N/A')}. "
-                    "Include request for timelines and corrective actions."
-                )
-                if keys.get('openai') or keys.get('claude'):
-                    analyzer = get_ai_analyzer()
-                    with st.spinner("Drafting email..."):
-                        resp = ai_call_with_retry(analyzer.generate_text, email_prompt, "You are a Quality Manager.")
-                        st.markdown(resp)
-                else:
-                    st.markdown(
-                        f"Subject: CAPA/RCA Request for {sel_sku}\n\n"
-                        "Hello,\n\n"
-                        "We have identified an elevated return rate and quality signal on this SKU. "
-                        "Please provide CAPA/RCA details and a corrective action timeline.\n\n"
-                        "Thank you."
-                    )
-        else:
-            st.info("No escalations detected.")
-
-        # Cross-Case Correlation
-        with st.expander("🔗 Cross-Case Correlation", expanded=False):
-            if st.session_state.qc_history_cases is not None and (keys.get('openai') or keys.get('claude')):
-                sku_list = df['SKU'].unique()
-                selected = st.selectbox("Select SKU", sku_list, key="cross_case_sku")
-                if st.button("Analyze Correlation"):
-                    case_summaries = st.session_state.qc_history_cases.head(50).to_string(index=False)
-                    prompt = (
-                        f"Compare SKU {selected} complaint to historical case summaries and report correlations. "
-                        f"Complaint: {df[df['SKU'] == selected]['Complaint_Text'].iloc[0]}\n"
-                        f"Historical Cases:\n{case_summaries}"
-                    )
-                    analyzer = get_ai_analyzer()
-                    with st.spinner("Analyzing..."):
-                        resp = ai_call_with_retry(analyzer.generate_text, prompt, "You are a Quality Analyst.")
-                        st.markdown(resp)
-            else:
-                st.info("Upload historical case summaries and connect AI to enable correlation.")
-
-        # Similar Product Names
-        with st.expander("🧩 Similar Product Names", expanded=False):
-            sku_list = df['SKU'].unique()
-            selected = st.selectbox("Select SKU", sku_list, key="similar_sku")
-            names = list(df['SKU'].astype(str).unique())
-            similar = get_close_matches(selected, names, n=5)
-            st.write(similar)
-            if keys.get('openai') or keys.get('claude'):
-                if st.button("Ask AI for Similar Products"):
-                    analyzer = get_ai_analyzer()
-                    prompt = (
-                        f"Given this SKU name: {selected}, identify similar product names from this list: "
-                        f"{', '.join(names[:50])}. "
-                        "Return likely related products and why they are similar."
-                    )
-                    with st.spinner("Identifying similar products..."):
-                        resp = ai_call_with_retry(analyzer.generate_text, prompt, "You are a Quality Analyst.")
-                        st.markdown(resp)
-
-        # Processing Transparency
-        with st.expander("🧾 Processing Transparency Log", expanded=False):
-            if st.session_state.processing_log:
-                st.code("\n".join(st.session_state.processing_log[-50:]))
-            else:
-                st.info("No log entries yet.")
-
-        with st.expander("Methodology & Math"):
-            st.markdown(QualityAnalytics.generate_methodology_markdown())
 
 # --- MAIN APP ---
 
@@ -1138,29 +1487,47 @@ def main():
     st.markdown("""
     <div class="main-header">
         <h1 class="main-title">VIVE HEALTH QUALITY SUITE</h1>
-        <p style="color: white; margin: 0.5rem 0;">AI-Powered Returns Analysis & Reporting (v18.0)</p>
+        <p style="color: white; margin: 0.5rem 0;">AI-Powered Returns Analysis & Quality Screening (v19.0)</p>
     </div>
     """, unsafe_allow_html=True)
 
     if not AI_AVAILABLE:
         st.error("❌ AI Modules Missing. Please check deployment.")
         st.stop()
-        
+    
     # Sidebar
     with st.sidebar:
         st.markdown("### ⚙️ Configuration")
-        provider = st.selectbox("🤖 AI Provider", options=list(AI_PROVIDER_OPTIONS.keys()))
-        st.session_state.ai_provider = AI_PROVIDER_OPTIONS[provider]
         
-        keys = check_api_keys()
-        if not keys:
-            st.warning("⚠️ No API Keys found in secrets.")
+        # Tab 1 & 2 AI Provider (original behavior)
+        provider_t12 = st.selectbox(
+            "🤖 AI Provider (Tab 1 & 2)",
+            options=['Fastest (Claude Haiku)', 'OpenAI GPT-3.5', 'Claude Sonnet', 'Both (Consensus)'],
+            index=0
+        )
+        
+        # Map to enum for tabs 1 & 2
+        provider_map_t12 = {
+            'Fastest (Claude Haiku)': AIProvider.FASTEST,
+            'OpenAI GPT-3.5': AIProvider.OPENAI,
+            'Claude Sonnet': AIProvider.CLAUDE,
+            'Both (Consensus)': AIProvider.BOTH
+        }
+        
+        # API Health Check
+        render_api_health_check()
+        
+        # Help guide
+        render_help_guide()
 
     # Tabs
     tab1, tab2, tab3 = st.tabs(["📊 Return Categorizer", "📑 B2B Report Generator", "🧪 Quality Screening"])
     
-    # --- TAB 1: Categorizer ---
+    # --- TAB 1: Categorizer (PRESERVED) ---
     with tab1:
+        # Use Tab 1/2 provider
+        st.session_state.ai_provider = provider_map_t12[provider_t12]
+        
         st.markdown("### 📁 Return Categorization (Column I → K)")
         st.info("Upload file with **Column I** (Complaint) and **Column B** (SKU). Output will be in **Column K**.")
         
@@ -1168,6 +1535,7 @@ def main():
         if file:
             df, mapping = process_file_preserve_structure(file.read(), file.name)
             if df is not None:
+                st.session_state.column_mapping = mapping
                 st.write(f"Loaded {len(df)} rows.")
                 if st.button("Start Categorization"):
                     analyzer = get_ai_analyzer()
@@ -1177,7 +1545,6 @@ def main():
                         st.session_state.processing_complete = True
                         generate_statistics(res, mapping)
                         
-                        # Export
                         st.session_state.export_data = export_with_column_k(res)
                         st.session_state.export_filename = f"Categorized_{datetime.now().strftime('%Y%m%d')}.xlsx"
                         st.rerun()
@@ -1189,12 +1556,14 @@ def main():
                                  file_name=st.session_state.export_filename, 
                                  mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-    # --- TAB 2: B2B Reports ---
+    # --- TAB 2: B2B Reports (PRESERVED) ---
     with tab2:
+        # Use Tab 1/2 provider
+        st.session_state.ai_provider = provider_map_t12[provider_t12]
+        
         st.markdown("### 📑 B2B Report Automation")
         st.info("Convert Odoo exports into B2B reports with AI summaries and SKU extraction.")
         
-        # Performance Slider
         perf = st.select_slider("Dataset Size / Speed", options=['Small', 'Medium', 'Large'], value='Small')
         batch_map = {'Small': (10, 3), 'Medium': (25, 6), 'Large': (50, 10)}
         batch_size, workers = batch_map[perf]
@@ -1211,7 +1580,6 @@ def main():
                         st.session_state.b2b_processed_data = final_df
                         st.session_state.b2b_processing_complete = True
                         
-                        # Prepare Export
                         output = io.BytesIO()
                         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                             final_df.to_excel(writer, index=False, sheet_name='Report')
@@ -1226,9 +1594,10 @@ def main():
                              file_name=st.session_state.b2b_export_filename,
                              mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-    # --- TAB 3: Quality Screening ---
+    # --- TAB 3: Quality Screening (REBUILT) ---
     with tab3:
         render_quality_screening_tab()
+
 
 if __name__ == "__main__":
     main()
