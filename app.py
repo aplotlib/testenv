@@ -2821,7 +2821,360 @@ def render_screening_results():
                             st.error(f"Bulk plan generation failed: {e}")
                             logger.error(f"Bulk plan error: {e}")
 
-    # ========== END NEW FEATURES ==========
+    # ========== END ADVANCED FEATURES ==========
+
+    # ========== SMARTSHEET PROJECT PLANS ==========
+    if len(action_items) > 0:
+        st.markdown("---")
+        st.markdown("### 📊 Smartsheet Project Plans")
+        st.caption("Export ready-to-import project plans for Smartsheet project management")
+
+        smartsheet_tab1, smartsheet_tab2, smartsheet_tab3 = st.tabs(["📋 CAPA Plan", "🚨 Critical Investigation", "🔧 Rework Operation"])
+
+        # Import Smartsheet modules at runtime
+        try:
+            from smartsheet_plans import CAPAProjectPlan, CriticalInvestigationPlan, ReworkProjectPlan
+            SMARTSHEET_AVAILABLE = True
+        except ImportError:
+            SMARTSHEET_AVAILABLE = False
+            st.error("⚠️ Smartsheet plan module not available. Please ensure smartsheet_plans.py is in the directory.")
+
+        if SMARTSHEET_AVAILABLE:
+            # TAB 1: CAPA Project Plan
+            with smartsheet_tab1:
+                st.markdown("#### CAPA (Corrective & Preventive Action) Project Plan")
+                st.caption("Based on 8D methodology - FDA/ISO 13485 compliant")
+
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    capa_sku = st.selectbox(
+                        "Select Product for CAPA",
+                        options=action_items['SKU'].unique(),
+                        key="capa_sku"
+                    )
+
+                    capa_severity = st.selectbox(
+                        "Severity Level",
+                        ["Critical", "High", "Medium", "Low"],
+                        index=1,
+                        key="capa_severity",
+                        help="Determines timeline urgency. Critical = fastest timeline"
+                    )
+
+                with col2:
+                    capa_lead = st.text_input(
+                        "Team Lead",
+                        value="Quality Manager",
+                        key="capa_lead"
+                    )
+
+                    capa_start = st.date_input(
+                        "Start Date",
+                        value=datetime.now(),
+                        key="capa_start"
+                    )
+
+                if st.button("📊 Generate CAPA Project Plan", type="primary", key="gen_capa"):
+                    with st.spinner("Generating CAPA project plan..."):
+                        try:
+                            row = action_items[action_items['SKU'] == capa_sku].iloc[0]
+
+                            capa_plan = CAPAProjectPlan(
+                                sku=capa_sku,
+                                product_name=row.get('Name', capa_sku),
+                                issue_description=row.get('Triggers', 'Quality concern identified'),
+                                return_rate=row.get('Return_Rate', 0),
+                                units_affected=int(row.get('Returned', 0)),
+                                severity=capa_severity,
+                                assigned_team_lead=capa_lead,
+                                start_date=capa_start
+                            )
+
+                            st.success(f"✅ Generated CAPA plan with {len(capa_plan.tasks)} tasks!")
+
+                            # Preview
+                            preview_df = capa_plan.to_dataframe()
+                            with st.expander("📋 Preview Plan", expanded=True):
+                                st.dataframe(preview_df[['Task ID', 'Task Name', 'Assigned To', 'Duration (Days)', 'Status', 'Priority']],
+                                           use_container_width=True, height=400)
+
+                            # Download options
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                csv_data = capa_plan.to_csv()
+                                st.download_button(
+                                    "📥 Download CSV (Smartsheet Import)",
+                                    csv_data,
+                                    file_name=f"CAPA_{capa_sku}_{datetime.now().strftime('%Y%m%d')}.csv",
+                                    mime="text/csv",
+                                    help="Import this CSV directly into Smartsheet"
+                                )
+
+                            with col2:
+                                excel_data = capa_plan.to_excel()
+                                st.download_button(
+                                    "📥 Download Excel",
+                                    excel_data,
+                                    file_name=f"CAPA_{capa_sku}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                )
+
+                            # Statistics
+                            total_days = max([t['Duration (Days)'] for t in capa_plan.tasks])
+                            st.info(f"📅 **Estimated Timeline:** {total_days} days | **Total Tasks:** {len(capa_plan.tasks)}")
+
+                        except Exception as e:
+                            st.error(f"CAPA generation failed: {e}")
+                            logger.error(f"CAPA error: {e}")
+
+            # TAB 2: Critical Investigation
+            with smartsheet_tab2:
+                st.markdown("#### Critical Case Investigation Project Plan")
+                st.caption("For safety concerns, regulatory issues, or high-impact quality problems")
+
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    crit_sku = st.selectbox(
+                        "Select Product for Investigation",
+                        options=action_items['SKU'].unique(),
+                        key="crit_sku"
+                    )
+
+                    crit_severity = st.selectbox(
+                        "Severity Level",
+                        ["Critical", "High", "Medium"],
+                        index=0,
+                        key="crit_severity"
+                    )
+
+                with col2:
+                    crit_safety = st.checkbox(
+                        "⚠️ Safety Concern",
+                        value=False,
+                        key="crit_safety",
+                        help="Check if there is potential patient/customer safety risk"
+                    )
+
+                    crit_regulatory = st.checkbox(
+                        "📋 Regulatory Impact",
+                        value=False,
+                        key="crit_regulatory",
+                        help="Check if FDA/MDR reporting may be required"
+                    )
+
+                crit_lead = st.text_input(
+                    "Investigation Lead",
+                    value="Quality Manager",
+                    key="crit_lead"
+                )
+
+                if st.button("🚨 Generate Critical Investigation Plan", type="primary", key="gen_crit"):
+                    with st.spinner("Generating critical investigation plan..."):
+                        try:
+                            row = action_items[action_items['SKU'] == crit_sku].iloc[0]
+
+                            crit_plan = CriticalInvestigationPlan(
+                                sku=crit_sku,
+                                product_name=row.get('Name', crit_sku),
+                                issue_description=row.get('Triggers', 'Critical quality issue'),
+                                severity_level=crit_severity,
+                                regulatory_impact=crit_regulatory,
+                                safety_concern=crit_safety,
+                                assigned_lead=crit_lead,
+                                start_date=datetime.now()
+                            )
+
+                            st.success(f"✅ Generated critical investigation plan with {len(crit_plan.tasks)} tasks!")
+
+                            if crit_safety:
+                                st.warning("⚠️ **SAFETY CONCERN FLAGGED** - Plan includes immediate safety assessment and customer notification tasks")
+
+                            if crit_regulatory:
+                                st.warning("📋 **REGULATORY IMPACT FLAGGED** - Plan includes FDA/MDR notification and reporting tasks")
+
+                            # Preview
+                            preview_df = crit_plan.to_dataframe()
+                            with st.expander("📋 Preview Plan", expanded=True):
+                                st.dataframe(preview_df[['Task ID', 'Task Name', 'Assigned To', 'Duration (Days)', 'Status', 'Priority']],
+                                           use_container_width=True, height=400)
+
+                            # Download options
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                csv_data = crit_plan.to_csv()
+                                st.download_button(
+                                    "📥 Download CSV (Smartsheet Import)",
+                                    csv_data,
+                                    file_name=f"CRITICAL_INVESTIGATION_{crit_sku}_{datetime.now().strftime('%Y%m%d')}.csv",
+                                    mime="text/csv"
+                                )
+
+                            with col2:
+                                excel_data = crit_plan.to_excel()
+                                st.download_button(
+                                    "📥 Download Excel",
+                                    excel_data,
+                                    file_name=f"CRITICAL_INVESTIGATION_{crit_sku}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                )
+
+                        except Exception as e:
+                            st.error(f"Investigation plan generation failed: {e}")
+                            logger.error(f"Investigation error: {e}")
+
+            # TAB 3: Rework Operation (AI-Driven with Questions)
+            with smartsheet_tab3:
+                st.markdown("#### Rework Operation Project Plan")
+                st.caption("AI-customized plan based on your specific rework requirements")
+
+                # AI Questions for Rework
+                st.markdown("**🤖 Answer questions to customize the rework plan:**")
+
+                rework_sku = st.selectbox(
+                    "Select Product for Rework",
+                    options=action_items['SKU'].unique(),
+                    key="rework_sku"
+                )
+
+                row = action_items[action_items['SKU'] == rework_sku].iloc[0]
+
+                # Create form for rework questions
+                with st.form("rework_questions_form"):
+                    st.markdown("##### 📝 Rework Details Questionnaire")
+
+                    col1, col2 = st.columns(2)
+
+                    with col1:
+                        rework_units = st.number_input(
+                            "How many units need rework?",
+                            min_value=1,
+                            value=int(row.get('Returned', 100)),
+                            step=1
+                        )
+
+                        rework_type = st.selectbox(
+                            "What type of rework is required?",
+                            [
+                                "Component Replacement",
+                                "Cosmetic Repair",
+                                "Firmware Update",
+                                "Label/Packaging Fix",
+                                "Assembly Correction",
+                                "Cleaning/Refinishing",
+                                "Calibration/Adjustment",
+                                "Other"
+                            ]
+                        )
+
+                        complexity = st.selectbox(
+                            "Rework complexity level?",
+                            ["Low", "Medium", "High"]
+                        )
+
+                    with col2:
+                        requires_disassembly = st.checkbox("Requires disassembly?", value=False)
+                        requires_cleaning = st.checkbox("Requires cleaning?", value=False)
+                        requires_testing = st.checkbox("Requires functional testing?", value=True)
+                        requires_reassembly = st.checkbox("Requires reassembly?", value=False)
+
+                    col1, col2, col3 = st.columns(3)
+
+                    with col1:
+                        inspection_level = st.selectbox(
+                            "Inspection level after rework?",
+                            ["100%", "Sample", "Skip-lot"]
+                        )
+
+                    with col2:
+                        batch_size = st.number_input("Batch size?", min_value=1, value=50, step=10)
+
+                    with col3:
+                        team_size = st.text_input("Team size?", value="2-3 operators")
+
+                    requires_relabeling = st.checkbox("Requires relabeling?", value=False)
+                    requires_repackaging = st.checkbox("Requires repackaging?", value=True)
+
+                    required_materials = st.text_area(
+                        "Required materials/parts:",
+                        value="Standard rework materials"
+                    )
+
+                    rework_steps = st.text_area(
+                        "Specific rework steps (optional):",
+                        value="Follow approved rework procedure"
+                    )
+
+                    submitted = st.form_submit_button("🚀 Generate Rework Plan", type="primary")
+
+                    if submitted:
+                        with st.spinner("Generating customized rework plan..."):
+                            try:
+                                rework_details = {
+                                    'batch_size': batch_size,
+                                    'complexity': complexity,
+                                    'inspection_level': inspection_level,
+                                    'team_size': team_size,
+                                    'requires_disassembly': requires_disassembly,
+                                    'requires_cleaning': requires_cleaning,
+                                    'requires_testing': requires_testing,
+                                    'requires_reassembly': requires_reassembly,
+                                    'requires_relabeling': requires_relabeling,
+                                    'requires_repackaging': requires_repackaging,
+                                    'required_materials': required_materials,
+                                    'rework_steps': rework_steps
+                                }
+
+                                rework_plan = ReworkProjectPlan(
+                                    sku=rework_sku,
+                                    product_name=row.get('Name', rework_sku),
+                                    units_to_rework=rework_units,
+                                    rework_type=rework_type,
+                                    rework_details=rework_details,
+                                    assigned_lead="Production Manager",
+                                    start_date=datetime.now()
+                                )
+
+                                st.success(f"✅ Generated rework plan with {len(rework_plan.tasks)} tasks for {rework_units:,} units!")
+
+                                # Summary
+                                col1, col2, col3 = st.columns(3)
+                                col1.metric("Units to Rework", f"{rework_units:,}")
+                                col2.metric("Rework Type", rework_type)
+                                col3.metric("Complexity", complexity)
+
+                                # Preview
+                                preview_df = rework_plan.to_dataframe()
+                                with st.expander("📋 Preview Plan", expanded=True):
+                                    st.dataframe(preview_df[['Task ID', 'Task Name', 'Assigned To', 'Duration (Days)', 'Status', 'Priority']],
+                                               use_container_width=True, height=400)
+
+                                # Download options
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    csv_data = rework_plan.to_csv()
+                                    st.download_button(
+                                        "📥 Download CSV (Smartsheet)",
+                                        csv_data,
+                                        file_name=f"REWORK_{rework_sku}_{datetime.now().strftime('%Y%m%d')}.csv",
+                                        mime="text/csv"
+                                    )
+
+                                with col2:
+                                    excel_data = rework_plan.to_excel()
+                                    st.download_button(
+                                        "📥 Download Excel",
+                                        excel_data,
+                                        file_name=f"REWORK_{rework_sku}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                    )
+
+                            except Exception as e:
+                                st.error(f"Rework plan generation failed: {e}")
+                                logger.error(f"Rework error: {e}")
+
+    # ========== END SMARTSHEET FEATURES ==========
 
     # Safety Disclaimer
     st.markdown("---")
