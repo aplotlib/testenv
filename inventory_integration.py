@@ -27,10 +27,17 @@ class OdooInventoryParser:
     Critical: Odoo files have actual headers in the first DATA row, not Excel header row.
     """
 
+    # Core required columns for calculations (relaxed from full spec)
     REQUIRED_COLUMNS = [
-        'SKU', 'ASIN', 'Product Title', 'Supplier', 'Status', 'Amazon Status',
-        'On Hand', 'On Order', 'Shipments in Transit', 'FBA Inbound', 'Total Units',
-        'Total Daily rate', 'Unit Cost',
+        'SKU', 'Product Title',
+        'On Hand', 'Total Units',
+        'Total Daily rate', 'Unit Cost'
+    ]
+
+    # Optional columns that enhance functionality but aren't required
+    OPTIONAL_COLUMNS = [
+        'ASIN', 'Supplier', 'Status', 'Amazon Status',
+        'On Order', 'Shipments in Transit', 'FBA Inbound',
         'DOI', 'Warehouse DOI',
         'Last Sale (days)', 'Amazon OOS', 'Warehouse OOS', 'Total OOS'
     ]
@@ -38,6 +45,7 @@ class OdooInventoryParser:
     def __init__(self):
         self.raw_df = None
         self.parsed_df = None
+        self.column_mapping = {}  # Maps found columns to standard names
 
     def parse_file(self, file_content) -> pd.DataFrame:
         """
@@ -50,8 +58,26 @@ class OdooInventoryParser:
             DataFrame with canonical schema
         """
         try:
-            # Read Excel file - first row contains actual headers
-            df = pd.read_excel(file_content, sheet_name='Sheet1', header=0)
+            # First, read without header to inspect structure
+            df_raw = pd.read_excel(file_content, sheet_name='Sheet1', header=None, nrows=10)
+
+            # Find which row contains the headers by looking for 'SKU' column
+            header_row = None
+            for idx in range(min(5, len(df_raw))):  # Check first 5 rows
+                row_values = df_raw.iloc[idx].astype(str).str.strip().str.lower()
+                if 'sku' in row_values.values:
+                    header_row = idx
+                    break
+
+            if header_row is None:
+                raise ValueError("Could not find header row containing 'SKU' column")
+
+            # Now read with correct header row
+            file_content.seek(0)  # Reset file pointer
+            df = pd.read_excel(file_content, sheet_name='Sheet1', header=header_row)
+
+            # Clean column names (strip whitespace, handle encoding issues)
+            df.columns = df.columns.str.strip()
 
             # Store raw for debugging
             self.raw_df = df.copy()
@@ -59,7 +85,24 @@ class OdooInventoryParser:
             # Validate required columns exist
             missing_cols = [col for col in self.REQUIRED_COLUMNS if col not in df.columns]
             if missing_cols:
-                raise ValueError(f"Missing required columns: {missing_cols}")
+                # Provide helpful debugging info
+                actual_cols = list(df.columns)
+                raise ValueError(
+                    f"Missing required columns: {missing_cols}\n"
+                    f"Found columns: {actual_cols}\n"
+                    f"Header row detected at row {header_row}"
+                )
+
+            # Add missing optional columns with default values
+            for col in self.OPTIONAL_COLUMNS:
+                if col not in df.columns:
+                    if col in ['On Order', 'Shipments in Transit', 'FBA Inbound',
+                              'Last Sale (days)', 'Amazon OOS', 'Warehouse OOS', 'Total OOS']:
+                        df[col] = 0
+                    elif col in ['DOI', 'Warehouse DOI']:
+                        df[col] = np.nan
+                    else:
+                        df[col] = ''
 
             # Clean and validate data types
             df = self._clean_data(df)
