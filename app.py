@@ -52,6 +52,10 @@ try:
         SOP_THRESHOLDS, parse_numeric, parse_percentage,
         fuzzy_match_category, generate_methodology_markdown
     )
+    from inventory_integration import (
+        OdooInventoryParser, PivotReturnReportParser,
+        InventoryConfiguration, InventoryCalculator, IntegratedAnalyzer
+    )
     AI_AVAILABLE = True
 except ImportError as e:
     AI_AVAILABLE = False
@@ -3937,6 +3941,371 @@ def render_help_guide():
         )
 
 
+def render_inventory_integration_tab():
+    """
+    Render the Inventory Integration tab.
+
+    Integrates Odoo inventory data with B2B return reports to provide:
+    - DOI calculations (planning and conservative views)
+    - Reorder points and lead time windows
+    - Corrective action windows
+    - At-risk pipeline exposure
+    - Integrated quality + inventory recommendations
+    """
+    st.markdown("### 📦 Inventory + Quality Integration")
+    st.markdown("""
+    <div style="background: rgba(0, 217, 255, 0.1); border: 1px solid #00D9FF;
+                border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem;">
+        <strong>🎯 Purpose:</strong> Integrate inventory management with quality screening to determine:
+        <ul style="margin: 0.5rem 0 0 1.5rem;">
+            <li>Days of Inventory (DOI) - Planning & Conservative views</li>
+            <li>Reorder points and timing windows</li>
+            <li>Corrective action windows BEFORE reordering</li>
+            <li>At-risk pipeline exposure (units & dollars)</li>
+            <li>Integrated recommendations (quality + inventory + reorder)</li>
+        </ul>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Initialize session state for inventory
+    if 'inventory_data' not in st.session_state:
+        st.session_state.inventory_data = None
+    if 'inventory_config' not in st.session_state:
+        st.session_state.inventory_config = InventoryConfiguration()
+    if 'inventory_results' not in st.session_state:
+        st.session_state.inventory_results = None
+
+    # Create tabs for different sections
+    inv_tab1, inv_tab2, inv_tab3 = st.tabs([
+        "📤 Data Upload",
+        "⚙️ Configuration",
+        "📊 Dashboard & Results"
+    ])
+
+    # --- TAB 1: Data Upload ---
+    with inv_tab1:
+        st.markdown("#### Upload Inventory & Return Data")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("##### 📋 Odoo Inventory File")
+            st.caption("Upload your Odoo Inventory Forecast export (Excel format)")
+            odoo_file = st.file_uploader(
+                "Odoo Inventory Forecast",
+                type=['xlsx', 'xls'],
+                key="odoo_upload",
+                help="First data row contains headers: SKU, ASIN, Product Title, On Hand, DOI, etc."
+            )
+
+            if odoo_file:
+                st.success("✅ Odoo file uploaded")
+                with st.expander("ℹ️ Expected Odoo Columns"):
+                    st.markdown("""
+                    **Required columns:**
+                    - SKU, ASIN, Product Title
+                    - On Hand, On Order, Shipments in Transit, FBA Inbound, Total Units
+                    - Total Daily rate, Unit Cost
+                    - DOI, Warehouse DOI
+                    - Status, Amazon Status
+                    """)
+
+        with col2:
+            st.markdown("##### 📊 Pivot Return Report (Optional)")
+            st.caption("Upload B2B returns data for enhanced analysis")
+            pivot_file = st.file_uploader(
+                "Pivot Return Report",
+                type=['xlsx', 'xls'],
+                key="pivot_upload",
+                help="B2B returns with format: [SKU] Product Name"
+            )
+
+            if pivot_file:
+                st.success("✅ Pivot return report uploaded")
+                with st.expander("ℹ️ Pivot Report Format"):
+                    st.markdown("""
+                    **Expected format:**
+                    - Hierarchical pivot structure
+                    - SKU rows: `[SKU] Product Name`
+                    - Return quantities by month (optional)
+                    - **Note:** This is B2B returns only
+                    """)
+
+        st.markdown("---")
+
+        # Process button
+        if odoo_file:
+            if st.button("🚀 Process Inventory Data", type="primary", use_container_width=True):
+                with st.spinner("Processing inventory data..."):
+                    try:
+                        # Parse Odoo file
+                        odoo_parser = OdooInventoryParser()
+                        odoo_df = odoo_parser.parse_file(odoo_file)
+
+                        st.success(f"✅ Parsed {len(odoo_df)} SKUs from Odoo")
+
+                        # Parse Pivot Return Report if provided
+                        returns_df = None
+                        if pivot_file:
+                            pivot_parser = PivotReturnReportParser()
+                            returns_df = pivot_parser.parse_file(pivot_file)
+                            st.success(f"✅ Parsed {len(returns_df)} SKUs from B2B returns")
+
+                        # Calculate inventory metrics
+                        calculator = InventoryCalculator(st.session_state.inventory_config)
+                        results_df = calculator.calculate_inventory_metrics(odoo_df, returns_df)
+
+                        # Store in session state
+                        st.session_state.inventory_data = odoo_df
+                        st.session_state.inventory_results = results_df
+
+                        st.success("✅ Inventory calculations complete!")
+                        st.info("📊 Switch to 'Dashboard & Results' tab to view analysis")
+
+                    except Exception as e:
+                        st.error(f"❌ Error processing files: {str(e)}")
+                        logger.error(f"Inventory processing error: {str(e)}", exc_info=True)
+
+    # --- TAB 2: Configuration ---
+    with inv_tab2:
+        st.markdown("#### ⚙️ Configuration Settings")
+        st.caption("Set global defaults and per-SKU overrides for lead time and safety stock")
+
+        config_tab1, config_tab2 = st.tabs(["🌐 Global Defaults", "📋 Per-SKU Config"])
+
+        # Global defaults
+        with config_tab1:
+            st.markdown("##### Global Default Values")
+            st.caption("These apply to all SKUs unless overridden")
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                global_lead_time = st.number_input(
+                    "Lead Time (days)",
+                    min_value=1,
+                    max_value=365,
+                    value=st.session_state.inventory_config.global_lead_time_days,
+                    help="Total time from PO to stock availability"
+                )
+
+            with col2:
+                global_safety_stock = st.number_input(
+                    "Safety Stock (days)",
+                    min_value=0,
+                    max_value=90,
+                    value=st.session_state.inventory_config.global_safety_stock_days,
+                    help="Buffer inventory in days"
+                )
+
+            if st.button("💾 Update Global Defaults"):
+                st.session_state.inventory_config.global_lead_time_days = global_lead_time
+                st.session_state.inventory_config.global_safety_stock_days = global_safety_stock
+                st.success("✅ Global defaults updated")
+
+                # Recalculate if data exists
+                if st.session_state.inventory_data is not None:
+                    calculator = InventoryCalculator(st.session_state.inventory_config)
+                    st.session_state.inventory_results = calculator.calculate_inventory_metrics(
+                        st.session_state.inventory_data
+                    )
+                    st.info("📊 Results recalculated with new defaults")
+
+        # Per-SKU configuration
+        with config_tab2:
+            st.markdown("##### Per-SKU Configuration Upload")
+            st.caption("Upload CSV with SKU-specific lead times and safety stock")
+
+            sku_config_file = st.file_uploader(
+                "Upload SKU Config (CSV)",
+                type=['csv'],
+                key="sku_config_upload",
+                help="Required columns: SKU, LeadTimeDays, SafetyStockDays"
+            )
+
+            if sku_config_file:
+                try:
+                    st.session_state.inventory_config.load_sku_config(sku_config_file)
+                    st.success(f"✅ Loaded SKU-specific configurations")
+
+                    # Recalculate if data exists
+                    if st.session_state.inventory_data is not None:
+                        calculator = InventoryCalculator(st.session_state.inventory_config)
+                        st.session_state.inventory_results = calculator.calculate_inventory_metrics(
+                            st.session_state.inventory_data
+                        )
+                        st.info("📊 Results recalculated with SKU configs")
+
+                except Exception as e:
+                    st.error(f"❌ Error loading SKU config: {str(e)}")
+
+            with st.expander("📄 Download Template"):
+                st.markdown("**Expected CSV format:**")
+                template_df = pd.DataFrame({
+                    'SKU': ['MOB-2847', 'SUP-5621', 'INS-3421'],
+                    'LeadTimeDays': [45, 30, 60],
+                    'SafetyStockDays': [14, 7, 21]
+                })
+                st.dataframe(template_df, width="stretch")
+
+                csv_buffer = io.StringIO()
+                template_df.to_csv(csv_buffer, index=False)
+                st.download_button(
+                    "📥 Download Template",
+                    csv_buffer.getvalue(),
+                    file_name="sku_config_template.csv",
+                    mime="text/csv"
+                )
+
+    # --- TAB 3: Dashboard & Results ---
+    with inv_tab3:
+        if st.session_state.inventory_results is None:
+            st.info("📤 Upload and process inventory data in the 'Data Upload' tab first")
+            return
+
+        results_df = st.session_state.inventory_results
+
+        st.markdown("#### 📊 Inventory Analysis Dashboard")
+
+        # Summary KPIs
+        st.markdown("##### 📈 Summary Metrics")
+        kpi_col1, kpi_col2, kpi_col3, kpi_col4 = st.columns(4)
+
+        with kpi_col1:
+            total_skus = len(results_df)
+            st.metric("Total SKUs", f"{total_skus:,}")
+
+        with kpi_col2:
+            past_reorder = len(results_df[results_df['DaysToReorder'] < 0])
+            st.metric("⚠️ Past Reorder Point", past_reorder,
+                     delta=None if past_reorder == 0 else "Action Needed",
+                     delta_color="inverse")
+
+        with kpi_col3:
+            reorder_soon = len(results_df[(results_df['DaysToReorder'] >= 0) &
+                                         (results_df['DaysToReorder'] < 14)])
+            st.metric("🟡 Reorder Soon (<14d)", reorder_soon)
+
+        with kpi_col4:
+            total_at_risk = results_df['AtRiskDollars'].sum()
+            st.metric("💰 At-Risk Pipeline", f"${total_at_risk:,.0f}")
+
+        st.markdown("---")
+
+        # Filters
+        st.markdown("##### 🔍 Filters")
+        filter_col1, filter_col2, filter_col3 = st.columns(3)
+
+        with filter_col1:
+            status_filter = st.multiselect(
+                "Status",
+                options=['Past Reorder', 'Reorder Soon', 'Healthy'],
+                default=['Past Reorder', 'Reorder Soon']
+            )
+
+        with filter_col2:
+            category_filter = st.multiselect(
+                "Category",
+                options=['All'] + list(results_df['Product Title'].str[:3].unique()),
+                default=['All']
+            )
+
+        with filter_col3:
+            sort_by = st.selectbox(
+                "Sort By",
+                options=['DaysToReorder', 'DOI_Conservative', 'AtRiskDollars', 'SKU'],
+                index=0
+            )
+
+        # Apply filters
+        filtered_df = results_df.copy()
+
+        # Status filter
+        if status_filter:
+            status_conditions = []
+            if 'Past Reorder' in status_filter:
+                status_conditions.append(filtered_df['DaysToReorder'] < 0)
+            if 'Reorder Soon' in status_filter:
+                status_conditions.append((filtered_df['DaysToReorder'] >= 0) &
+                                        (filtered_df['DaysToReorder'] < 14))
+            if 'Healthy' in status_filter:
+                status_conditions.append(filtered_df['DaysToReorder'] >= 14)
+
+            if status_conditions:
+                combined_condition = status_conditions[0]
+                for cond in status_conditions[1:]:
+                    combined_condition = combined_condition | cond
+                filtered_df = filtered_df[combined_condition]
+
+        # Sort
+        filtered_df = filtered_df.sort_values(by=sort_by)
+
+        st.markdown("---")
+        st.markdown(f"##### 📋 Results ({len(filtered_df)} SKUs)")
+
+        # Display results table
+        display_columns = [
+            'SKU', 'Product Title', 'On Hand', 'Total Units',
+            'Total Daily rate', 'DOI_Planning', 'DOI_Conservative',
+            'DaysToReorder', 'MustOrderBy', 'CA_Window_BeforePO',
+            'AtRiskUnits', 'AtRiskDollars'
+        ]
+
+        display_df = filtered_df[display_columns].copy()
+
+        # Format numeric columns
+        display_df['DOI_Planning'] = display_df['DOI_Planning'].apply(
+            lambda x: f"{x:.1f}" if pd.notna(x) else "N/A"
+        )
+        display_df['DOI_Conservative'] = display_df['DOI_Conservative'].apply(
+            lambda x: f"{x:.1f}" if pd.notna(x) else "N/A"
+        )
+        display_df['DaysToReorder'] = display_df['DaysToReorder'].apply(
+            lambda x: f"{x:.1f}" if pd.notna(x) else "N/A"
+        )
+        display_df['CA_Window_BeforePO'] = display_df['CA_Window_BeforePO'].apply(
+            lambda x: f"{x:.1f}" if pd.notna(x) else "N/A"
+        )
+        display_df['AtRiskDollars'] = display_df['AtRiskDollars'].apply(
+            lambda x: f"${x:,.0f}"
+        )
+
+        st.dataframe(display_df, width="stretch", height=600)
+
+        # Export options
+        st.markdown("---")
+        st.markdown("##### 📤 Export Options")
+
+        export_col1, export_col2 = st.columns(2)
+
+        with export_col1:
+            # CSV export
+            csv_buffer = io.StringIO()
+            filtered_df.to_csv(csv_buffer, index=False)
+            st.download_button(
+                "📥 Export to CSV",
+                csv_buffer.getvalue(),
+                file_name=f"inventory_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+
+        with export_col2:
+            # Excel export (if available)
+            if EXCEL_AVAILABLE:
+                excel_buffer = io.BytesIO()
+                with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
+                    filtered_df.to_excel(writer, sheet_name='Inventory Analysis', index=False)
+
+                st.download_button(
+                    "📥 Export to Excel",
+                    excel_buffer.getvalue(),
+                    file_name=f"inventory_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+
+
 # --- MAIN APP ---
 
 def main():
@@ -3981,7 +4350,7 @@ def main():
         render_help_guide()
 
     # Tabs
-    tab1, tab2, tab3 = st.tabs(["📊 Return Categorizer", "📑 B2B Report Generator", "🧪 Quality Screening"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Return Categorizer", "📑 B2B Report Generator", "🧪 Quality Screening", "📦 Inventory Integration"])
     
     # --- TAB 1: Categorizer (PRESERVED) ---
     with tab1:
@@ -4168,6 +4537,10 @@ def main():
     # --- TAB 3: Quality Screening (REBUILT) ---
     with tab3:
         render_quality_screening_tab()
+
+    # --- TAB 4: Inventory Integration ---
+    with tab4:
+        render_inventory_integration_tab()
 
 
 if __name__ == "__main__":
