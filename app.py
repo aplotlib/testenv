@@ -217,6 +217,70 @@ INVESTIGATION_METHODS = {
     }
 }
 
+# TQM & Kaizen Terminology (Official + Layman's Terms)
+TQM_TERMINOLOGY = {
+    'genchi_genbutsu': {
+        'official': 'Genchi Genbutsu (現地現物)',
+        'layman': 'Go & See for Yourself',
+        'definition': 'Go to the source to find facts and make correct decisions. See the actual products, processes, and data.',
+        'in_practice': 'Instead of just reading reports, physically inspect returned products and talk to warehouse staff who handle them.'
+    },
+    'pdca': {
+        'official': 'PDCA Cycle (Plan-Do-Check-Act)',
+        'layman': 'Plan → Try It → Check Results → Make it Standard',
+        'definition': 'Continuous improvement cycle: Plan improvements, Do (implement), Check (measure results), Act (standardize or adjust).',
+        'in_practice': 'Screen products (Plan) → Investigate issues (Do) → Verify results (Check) → Update processes (Act)'
+    },
+    'hoshin_kanri': {
+        'official': 'Hoshin Kanri (Policy Deployment)',
+        'layman': 'Strategic Goal Alignment',
+        'definition': 'Align daily work with strategic goals. Everyone works on what matters most for the company.',
+        'in_practice': 'Your threshold profiles align screening with company quality goals (e.g., "Q1 Strict Review" for peak season prep)'
+    },
+    'muda': {
+        'official': 'Muda (無駄) - Waste Elimination',
+        'layman': 'Cut Out Wasted Effort',
+        'definition': 'Eliminate activities that consume resources but create no value (overproduction, waiting, excess inventory, defects, etc.).',
+        'in_practice': 'Bulk operations save hours vs screening products one-by-one. AI categorization eliminates manual complaint reading.'
+    },
+    'jidoka': {
+        'official': 'Jidoka (自働化) - Automation with Human Touch',
+        'layman': 'Smart Automation that Stops for Problems',
+        'definition': 'Build quality into processes with automation that stops when problems occur, alerting humans to fix root causes.',
+        'in_practice': 'Statistical screening auto-flags problems (automation) but requires your judgment for escalation decisions (human touch)'
+    },
+    'yokoten': {
+        'official': 'Yokoten (横展) - Horizontal Deployment',
+        'layman': 'Share Lessons Across Teams',
+        'definition': 'When you solve a problem, share the solution across the organization so others can benefit.',
+        'in_practice': 'Export screening results to shared tracker so all teams see flagged products and learn from investigations'
+    },
+    'gemba': {
+        'official': 'Gemba (現場) - The Real Place',
+        'layman': 'Where the Work Happens',
+        'definition': 'The actual location where value is created (factory floor, warehouse, customer location).',
+        'in_practice': 'Use "Deep Dive Analysis" with product manuals/specs to understand gemba (how products actually fail in customer hands)'
+    },
+    'hansei': {
+        'official': 'Hansei (反省) - Critical Self-Reflection',
+        'layman': 'Learn from Mistakes',
+        'definition': 'Reflect honestly on what went wrong, not to blame, but to learn and improve processes.',
+        'in_practice': 'Investigation plans include "Lessons Learned" sections - document what caused issues and how to prevent them'
+    },
+    'poka_yoke': {
+        'official': 'Poka-Yoke (ポカヨケ) - Error-Proofing',
+        'layman': 'Make it Hard to Mess Up',
+        'definition': 'Design processes/products so mistakes are impossible or immediately obvious.',
+        'in_practice': 'Tool validates data on upload, auto-flags statistical outliers, prevents proceeding without required fields'
+    },
+    'kaizen': {
+        'official': 'Kaizen (改善) - Continuous Improvement',
+        'layman': 'Always Get a Little Better',
+        'definition': 'Philosophy of continuous, incremental improvement by everyone, every day.',
+        'in_practice': 'Each screening cycle improves: adjust thresholds based on results, refine AI prompts, update threshold profiles'
+    }
+}
+
 # Default category thresholds (from SOPs)
 DEFAULT_CATEGORY_THRESHOLDS = {
     'B2B': 0.025,
@@ -1047,11 +1111,521 @@ def generate_b2b_report(df, analyzer, batch_size):
 # TAB 3 LOGIC: Quality Screening (REBUILT)
 # -------------------------
 
+def render_comprehensive_user_guide():
+    """Render comprehensive user guide with TQM methodology and actionable examples"""
+
+    with st.expander("📖 **COMPREHENSIVE USER GUIDE** - How to Use Quality Case Screening", expanded=False):
+
+        # Quick Start Guide
+        st.markdown("## 🚀 Quick Start (3 Steps)")
+        st.markdown("""
+        1. **Enter Your Info** → Fill in "Screened By" and "Source of Flag"
+        2. **Add Product Data** → Use Lite mode (manual) or Pro mode (upload CSV)
+        3. **Click "Run Screening"** → Get instant results with action recommendations
+
+        **💡 First time?** Start with Lite mode and enter 1-2 products manually to learn the tool.
+        """)
+
+        st.divider()
+
+        # TQM/Kaizen Philosophy Section
+        st.markdown("## 🏭 TQM & Kaizen Methodology (Quality Management Philosophy)")
+        st.caption("This tool follows proven Japanese quality management principles")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            for key in ['kaizen', 'pdca', 'jidoka', 'gemba', 'genchi_genbutsu']:
+                term = TQM_TERMINOLOGY[key]
+                with st.expander(f"**{term['official']}** = _{term['layman']}_"):
+                    st.markdown(f"**Definition:** {term['definition']}")
+                    st.info(f"**In This Tool:** {term['in_practice']}")
+
+        with col2:
+            for key in ['hoshin_kanri', 'muda', 'yokoten', 'hansei', 'poka_yoke']:
+                term = TQM_TERMINOLOGY[key]
+                with st.expander(f"**{term['official']}** = _{term['layman']}_"):
+                    st.markdown(f"**Definition:** {term['definition']}")
+                    st.info(f"**In This Tool:** {term['in_practice']}")
+
+        st.divider()
+
+        # Feature Explanations with Examples
+        st.markdown("## 🔍 Feature Guide: What Each Function Does")
+
+        # THRESHOLD PROFILES
+        with st.expander("### 1️⃣ Threshold Profiles (Hoshin Kanri = Strategic Goal Alignment)"):
+            st.markdown("""
+            **What it is:** Pre-set return rate limits for each product category. Products exceeding these get flagged for review.
+
+            **Official Term:** *Hoshin Kanri* (Policy Deployment)
+            **Layman's Term:** *Set Your Quality Standards*
+
+            #### How It Works:
+            - Each product category has a maximum acceptable return rate (e.g., MOB = 10%, SUP = 11%)
+            - Products above their threshold are flagged as potential quality issues
+            - You can create multiple profiles for different scenarios
+
+            #### Example Profiles:
+            - **"Standard (SOP Defaults)"** → Use everyday for routine screening
+            - **"Strict (Pre-Peak Season)"** → Tighten thresholds before Black Friday/holidays
+            - **"Post-Launch Monitoring"** → Lower thresholds for new product launches
+            - **"Cleanup Mode"** → Higher thresholds when focusing only on critical issues
+
+            #### Actionable Result Example:
+            ```
+            Product: MOB-2847 (Knee Scooter)
+            Return Rate: 12.5%
+            Threshold: 10.0%
+            Result: ⚠️ FLAGGED - 2.5% above acceptable limit
+
+            ACTION: Investigate immediately. Check if issue is isolated batch or systemic design problem.
+            ```
+
+            **💡 Pro Tip:** Start with SOP defaults, then create custom profiles as you learn your data patterns.
+            """)
+
+        # STATISTICAL ANALYSIS
+        with st.expander("### 2️⃣ Statistical Analysis (Jidoka = Smart Automation)"):
+            st.markdown("""
+            **What it is:** Mathematical tests that tell you if differences in return rates are real or just random luck.
+
+            **Official Term:** *Jidoka* (Automation with Human Intelligence)
+            **Layman's Term:** *Let Math Find the Real Problems*
+
+            #### Available Tests:
+
+            **🤖 Auto (AI Recommended)** - Best for beginners
+            AI picks the right statistical test for your data. Use this if you're unsure.
+
+            **📊 ANOVA** - Compare return rates across categories
+            *"Are MOB's 12% returns significantly worse than SUP's 8%?"*
+            - **F-score**: How different the groups are
+            - **p-value < 0.05**: Differences are real (not random chance)
+            - **Effect size**: How BIG is the difference (Small/Medium/Large)
+
+            **📈 MANOVA** - Compare multiple metrics at once
+            Tests return rate AND cost AND sales volume together
+
+            **🎯 Kruskal-Wallis** - For messy real-world data
+            Use when you have outliers or small samples
+
+            #### Actionable Result Example:
+            ```
+            Test: ANOVA
+            F-score: 8.42
+            p-value: 0.003
+            Result: ✅ SIGNIFICANT - Categories have truly different return rates
+
+            Post-Hoc Test Results:
+            - MOB (12%) significantly higher than SUP (8%) → p = 0.002
+            - MOB (12%) NOT significantly different from CSH (10.5%) → p = 0.18
+
+            ACTION: Focus investigation on MOB category. SUP is performing well (use as benchmark).
+            CSH trends toward MOB levels - add to watch list.
+            ```
+
+            **What "Significant" Means:**
+            - p < 0.05 = Only 5% chance results are random → TRUST IT, take action
+            - p > 0.05 = Could be random variation → MONITOR but don't overreact
+            """)
+
+        # RISK SCORING
+        with st.expander("### 3️⃣ Risk Score (Weighted Multi-Factor Analysis)"):
+            st.markdown("""
+            **What it is:** Composite score (0-100) combining return rate, cost, safety, trends, and volume.
+
+            **Official Term:** *Multi-Criteria Decision Analysis (MCDA)*
+            **Layman's Term:** *Priority Calculator - What to Fix First*
+
+            #### Risk Score Formula:
+            ```
+            Risk Score = (25% × Statistical Deviation)
+                       + (25% × Financial Impact)
+                       + (30% × Safety Severity)
+                       + (10% × Trend Direction)
+                       + (10% × Complaint Volume)
+            ```
+
+            #### Score Interpretation:
+            - **0-30 (Low):** 🟢 Normal variation, routine monitoring
+            - **31-60 (Medium):** 🟡 Watch closely, investigate if trend continues
+            - **61-80 (High):** 🟠 Likely quality issue, investigate this week
+            - **81-100 (Critical):** 🔴 Immediate action required, escalate now
+
+            #### Actionable Result Example:
+            ```
+            Product: MOB-1893 (Electric Wheelchair)
+            Risk Score: 87 (CRITICAL)
+
+            Breakdown:
+            - Statistical Deviation: 22/25 (return rate 3σ above mean)
+            - Financial Impact: 24/25 (landed cost $425 × 13 returns = $5,525 loss)
+            - Safety Severity: 28/30 (battery compartment loose → fall risk)
+            - Trend: 8/10 (returns increased 40% last 30 days)
+            - Volume: 8/10 (13 returns from only 85 sold = 15.3% rate)
+
+            ACTION:
+            1. IMMEDIATE: Quarantine remaining inventory (72 units)
+            2. SAME DAY: Open critical investigation (safety risk)
+            3. NEXT 24HRS: Contact vendor for emergency CAPA
+            4. NOTIFY: Regulatory affairs (potential MDR reporting)
+            ```
+
+            **💡 Pro Tip:** High risk scores don't always mean bad products. New launches with small sample sizes can score high even if return rate is acceptable. Use judgment!
+            """)
+
+        # SPC CONTROL CHARTS
+        with st.expander("### 4️⃣ SPC Control Charts (Process Stability Monitoring)"):
+            st.markdown("""
+            **What it is:** Statistical Process Control - detects when your process goes "out of control"
+
+            **Official Term:** *Shewhart Control Charts / CUSUM*
+            **Layman's Term:** *Early Warning System for Trends*
+
+            #### SPC Signals:
+
+            **Normal** 🟢: Within ±1 standard deviation of average
+            → Everything operating as expected
+
+            **Watch** 🟡: Between 1-2 standard deviations
+            → Keep an eye on it, might be early pattern
+
+            **Warning** 🟠: Between 2-3 standard deviations
+            → Investigate within 1 week, likely real issue emerging
+
+            **Critical** 🔴: Beyond 3 standard deviations
+            → Immediate investigation, process is out of control
+
+            #### Actionable Result Example:
+            ```
+            Product: SUP-5621 (Lumbar Cushion)
+            Current Return Rate: 14.2%
+            Category Average: 10.0%
+            Standard Deviation: 1.8%
+            Z-Score: 2.33
+
+            SPC Signal: ⚠️ WARNING (2σ above mean)
+
+            Interpretation:
+            - This return rate is unusual (only 1% chance it's random)
+            - Not quite "critical" yet, but definitely abnormal
+            - Could indicate emerging process issue
+
+            ACTION:
+            1. Pull recent return data (last 30 days) - is trend worsening?
+            2. Check if specific batch/lot affected (manufacturing date codes)
+            3. Interview warehouse - any consistent complaint patterns?
+            4. If still at warning level next screening: open quality case
+            ```
+            """)
+
+        # BULK OPERATIONS
+        with st.expander("### 5️⃣ Bulk Operations (Muda = Waste Elimination)"):
+            st.markdown("""
+            **What it is:** Generate vendor emails and investigation plans for multiple products at once
+
+            **Official Term:** *Muda Elimination* (Remove Wasteful Work)
+            **Layman's Term:** *Do 20 Tasks in 2 Minutes*
+
+            #### Time Savings:
+            - **Manual Way:** Write individual email per product → 5-10 min each × 15 products = 75-150 minutes
+            - **Bulk Way:** Select all 15 products, click "Generate" → 30 seconds total
+            - **Saved:** ~2 hours per screening session
+
+            #### What You Can Bulk-Generate:
+            1. **Vendor CAPA Request Emails** - Formal requests for corrective action
+            2. **RCA Request Emails** - Ask vendor for root cause analysis
+            3. **Inspection Notice Emails** - Alert vendor of upcoming inspection
+            4. **Investigation Plans** - Full project plans with timelines & tasks
+
+            #### Actionable Result Example:
+            ```
+            Flagged Products: 12 products need vendor follow-up
+
+            Select All 12 → Choose "CAPA Request" → Click Generate → Done!
+
+            Output:
+            - 12 professional emails ready to send
+            - Each customized with product-specific details:
+              * SKU and product name
+              * Return rate and units affected
+              * Specific defects described
+              * Required response timeline
+            - Export to CSV for your records
+            - Preview in tool before sending
+
+            ACTION: Review first 2-3 emails to ensure tone/details correct,
+            then send all 12 to respective vendors. Follow up in 5 business days.
+            ```
+            """)
+
+        # DEEP DIVE ANALYSIS
+        with st.expander("### 6️⃣ Deep Dive Analysis with Document Upload (Genchi Genbutsu)"):
+            st.markdown("""
+            **What it is:** AI analyzes your product documentation to understand root causes
+
+            **Official Term:** *Genchi Genbutsu* (Go & See for Yourself)
+            **Layman's Term:** *Get the Full Story Before Deciding*
+
+            #### Documents You Can Upload:
+            - **Product Manual**: Understand intended use vs actual use
+            - **Amazon Listing**: Compare marketed features to complaints
+            - **IFU (Instructions for Use)**: Check if returns are due to unclear instructions
+            - **Technical Specs**: Identify spec deviations causing failures
+
+            #### AI Analysis Provides:
+            1. **Risk Level**: Low/Medium/High/Critical assessment
+            2. **Recommended Investigation Method**: 5 Whys, Fishbone, Formal RCA, etc.
+            3. **Intended Use Questions**: Critical questions about how customers use the product
+            4. **Key Focus Areas**: Specific aspects to investigate
+            5. **Immediate Actions**: What to do right now
+
+            #### Actionable Result Example:
+            ```
+            Product: MOB-2847 (Premium Knee Scooter with Basket)
+            Documents Uploaded: Product manual, Amazon listing
+
+            AI Deep Dive Results:
+
+            🔴 Risk Level: HIGH
+
+            🎯 Recommended Method: Fishbone Diagram (Ishikawa)
+            Rationale: Multiple failure modes reported (wheels, brakes, basket)
+            suggests systemic design or manufacturing issue requiring multi-factor analysis.
+
+            ❓ Critical Intended Use Questions:
+            1. Are customers using scooter on rough outdoor terrain vs smooth indoor floors?
+               → Manual specifies "indoor use only" but Amazon photos show outdoor settings
+            2. Is basket being overloaded beyond 10 lb weight limit?
+               → Listing doesn't clearly state weight restriction
+            3. Are wheels failing due to user weight or terrain conditions?
+               → 3 different wheel failure modes reported
+
+            🔍 Key Investigation Areas:
+            - Wheel assembly torque specs (may be undertightened at factory)
+            - Basket weight limit communication (add to listing and manual)
+            - Terrain usage expectations (clarify indoor vs outdoor capability)
+            - Component supplier quality (wheels sourced from 2 different vendors)
+
+            ⚡ Immediate Actions:
+            1. Add prominent "Indoor Use Only" warning to Amazon listing TODAY
+            2. Request vendor to verify wheel assembly torque on next production run
+            3. Test scooter on various terrains to establish actual outdoor capability
+            4. If outdoor use is acceptable, update specs; if not, add explicit warnings
+
+            ACTION: Start Fishbone diagram mapping all contributing factors.
+            Update listing immediately (low-cost high-impact fix). Schedule vendor meeting.
+            ```
+            """)
+
+        st.divider()
+
+        # Common Workflows
+        st.markdown("## 🔄 Common Workflows (PDCA Cycle = Plan-Do-Check-Act)")
+
+        workflow_tab1, workflow_tab2, workflow_tab3 = st.tabs([
+            "📅 Weekly Routine Screening",
+            "🚨 Emergency Response",
+            "📊 Monthly Strategic Review"
+        ])
+
+        with workflow_tab1:
+            st.markdown("""
+            ### Weekly Routine Screening (PLAN-DO-CHECK-ACT)
+
+            **PLAN (Monday Morning - 15 minutes):**
+            1. Upload last week's return data (Pro mode)
+            2. Use "Standard (SOP Defaults)" threshold profile
+            3. Run statistical screening with Auto mode
+
+            **DO (Monday - Wednesday):**
+            4. Review flagged products (Risk Score > 60)
+            5. For High/Critical items: Run Deep Dive Analysis
+            6. Generate bulk vendor emails for all flagged items
+            7. Open quality cases in Odoo for Critical items
+
+            **CHECK (Thursday):**
+            8. Review SPC signals - any "Warning" or "Critical" flags?
+            9. Compare to last week - are same products still flagged?
+            10. Check vendor responses (5 days have passed)
+
+            **ACT (Friday):**
+            11. Update threshold profile if patterns emerge
+            12. Export results to team tracker (Yokoten - share knowledge)
+            13. Document lessons learned
+            14. Adjust processes based on findings
+
+            **Time Required:** ~2-3 hours total per week (vs 8-10 hours manually)
+            """)
+
+        with workflow_tab2:
+            st.markdown("""
+            ### Emergency Response (Critical Safety Issue)
+
+            **Immediate (Within 1 Hour):**
+            1. Enter product in Lite mode
+            2. Check "Safety Concern" flag
+            3. Run Deep Dive Analysis with all available documents
+            4. AI will assess risk level
+
+            **If Risk = Critical:**
+            5. Generate Critical Investigation Plan (Smartsheet export)
+            6. Notify management immediately
+            7. Open critical quality case in Odoo
+
+            **Next 24 Hours:**
+            8. Execute Phase 1 of investigation plan (immediate actions)
+            9. Quarantine inventory
+            10. Assess regulatory reporting requirements
+            11. Generate vendor CAPA request (mark URGENT)
+
+            **Ongoing:**
+            12. Follow investigation plan timeline
+            13. Update team tracker daily
+            14. Document all findings in quality case
+
+            **Example:** Battery compartment loose on electric wheelchair
+            → Safety risk (fall hazard) → Immediate quarantine → Regulatory notification → Vendor emergency CAPA
+            """)
+
+        with workflow_tab3:
+            st.markdown("""
+            ### Monthly Strategic Review (Hansei = Reflection)
+
+            **Preparation (Last Week of Month):**
+            1. Upload entire month's return data
+            2. Run ANOVA/MANOVA to identify statistical differences
+            3. Generate trend charts (if available)
+
+            **Analysis (First Week of New Month):**
+            4. Review which categories consistently exceed thresholds
+            5. Identify repeat offender products (flagged 3+ times)
+            6. Calculate financial impact of returns by category
+            7. Check effectiveness of previous month's actions
+
+            **Strategic Adjustments:**
+            8. Update threshold profiles for next quarter if needed
+            9. Adjust vendor quality agreements based on performance
+            10. Propose process changes to prevent recurring issues
+            11. Share findings with leadership (Yokoten)
+
+            **Kaizen Improvements:**
+            12. What worked well this month? → Make it standard practice
+            13. What didn't work? → Adjust process
+            14. What new patterns emerged? → Add to watch list
+            15. How can we prevent issues vs just detecting them? (Poka-Yoke)
+
+            **Output:** Executive summary showing:
+            - Month's total return rate vs target
+            - Category performance trends
+            - Cost of quality (return costs)
+            - Improvement initiatives status
+            - Next month's priorities
+            """)
+
+        st.divider()
+
+        # FAQs
+        st.markdown("## ❓ Frequently Asked Questions")
+
+        faq_col1, faq_col2 = st.columns(2)
+
+        with faq_col1:
+            with st.expander("**Q: What's a good return rate threshold?**"):
+                st.markdown("""
+                **A:** Depends on your product category:
+                - B2B: 2.5% (most stable customers)
+                - INS (Insoles): 7% (fit/comfort issues common)
+                - RHB (Rehab): 7.5%
+                - LVA (Living Aids): 9.5%
+                - MOB (Mobility): 10% (complex products)
+                - CSH (Cushions): 10.5%
+                - SUP (Support): 11%
+
+                **Start with these (SOP Defaults), then adjust based on your data.**
+                """)
+
+            with st.expander("**Q: When should I investigate vs just monitor?**"):
+                st.markdown("""
+                **Investigate NOW if:**
+                - Risk Score > 80 (Critical)
+                - Safety concern flagged
+                - SPC signal = "Critical" (3σ)
+                - Return rate > 25% (absolute cap)
+                - Multiple complaints citing same failure mode
+
+                **Monitor closely (investigate next week) if:**
+                - Risk Score 60-80 (High)
+                - SPC signal = "Warning" (2σ)
+                - Return rate 20% above category average
+                - Trending worse for 2+ screening cycles
+
+                **Just monitor (routine) if:**
+                - Risk Score < 60
+                - SPC signal = "Normal" or "Watch"
+                - Within threshold limits
+                - Stable trend
+                """)
+
+        with faq_col2:
+            with st.expander("**Q: How do I know which statistical test to use?**"):
+                st.markdown("""
+                **A:** Use "Auto (AI Recommended)" - AI picks the right test.
+
+                **If you want to choose manually:**
+                - Comparing return rates across categories? → ANOVA
+                - Multiple metrics at once (rate + cost + sales)? → MANOVA
+                - Messy data with outliers? → Kruskal-Wallis
+                - Just want summary stats? → Descriptive Only
+
+                **Don't overthink it - Auto mode works great!**
+                """)
+
+            with st.expander("**Q: What do I do with screening results?**"):
+                st.markdown("""
+                **A:** Follow the PDCA cycle:
+
+                **1. Prioritize (Plan):**
+                - Sort by Risk Score (highest first)
+                - Focus on Critical and High items
+
+                **2. Investigate (Do):**
+                - Use Deep Dive Analysis for context
+                - Generate vendor emails / investigation plans
+                - Open quality cases in Odoo
+
+                **3. Verify (Check):**
+                - Re-screen in 30 days
+                - Check if return rate improved
+                - Validate corrective actions worked
+
+                **4. Standardize (Act):**
+                - Export to team tracker (share knowledge)
+                - Update SOPs if process changes made
+                - Adjust threshold profiles for next cycle
+                """)
+
+        st.divider()
+
+        # Action Button
+        st.success("""
+        ✅ **Ready to Start?** Close this guide and begin with Step 1: Enter your name and source of flag above.
+
+        💡 **Tip:** Keep this guide open in a second browser tab for reference as you work!
+        """)
+
+
 def render_quality_screening_tab():
     """Render the completely rebuilt Quality Case Screening tab"""
-    
+
+    # Enhanced Header with TQM Philosophy
     st.markdown("### 🧪 Quality Case Screening")
+    st.markdown("**TQM Methodology:** *Kaizen* (改善 = Continuous Improvement) | *Jidoka* (自働化 = Smart Automation) | *Genchi Genbutsu* (現地現物 = Go & See)")
     st.caption("AI-powered quality screening compliant with ISO 13485, FDA 21 CFR 820, EU MDR, UK MDR")
+
+    # Comprehensive User Guide at Top
+    render_comprehensive_user_guide()
     
     # --- SCREENING SESSION INFO (Who, When, Source) ---
     with st.expander("👤 Screening Session Info", expanded=True):
