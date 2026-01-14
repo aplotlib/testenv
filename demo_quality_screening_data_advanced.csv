@@ -1,0 +1,72 @@
+SKU,Name,Category,Sold,Returned,Return_Rate,Return_Rate_Threshold,Landed_Cost,Complaint_Text,Safety_Risk,Severity,Data_Snapshot_Date
+SUP1041BGEFBM,Shoulder Brace - Rotator Cuff,SUP,108,68,0.6296,0.14,54.32,"Material quality - stitching came apart, Velcro doesn't hold, Doesn't provide enough support",FALSE,Critical,2026-01-14
+LVA3016BLK,Portable Stand Assist (Black),LVA,356,178,0.5001,0.185,78.45,"Assembly too difficult, Stability concerns - wobbly, Parts missing from box",TRUE,Critical,2026-01-14
+RHB2096BLKL,Closed Toe Post OP Shoe,RHB,3352,1023,0.3052,0.24,34.21,"Sizing issues - too small, Instructions unclear, Material quality substandard",FALSE,High,2026-01-14
+CSH1084BLK,Alternating Seat Cushion,CSH,741,197,0.2658,0.18,87.12,"Cushion flattens quickly, Doesn't stay in place, Foam density too low",FALSE,High,2026-01-14
+SUP1026,Groin Wrap by Vive,SUP,1956,512,0.2617,0.20,9.45,"Too tight, causes discomfort, Straps break after short use, Velcro doesn't hold",FALSE,High,2026-01-14
+RHB2012BLKL,Offloading Post Op Shoe (Large),RHB,5241,1303,0.2486,0.24,19.87,"Sizing issues - too large, Uncomfortable during use, Not durable for daily use",FALSE,High,2026-01-14
+MOB1029LFBM,Folding Electric Wheelchair,MOB,9,2,0.2442,0.15,542.33,"Battery doesn't hold charge, Assembly issues, Seat uncomfortable for long use",FALSE,High,2026-01-14
+SUP1035L,Hard Night Splint,SUP,867,227,0.2618,0.12,15.42,"Material quality - fabric tears easily, Too tight causes discomfort, Skin irritation from material",FALSE,Critical,2026-01-14
+SUP1037BLKM,Plantar Fasciitis Night Splint,SUP,10198,1978,0.1939,0.12,18.76,"Sizing issues - too small, Doesn't provide enough support, Velcro doesn't hold",FALSE,High,2026-01-14
+RHB2011BLKL,Heel Wedge Post Op Shoe (Large),RHB,5433,1198,0.2205,0.24,17.34,"Sizing inconsistent, Physical therapy ineffective, Material quality substandard",FALSE,Medium,2026-01-14
+SUP1036S,Post Op Shoe By Vive (Small),SUP,34838,8145,0.2338,0.24,11.23,"Sizing issues - too small, Material quality - stitching came apart, Velcro doesn't hold",FALSE,Medium,2026-01-14
+MOB1094BLUFBM,Electric Wheelchair Model C,MOB,19,4,0.2104,0.15,487.22,"Motor makes loud noise, Weight limit lower than stated, Remote control doesn't work",FALSE,High,2026-01-14
+LVA1082,5 Inch Alternating Pressure Mattress,LVA,515,118,0.2291,0.18,78.54,"Assembly instructions missing, Not as pictured, Hardware quality poor",FALSE,High,2026-01-14
+CSH1061WHT2,Toilet Seat Cushion,CSH,1395,301,0.2158,0.16,18.45,"Cushion flattens quickly, Material smells bad, Cover rips easily",FALSE,High,2026-01-14
+SUP3026BLK9,Ankle Brace Stabilizer Air Cast,SUP,2321,478,0.2060,0.12,11.24,"Sizing issues - too large, Velcro doesn't hold, Material quality - stitching came apart",FALSE,High,2026-01-14
+SUP1046BLKM,Hinged Knee Brace,SUP,1868,382,0.2045,0.11,12.76,"Doesn't provide enough support, Straps break after short use, Too tight causes discomfort",FALSE,Critical,2026-01-14
+SUP3009M,Compression Bicep Straps,SUP,2172,423,0.1947,0.11,7.89,"Sizing issues - too large, Compression not strong enough, Material quality - stitching came apart",FALSE,Critical,2026-01-14
+LVA1021FBM,Bathtub Rail,LVA,449,86,0.1915,0.09,29.87,"Stability concerns - wobbly, Rust after short use, Hardware quality poor",TRUE,Critical,2026-01-14
+LVA1070E,Hinged Toilet Seat Riser,LVA,2086,401,0.1922,0.16,28.92,"Assembly too difficult, Parts missing from box, Not as pictured",FALSE,High,2026-01-14
+LVA1004,Standard Alternating Pressure Mattress,LVA,41624,7789,0.1871,0.18,33.45,"Assembly instructions missing, Not as pictured, Paint chipping",FALSE,High,2026-01-14
+SUP1059,Thigh Wrap Anti Slip,SUP,31220,4287,0.1373,0.13,9.12,"Doesn't stay in place, Material quality - fabric tears easily, Velcro doesn't hold",FALSE,High,2026-01-14
+LVA1010FBM,Toilet Rail - Bathroom Safety Frame,LVA,1974,366,0.1854,0.16,26.78,"Stability concerns - wobbly, Assembly too difficult, Hardware quality poor",TRUE,High,2026-01-14
+SUP2093M,Vive Thigh Compression Sleeve,SUP,6491,1189,0.1832,0.20,8.67,"Sizing issues - too small, Too tight causes discomfort, Material quality - stitching came apart",FALSE,Medium,2026-01-14
+MOB1092FBM,Electric Wheelchair Folding,MOB,90,17,0.1889,0.15,423.87,"Battery doesn't hold charge, Assembly issues, Unstable on uneven surfaces",FALSE,High,2026-01-14
+SUP1090BLK,Stand Assist (Black),SUP,9456,1789,0.1892,0.185,22.34,"Stability concerns - wobbly, Assembly too difficult, Hardware quality poor",TRUE,High,2026-01-14
+SUP2050BLK,Thumb Splint Model 2,SUP,7400,987,0.1334,0.12,5.43,"Sizing issues - too small, Material quality - stitching came apart, Doesn't provide enough support",FALSE,High,2026-01-14
+LVA3014BLK,Multi-Room Stand Assist (Black),LVA,1798,321,0.1786,0.185,21.45,"Assembly instructions missing, Weight capacity inadequate, Paint chipping",FALSE,Medium,2026-01-14
+MOB1058BLKFBM,Folding Mobility Scooter,MOB,39,6,0.1538,0.10,689.21,"Battery doesn't hold charge, Motor makes loud noise, Seat uncomfortable for long use",FALSE,Critical,2026-01-14
+RHB1037WOODL,Transfer Board,RHB,1890,321,0.1699,0.16,28.92,"Not durable for daily use, Instructions unclear, Material quality substandard",FALSE,High,2026-01-14
+LVA1055,Compact Toilet Safety Rail,LVA,30866,5432,0.1760,0.17,21.34,"Stability concerns - wobbly, Rust after short use, Assembly too difficult",TRUE,High,2026-01-14
+SUP2053BLKSM,Boxer Splint (8 inch),SUP,14065,2098,0.1491,0.12,8.12,"Sizing issues - too large, Material quality - stitching came apart, Velcro doesn't hold",FALSE,High,2026-01-14
+MOB1019BLKFBM,All Terrain Knee Walker,MOB,3839,423,0.1102,0.11,89.45,"Wheels lock up, Weight limit lower than stated, Unstable on uneven surfaces",TRUE,Medium,2026-01-14
+CSH1092GRY,Memory Foam Knee Wedge Pillow,CSH,2317,378,0.1632,0.13,16.78,"Cushion flattens quickly, Material smells bad, Foam density too low",FALSE,High,2026-01-14
+SUP1089BLK,Bunion Splint (Black),SUP,6516,1098,0.1685,0.14,7.23,"Sizing issues - too small, Material quality - stitching came apart, Doesn't provide enough support",FALSE,High,2026-01-14
+RHB1011L,Transfer Belt Leg Loops,RHB,1698,289,0.1702,0.105,14.56,"Material quality substandard, Not durable for daily use, Hardware failures",FALSE,Critical,2026-01-14
+CSH1044BLK,Crutch Pads (Black),CSH,50325,7123,0.1416,0.13,8.12,"Cushion flattens quickly, Padding insufficient, Doesn't stay in place",FALSE,High,2026-01-14
+SUP1030,Shin Support by Vive,SUP,25248,3098,0.1227,0.12,7.89,"Material quality - fabric tears easily, Compression not strong enough, Velcro doesn't hold",FALSE,High,2026-01-14
+CSH1040BLK,Sheepskin Crutch Pads,CSH,12658,1687,0.1333,0.13,10.23,"Cushion flattens quickly, Material smells bad, Cover rips easily",FALSE,High,2026-01-14
+RHB1068GRY,Cold Shoulder Brace (Gray),RHB,15079,2123,0.1408,0.14,12.87,"Physical therapy ineffective, Instructions unclear, Uncomfortable during use",FALSE,Medium,2026-01-14
+LVA2056BLK,Transfer Sling (Black),LVA,5529,798,0.1443,0.13,18.76,"Weight capacity inadequate, Material quality substandard, Hardware quality poor",FALSE,High,2026-01-14
+CSH1056BLK,Crutch Pads and Pouch,CSH,14061,1723,0.1225,0.13,10.45,"Doesn't stay in place, Cushion flattens quickly, Material smells bad",FALSE,Medium,2026-01-14
+LVA1023FBM,Stand Alone Toilet Rail,LVA,3592,567,0.1579,0.16,30.12,"Assembly too difficult, Stability concerns - wobbly, Rust after short use",TRUE,Medium,2026-01-14
+LVA2030BGE,Alternating Pressure Pad Replacement,LVA,2925,432,0.1477,0.18,15.67,"Not as pictured, Assembly instructions missing, Hardware quality poor",FALSE,Medium,2026-01-14
+SUP1050,Arm Sling by Vive,SUP,5610,843,0.1503,0.13,7.56,"Sizing issues - too large, Material quality - stitching came apart, Uncomfortable",FALSE,High,2026-01-14
+LVA1066,8 Inch Alternating Pressure Mattress,LVA,954,145,0.1520,0.18,164.32,"Assembly instructions missing, Parts missing from box, Not as pictured",FALSE,Medium,2026-01-14
+SUP2097M,Full Leg Compression Sleeves,SUP,2282,378,0.1656,0.11,8.92,"Sizing issues - too small, Compression not strong enough, Material quality - stitching came apart",FALSE,Critical,2026-01-14
+RHB1011N,Transfer Belt Standard,RHB,38421,4287,0.1116,0.105,7.89,"Material quality substandard, Not durable for daily use, Instructions unclear",FALSE,High,2026-01-14
+CSH1087BLU,Gel Toilet Seat Cushion Cover,CSH,3437,412,0.1199,0.16,11.23,"Cushion flattens quickly, Doesn't stay in place, Not thick enough",FALSE,Medium,2026-01-14
+LVA1079M,Grab Bar Brushed Nickel 16in,LVA,24806,3098,0.1249,0.09,11.45,"Rust after short use, Hardware quality poor, Paint chipping",FALSE,Critical,2026-01-14
+CSH1044TAL,Crutch Pads (Teal),CSH,26221,3023,0.1153,0.13,8.34,"Padding insufficient, Cushion flattens quickly, Material smells bad",FALSE,Medium,2026-01-14
+SUP1045,ITB Strap by Vive,SUP,10903,1198,0.1099,0.11,6.78,"Material quality - stitching came apart, Velcro doesn't hold, Straps break after short use",FALSE,Medium,2026-01-14
+SUP1069BLK,Dual Splint Wrist Brace,SUP,18167,1723,0.0949,0.12,4.56,"Sizing issues - too small, Doesn't provide enough support, Material quality - stitching came apart",FALSE,Medium,2026-01-14
+LVA2066NKLL,Textured Metal Grab Bars 24in,LVA,5647,612,0.1084,0.09,12.87,"Rust after short use, Paint chipping, Hardware quality poor",FALSE,High,2026-01-14
+LVA2098,Car Assist Handle,LVA,29281,1798,0.0614,0.09,8.23,"Hardware quality poor, Not as pictured, Assembly instructions missing",FALSE,Medium,2026-01-14
+SUP2064BLK,Wrist Wraps (Black),SUP,8746,823,0.0941,0.11,4.32,"Material quality - stitching came apart, Velcro doesn't hold, Compression not strong enough",FALSE,Medium,2026-01-14
+SUP2017GRY,Compression Ankle Ice Wrap,SUP,6194,698,0.1127,0.11,15.67,"Gel leaks from pack, Straps too loose, Doesn't provide enough support",FALSE,High,2026-01-14
+LVA1018W,Shower Mat by Vive,LVA,6870,612,0.0891,0.09,9.12,"Material quality substandard, Floor scratching issues, Not as pictured",FALSE,Medium,2026-01-14
+SUP3014BLK,Multi Purpose Support Wraps,SUP,7004,743,0.1061,0.11,3.98,"Material quality - fabric tears easily, Velcro doesn't hold, Compression not strong enough",FALSE,Medium,2026-01-14
+MOB1027REDFBM,4-Wheel Mobility Scooter,MOB,8457,734,0.0868,0.10,312.45,"Battery doesn't hold charge, Seat uncomfortable for long use, Remote control doesn't work",FALSE,Medium,2026-01-14
+RHB1011N-UPC,Gait Belt with Handles,RHB,10162,898,0.0884,0.105,7.12,"Material quality substandard, Instructions unclear, Not durable for daily use",FALSE,Medium,2026-01-14
+LVA3029WHT,Toilet Aid for Wiping,LVA,2418,198,0.0819,0.16,7.45,"Hardware quality poor, Not as pictured, Assembly instructions missing",FALSE,Medium,2026-01-14
+INS1028,Budin Splint by Vivesole,INS,14869,889,0.0598,0.12,4.76,"Doesn't fit shoe properly, Material too stiff, Adhesive doesn't stick",FALSE,Medium,2026-01-14
+LVA2057BLU,Lift Sling with Opening,LVA,4250,412,0.0969,0.13,16.34,"Weight capacity inadequate, Material quality substandard, Hardware quality poor",FALSE,Medium,2026-01-14
+LVA2016,Stand Assist Loop,LVA,881,89,0.1010,0.185,6.12,"Hardware quality poor, Material quality substandard, Not as pictured",FALSE,Medium,2026-01-14
+LVA2085BLK,Thigh Lifter (Black),LVA,3656,312,0.0854,0.13,6.89,"Material quality substandard, Hardware quality poor, Instructions unclear",FALSE,Medium,2026-01-14
+INS1028DBL,Double Toe Splint,INS,4036,345,0.0855,0.12,4.23,"Toe loop breaks, Material too stiff, Doesn't fit shoe properly",FALSE,Medium,2026-01-14
+RHB3017BLK,Arctic Flex Foot Ice Pack,RHB,1121,72,0.0642,0.14,9.87,"Gel leaks from pack, Not effective as advertised, Straps too loose",FALSE,Medium,2026-01-14
+MOB1025BLUFBM,3-Wheel Mobility Scooter,MOB,1149,84,0.0731,0.10,289.34,"Battery doesn't hold charge, Unstable on uneven surfaces, Remote control doesn't work",FALSE,Medium,2026-01-14
+MOB1054BLUFBM,Portable Electric Wheelchair,MOB,37,2,0.0541,0.15,1087.23,"Seat uncomfortable for long use, Remote control doesn't work",FALSE,Medium,2026-01-14
+LVA1011FBM,Raised Toilet Seat,LVA,586,112,0.1912,0.16,34.12,"Assembly too difficult, Stability concerns - wobbly, Not as pictured",TRUE,High,2026-01-14
+SUP2078BLK,Elbow Stabilizer,SUP,1364,167,0.1224,0.12,8.92,"Sizing issues - too small, Doesn't provide enough support, Material quality - stitching came apart",FALSE,High,2026-01-14

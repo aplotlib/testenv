@@ -54,7 +54,9 @@ class SmartsheetProjectPlan:
         if dependencies and self.tasks:
             dep_ids = [int(d.strip()) for d in dependencies.split(',') if d.strip().isdigit()]
             if dep_ids:
-                max_end_date = max([self.tasks[i-1]['End Date'] for i in dep_ids if i <= len(self.tasks)])
+                # Get the max end date from dependencies - need to parse string dates back to datetime
+                max_end_date_str = max([self.tasks[i-1]['End Date'] for i in dep_ids if i <= len(self.tasks)])
+                max_end_date = datetime.strptime(max_end_date_str, '%Y-%m-%d')
                 start_date = max_end_date + timedelta(days=1)
             else:
                 start_date = self.start_date

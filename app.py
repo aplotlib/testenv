@@ -59,6 +59,10 @@ try:
         OdooInventoryParser, PivotReturnReportParser,
         InventoryConfiguration, InventoryCalculator, IntegratedAnalyzer
     )
+    from multilingual_vendor_comms import (
+        MultilingualVendorCommunicator, EnglishLevel, TargetLanguage, LANGUAGE_INFO
+    )
+    from product_matching import ProductMatcher
     AI_AVAILABLE = True
 except ImportError as e:
     AI_AVAILABLE = False
@@ -439,7 +443,12 @@ def initialize_session_state():
         'anova_result': None,
         'manova_result': None,
         'statistical_suggestion': None,
-        
+
+        # Historical data and product matching
+        'historical_data': None,
+        'product_matcher': None,
+        'multilingual_communicator': None,
+
         # Threshold profiles
         'threshold_profiles': {
             'Standard Review': DEFAULT_CATEGORY_THRESHOLDS.copy(),
@@ -518,6 +527,44 @@ def get_ai_analyzer(provider: AIProvider = None, max_workers: int = 5):
             st.error(f"Error initializing AI: {str(e)}")
     
     return st.session_state.ai_analyzer
+
+
+def load_historical_data():
+    """Load historical return data from trailing 12-month CSV"""
+    if st.session_state.historical_data is None:
+        try:
+            # Try to load the trailing 12-month data file
+            hist_file_path = os.path.join(os.path.dirname(__file__), 'Trailing 12 Month Returns on Amazon - Use This.csv')
+            if os.path.exists(hist_file_path):
+                st.session_state.historical_data = pd.read_csv(hist_file_path)
+                logger.info(f"Loaded historical data: {len(st.session_state.historical_data)} products")
+
+                # Initialize product matcher
+                if AI_AVAILABLE and st.session_state.ai_analyzer:
+                    st.session_state.product_matcher = ProductMatcher(
+                        st.session_state.historical_data,
+                        st.session_state.ai_analyzer
+                    )
+                    logger.info("Product matcher initialized with AI support")
+                else:
+                    st.session_state.product_matcher = ProductMatcher(
+                        st.session_state.historical_data,
+                        None
+                    )
+                    logger.info("Product matcher initialized without AI")
+
+                # Initialize multilingual communicator
+                if AI_AVAILABLE and st.session_state.ai_analyzer:
+                    st.session_state.multilingual_communicator = MultilingualVendorCommunicator(
+                        st.session_state.ai_analyzer
+                    )
+                    logger.info("Multilingual communicator initialized")
+
+        except Exception as e:
+            logger.error(f"Failed to load historical data: {e}")
+            st.session_state.historical_data = pd.DataFrame()
+
+    return st.session_state.historical_data
 
 
 def log_process(message: str, msg_type: str = 'info'):
@@ -1795,12 +1842,30 @@ def render_threshold_manager(selected_profile):
                 key="base_profile"
             )
             base_thresholds = st.session_state.threshold_profiles[base_profile].copy()
-            
+            categories = list(DEFAULT_CATEGORY_THRESHOLDS.keys())
+
+            # Apply adjustment action if set (before widgets are created)
+            if '_adjustment_action' in st.session_state:
+                action = st.session_state['_adjustment_action']
+                # Delete all widget keys first
+                for cat in categories:
+                    if f"thresh_{cat}" in st.session_state:
+                        del st.session_state[f"thresh_{cat}"]
+                # Modify base_thresholds which will be used for widget values
+                for cat in categories:
+                    current_val = base_thresholds.get(cat, 0.10) * 100
+                    if action == 'tighten':
+                        base_thresholds[cat] = (current_val * 0.8) / 100
+                    elif action == 'loosen':
+                        base_thresholds[cat] = (current_val * 1.2) / 100
+                    elif action == 'reset':
+                        base_thresholds[cat] = DEFAULT_CATEGORY_THRESHOLDS.get(cat, 0.10)
+                del st.session_state['_adjustment_action']
+
             # Threshold inputs in columns
             new_thresholds = {}
             cols = st.columns(4)
-            categories = list(DEFAULT_CATEGORY_THRESHOLDS.keys())
-            
+
             for idx, cat in enumerate(categories):
                 with cols[idx % 4]:
                     default_val = base_thresholds.get(cat, 0.10) * 100
@@ -1815,24 +1880,24 @@ def render_threshold_manager(selected_profile):
                         help=f"SOP default: {DEFAULT_CATEGORY_THRESHOLDS.get(cat, 0.10)*100:.1f}%"
                     )
                     new_thresholds[cat] = new_val / 100  # Convert back to decimal
-            
+
             # Quick adjustment buttons
             st.markdown("**Quick Adjustments**")
             col1, col2, col3, col4 = st.columns(4)
             with col1:
                 if st.button("Tighten All (-20%)", key="tighten"):
-                    for cat in categories:
-                        st.session_state[f"thresh_{cat}"] = st.session_state.get(f"thresh_{cat}", 10) * 0.8
+                    # Set flag to apply adjustment on next render
+                    st.session_state['_adjustment_action'] = 'tighten'
                     st.rerun()
             with col2:
                 if st.button("Loosen All (+20%)", key="loosen"):
-                    for cat in categories:
-                        st.session_state[f"thresh_{cat}"] = st.session_state.get(f"thresh_{cat}", 10) * 1.2
+                    # Set flag to apply adjustment on next render
+                    st.session_state['_adjustment_action'] = 'loosen'
                     st.rerun()
             with col3:
                 if st.button("Reset to SOP", key="reset_sop"):
-                    for cat in categories:
-                        st.session_state[f"thresh_{cat}"] = DEFAULT_CATEGORY_THRESHOLDS.get(cat, 0.10) * 100
+                    # Set flag to apply adjustment on next render
+                    st.session_state['_adjustment_action'] = 'reset'
                     st.rerun()
             with col4:
                 pass  # spacer
@@ -2130,11 +2195,24 @@ def _process_ai_chat(user_question: str):
     
     context = " ".join(context_parts)
     
-    system_prompt = f"""You are a medical device quality management expert assistant. 
-You help users with quality case screening, understanding return rates, setting thresholds, and interpreting results.
+    system_prompt = f"""You are an AI-powered medical device quality management expert assistant integrated into the Vive Health Quality Suite.
+
+**About This Application:**
+This app extensively uses AI for:
+- AI-powered return categorization (Tab 1) using OpenAI/Claude
+- Multilingual vendor email generation with translation
+- Product similarity matching and benchmarking
+- Deep dive quality analysis and root cause recommendations
+- Fuzzy product matching across 231 historical products
+- Semantic analysis of customer complaints
+
+**Your Role:**
+Help users understand how to use the AI features, interpret results, set thresholds, and make quality decisions.
 Be concise but helpful. Use bullet points for clarity.
+
 Current context: {context}
-Answer questions about quality management, ISO 13485, FDA QSR, return rate analysis, and the screening tool."""
+
+When asked about AI capabilities, ALWAYS explain that this is an AI-powered quality management system with extensive ML/LLM integration, NOT a rules-based system."""
     
     try:
         analyzer = get_ai_analyzer()
@@ -3092,13 +3170,36 @@ def render_pro_mode():
         ])
         
         example_csv = example_df.to_csv(index=False)
-        st.download_button(
-            "📥 Download Example Data",
-            example_csv,
-            file_name="quality_screening_example.csv",
-            mime="text/csv",
-            help="Download example data with 5 sample products"
-        )
+
+        col_dl1, col_dl2 = st.columns(2)
+        with col_dl1:
+            st.download_button(
+                "📥 Download Simple Example (5 products)",
+                example_csv,
+                file_name="quality_screening_example.csv",
+                mime="text/csv",
+                help="Basic example with 5 sample products"
+            )
+
+        with col_dl2:
+            # Load advanced demo data if available
+            try:
+                demo_path = os.path.join(os.path.dirname(__file__), 'demo_quality_screening_data_advanced.csv')
+                if os.path.exists(demo_path):
+                    demo_df = pd.read_csv(demo_path)
+                    demo_csv = demo_df.to_csv(index=False)
+                    st.download_button(
+                        "🚀 Download Advanced Demo (70 products)",
+                        demo_csv,
+                        file_name="demo_quality_screening_advanced.csv",
+                        mime="text/csv",
+                        help="⭐ Realistic demo with 70 products from actual product catalog - shows AI screening, multilingual emails, fuzzy matching",
+                        type="primary"
+                    )
+                else:
+                    st.info("Advanced demo not found")
+            except Exception as e:
+                logger.error(f"Could not load advanced demo: {e}")
     
     # Column reference
     with st.expander("📖 Column Reference Guide"):
@@ -3627,7 +3728,71 @@ def render_screening_results():
     
     # Results Table
     st.markdown("#### Detailed Results")
-    
+
+    # Load historical data and product matcher
+    load_historical_data()
+
+    # Add product comparison benchmarking if available
+    if st.session_state.product_matcher:
+        with st.expander("🔍 Product Comparison vs. Historical Data", expanded=False):
+            st.markdown("""
+            **✨ NEW:** Compare your products against 231 historical products from trailing 12-month Amazon data.
+            Uses AI-powered fuzzy matching to find similar products (e.g., "4-wheel scooter" matches "3-wheel scooter").
+            """)
+
+            # Add benchmark columns to dataframe
+            benchmark_data = []
+            for _, row in df.iterrows():
+                if st.session_state.product_matcher and 'Name' in row and 'Return_Rate' in row:
+                    try:
+                        comparison = st.session_state.product_matcher.compare_to_similar_products(
+                            product_name=row['Name'],
+                            product_return_rate=row['Return_Rate'],
+                            product_category=row.get('Category')
+                        )
+
+                        if comparison.get('comparison_available'):
+                            benchmark_data.append({
+                                'SKU': row.get('SKU', ''),
+                                'Product': row['Name'][:40] + '...' if len(row['Name']) > 40 else row['Name'],
+                                'Your Return Rate': f"{row['Return_Rate']:.1%}",
+                                'Similar Products Avg': f"{comparison['benchmark_average']:.1%}",
+                                'vs. Average': f"{comparison['vs_average_pct']:+.1f}%",
+                                'Performance': comparison['performance_category'],
+                                'Similar Count': comparison['similar_product_count']
+                            })
+                    except Exception as e:
+                        logger.warning(f"Benchmark comparison failed for {row.get('SKU')}: {e}")
+                        continue
+
+            if benchmark_data:
+                benchmark_df = pd.DataFrame(benchmark_data)
+
+                # Color code performance
+                def color_performance(row):
+                    perf = row['Performance']
+                    colors = []
+                    for _ in range(len(row)):
+                        if perf == 'Excellent':
+                            colors.append('background-color: #d4edda')
+                        elif perf == 'Good':
+                            colors.append('background-color: #d1ecf1')
+                        elif perf == 'Fair':
+                            colors.append('background-color: #fff3cd')
+                        else:
+                            colors.append('background-color: #f8d7da')
+                    return colors
+
+                st.dataframe(
+                    benchmark_df.style.apply(color_performance, axis=1),
+                    width="stretch",
+                    height=300
+                )
+
+                st.caption("**Performance:** Excellent = Top 25% | Good = Above Median | Fair = Below Median | Needs Improvement = Bottom 25%")
+            else:
+                st.info("Product matching in progress... Refresh to see results.")
+
     # Add color coding based on action
     def highlight_action(row):
         if 'Immediate' in str(row.get('Action', '')):
@@ -3637,12 +3802,12 @@ def render_screening_results():
         elif 'Monitor' in str(row.get('Action', '')):
             return ['background-color: #ffff99'] * len(row)
         return [''] * len(row)
-    
+
     # Select display columns
-    display_cols = ['SKU', 'Name', 'Category', 'Return_Rate', 'Category_Threshold', 
+    display_cols = ['SKU', 'Name', 'Category', 'Return_Rate', 'Category_Threshold',
                    'Landed Cost', 'Risk_Score', 'SPC_Signal', 'Action', 'Triggers']
     display_cols = [c for c in display_cols if c in df.columns]
-    
+
     # Format display
     display_df = df[display_cols].copy()
     if 'Return_Rate' in display_df.columns:
@@ -3651,7 +3816,7 @@ def render_screening_results():
         display_df['Category_Threshold'] = display_df['Category_Threshold'].apply(lambda x: f"{x:.1%}")
     if 'Risk_Score' in display_df.columns:
         display_df['Risk_Score'] = display_df['Risk_Score'].apply(lambda x: f"{x:.0f}")
-    
+
     st.dataframe(
         display_df.style.apply(highlight_action, axis=1),
         width="stretch",
@@ -3669,51 +3834,165 @@ def render_screening_results():
         col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown("#### 📧 Generate Vendor Email")
+            st.markdown("#### 📧 Generate AI-Powered Vendor Email")
+            st.caption("✨ NEW: Multi-language support with English proficiency adjustment")
+
             selected_sku = st.selectbox(
                 "Select SKU",
                 options=action_items['SKU'].unique(),
                 key="email_sku_select"
             )
-            
-            email_type = st.selectbox(
-                "Email Type",
-                ["CAPA Request", "RCA Request", "Inspection Notice"]
-            )
-            
-            if st.button("Generate Email", key="gen_email"):
-                row = action_items[action_items['SKU'] == selected_sku].iloc[0]
-                
-                if email_type == "CAPA Request":
-                    email = VendorEmailGenerator.generate_capa_request(
-                        sku=row['SKU'],
-                        product_name=row.get('Name', row['SKU']),
-                        issue_summary=row.get('Complaint_Text', 'Quality concerns identified'),
-                        return_rate=row['Return_Rate'],
-                        defect_description=row.get('Triggers', ''),
-                        units_affected=int(row.get('Returned', 0))
-                    )
-                elif email_type == "RCA Request":
-                    email = VendorEmailGenerator.generate_rca_request(
-                        sku=row['SKU'],
-                        product_name=row.get('Name', row['SKU']),
-                        defect_type=row['Action'],
-                        occurrence_rate=row['Return_Rate'],
-                        sample_complaints=str(row.get('Complaint_Text', '')).split(',')[:5]
-                    )
-                else:
-                    email = VendorEmailGenerator.generate_inspection_notice(
-                        sku=row['SKU'],
-                        product_name=row.get('Name', row['SKU']),
-                        special_focus=str(row.get('Triggers', '')).split(';')
-                    )
-                
-                st.text_area("Generated Email", email, height=400)
-                st.download_button(
-                    "📥 Download Email",
-                    email,
-                    file_name=f"vendor_email_{selected_sku}_{datetime.now().strftime('%Y%m%d')}.txt"
+
+            col_a, col_b = st.columns(2)
+            with col_a:
+                email_type = st.selectbox(
+                    "Email Type",
+                    ["CAPA Request", "RCA Request", "Quality Report"]
                 )
+
+            with col_b:
+                vendor_region = st.selectbox(
+                    "Vendor Region",
+                    ["China", "India", "LATAM", "EU", "USA"],
+                    help="Adjusts communication style for cultural context"
+                )
+
+            col_c, col_d = st.columns(2)
+            with col_c:
+                english_level = st.selectbox(
+                    "English Proficiency",
+                    ["Native", "Fluent", "Intermediate", "Basic", "Minimal"],
+                    index=2,
+                    help="Adjusts language complexity for recipient"
+                )
+
+            with col_d:
+                target_lang = st.selectbox(
+                    "Target Language",
+                    ["English", "Chinese (Simplified)", "Chinese (Traditional)",
+                     "Spanish", "Portuguese", "Hindi", "German", "French", "Italian"],
+                    help="Generates translation alongside English"
+                )
+
+            # Map string selections to enums
+            english_level_map = {
+                "Native": EnglishLevel.NATIVE,
+                "Fluent": EnglishLevel.FLUENT,
+                "Intermediate": EnglishLevel.INTERMEDIATE,
+                "Basic": EnglishLevel.BASIC,
+                "Minimal": EnglishLevel.MINIMAL
+            }
+
+            target_lang_map = {
+                "English": TargetLanguage.ENGLISH,
+                "Chinese (Simplified)": TargetLanguage.CHINESE_SIMPLIFIED,
+                "Chinese (Traditional)": TargetLanguage.CHINESE_TRADITIONAL,
+                "Spanish": TargetLanguage.SPANISH,
+                "Portuguese": TargetLanguage.PORTUGUESE,
+                "Hindi": TargetLanguage.HINDI,
+                "German": TargetLanguage.GERMAN,
+                "French": TargetLanguage.FRENCH,
+                "Italian": TargetLanguage.ITALIAN
+            }
+
+            if st.button("🚀 Generate AI Email", key="gen_email", type="primary"):
+                # Ensure AI and multilingual communicator are loaded
+                get_ai_analyzer()
+                load_historical_data()
+
+                if st.session_state.multilingual_communicator is None:
+                    st.warning("AI communicator not initialized. Generating basic email...")
+                    # Fallback to old generator
+                    row = action_items[action_items['SKU'] == selected_sku].iloc[0]
+                    if email_type == "CAPA Request":
+                        email = VendorEmailGenerator.generate_capa_request(
+                            sku=row['SKU'],
+                            product_name=row.get('Name', row['SKU']),
+                            issue_summary=row.get('Complaint_Text', 'Quality concerns identified'),
+                            return_rate=row['Return_Rate'],
+                            defect_description=row.get('Triggers', ''),
+                            units_affected=int(row.get('Returned', 0))
+                        )
+                        st.text_area("Generated Email", email, height=400)
+                else:
+                    with st.spinner("🤖 AI is generating your customized email..."):
+                        row = action_items[action_items['SKU'] == selected_sku].iloc[0]
+
+                        try:
+                            if email_type == "CAPA Request":
+                                result = st.session_state.multilingual_communicator.generate_capa_email(
+                                    sku=row['SKU'],
+                                    product_name=row.get('Name', row['SKU']),
+                                    issue_summary=row.get('Complaint_Text', 'Quality concerns identified'),
+                                    return_rate=row['Return_Rate'],
+                                    defect_description=row.get('Triggers', ''),
+                                    units_affected=int(row.get('Returned', 0)),
+                                    severity='major',
+                                    english_level=english_level_map[english_level],
+                                    target_language=target_lang_map[target_lang],
+                                    vendor_region=vendor_region
+                                )
+                            elif email_type == "RCA Request":
+                                result = st.session_state.multilingual_communicator.generate_rca_request(
+                                    sku=row['SKU'],
+                                    product_name=row.get('Name', row['SKU']),
+                                    defect_type=row['Action'],
+                                    occurrence_rate=row['Return_Rate'],
+                                    sample_complaints=str(row.get('Complaint_Text', '')).split(',')[:5],
+                                    english_level=english_level_map[english_level],
+                                    target_language=target_lang_map[target_lang],
+                                    vendor_region=vendor_region
+                                )
+                            else:  # Quality Report
+                                products_list = [{
+                                    'sku': row['SKU'],
+                                    'product_name': row.get('Name', row['SKU']),
+                                    'return_rate': row['Return_Rate'],
+                                    'issue_summary': row.get('Triggers', '')
+                                }]
+                                result = st.session_state.multilingual_communicator.generate_quality_report(
+                                    products=products_list,
+                                    report_type="product review",
+                                    english_level=english_level_map[english_level],
+                                    target_language=target_lang_map[target_lang],
+                                    vendor_region=vendor_region
+                                )
+
+                            # Display results
+                            st.success("✅ Email generated successfully!")
+
+                            st.markdown("### 📧 English Version")
+                            st.markdown(f"**Subject:** {result['subject_english']}")
+                            st.text_area("Email Body (English)", result['body_english'], height=350, key="email_en")
+
+                            # Show translation if available
+                            if result['body_translated']:
+                                st.markdown(f"### 🌐 {result['language']} Translation")
+                                if result['subject_translated']:
+                                    st.markdown(f"**Subject:** {result['subject_translated']}")
+                                st.text_area(f"Email Body ({result['language']})", result['body_translated'], height=350, key="email_trans")
+
+                            # Download options
+                            col_dl1, col_dl2 = st.columns(2)
+                            with col_dl1:
+                                st.download_button(
+                                    "📥 Download English",
+                                    f"Subject: {result['subject_english']}\n\n{result['body_english']}\n\nRef: {result['reference']}",
+                                    file_name=f"vendor_email_EN_{selected_sku}_{datetime.now().strftime('%Y%m%d')}.txt"
+                                )
+
+                            with col_dl2:
+                                if result['body_translated']:
+                                    translated_content = f"Subject: {result['subject_translated'] or result['subject_english']}\n\n{result['body_translated']}\n\n---\n\nEnglish Version:\nSubject: {result['subject_english']}\n\n{result['body_english']}\n\nRef: {result['reference']}"
+                                    st.download_button(
+                                        f"📥 Download {result['language']}",
+                                        translated_content,
+                                        file_name=f"vendor_email_{target_lang_map[target_lang].value}_{selected_sku}_{datetime.now().strftime('%Y%m%d')}.txt"
+                                    )
+
+                        except Exception as e:
+                            st.error(f"Error generating email: {str(e)}")
+                            logger.error(f"Email generation error: {e}", exc_info=True)
         
         with col2:
             st.markdown("#### 📋 Generate Investigation Plan")
@@ -3879,10 +4158,10 @@ def render_screening_results():
                             st.error(f"Deep dive analysis failed: {e}")
                             logger.error(f"Deep dive error: {e}")
 
-        # TAB 2: Bulk Vendor Emails
+        # TAB 2: Bulk Vendor Emails - ENHANCED WITH MULTILINGUAL AI
         with tab2:
-            st.markdown("#### Generate Vendor Emails for Multiple Products")
-            st.caption("Create emails for all flagged products at once")
+            st.markdown("#### 🌐 AI-Powered Bulk Vendor Emails (Multilingual)")
+            st.caption("✨ NEW: Generate customized emails for multiple products with language/proficiency options")
 
             # Select products
             selected_for_email = st.multiselect(
@@ -3892,92 +4171,234 @@ def render_screening_results():
                 help="Select which products need vendor follow-up"
             )
 
-            # Email type
+            # Email configuration in columns
             col1, col2 = st.columns(2)
             with col1:
                 bulk_email_type = st.selectbox(
                     "Email Type (applies to all)",
-                    ["CAPA Request", "RCA Request", "Inspection Notice", "Quality Alert"],
+                    ["CAPA Request", "RCA Request", "Quality Report"],
                     help="Same email type will be used for all selected products"
                 )
 
-            with col2:
-                vendor_name = st.text_input(
-                    "Vendor/Supplier Name",
-                    placeholder="e.g., ABC Manufacturing Ltd.",
-                    help="Vendor name for email personalization"
+                bulk_vendor_region = st.selectbox(
+                    "Vendor Region",
+                    ["China", "India", "LATAM", "EU", "USA"],
+                    help="Adjusts communication style for cultural context",
+                    key="bulk_vendor_region"
                 )
 
-            if st.button("📧 Generate All Emails", type="primary", key="bulk_emails"):
+            with col2:
+                bulk_english_level = st.selectbox(
+                    "English Proficiency",
+                    ["Native", "Fluent", "Intermediate", "Basic", "Minimal"],
+                    index=2,
+                    help="Adjusts language complexity",
+                    key="bulk_english"
+                )
+
+                bulk_target_lang = st.selectbox(
+                    "Target Language",
+                    ["English", "Chinese (Simplified)", "Chinese (Traditional)",
+                     "Spanish", "Portuguese", "Hindi", "German", "French", "Italian"],
+                    help="Generates translation",
+                    key="bulk_lang"
+                )
+
+            vendor_name = st.text_input(
+                "Vendor/Supplier Name (Optional)",
+                placeholder="e.g., ABC Manufacturing Ltd.",
+                help="For email personalization"
+            )
+
+            # Map selections to enums
+            english_level_map = {
+                "Native": EnglishLevel.NATIVE,
+                "Fluent": EnglishLevel.FLUENT,
+                "Intermediate": EnglishLevel.INTERMEDIATE,
+                "Basic": EnglishLevel.BASIC,
+                "Minimal": EnglishLevel.MINIMAL
+            }
+
+            target_lang_map = {
+                "English": TargetLanguage.ENGLISH,
+                "Chinese (Simplified)": TargetLanguage.CHINESE_SIMPLIFIED,
+                "Chinese (Traditional)": TargetLanguage.CHINESE_TRADITIONAL,
+                "Spanish": TargetLanguage.SPANISH,
+                "Portuguese": TargetLanguage.PORTUGUESE,
+                "Hindi": TargetLanguage.HINDI,
+                "German": TargetLanguage.GERMAN,
+                "French": TargetLanguage.FRENCH,
+                "Italian": TargetLanguage.ITALIAN
+            }
+
+            if st.button("🚀 Generate All AI Emails", type="primary", key="bulk_emails"):
                 if not selected_for_email:
                     st.warning("Please select at least one product")
                 else:
-                    with st.spinner(f"Generating {len(selected_for_email)} vendor emails..."):
-                        try:
-                            # Generate emails for each product
-                            bulk_emails = []
+                    # Ensure AI is initialized
+                    get_ai_analyzer()
+                    load_historical_data()
 
-                            for sku in selected_for_email:
+                    with st.spinner(f"🤖 AI is generating {len(selected_for_email)} customized emails..."):
+                        try:
+                            bulk_emails = []
+                            progress_bar = st.progress(0)
+
+                            # Use multilingual communicator if available
+                            use_ai = st.session_state.multilingual_communicator is not None
+
+                            for idx, sku in enumerate(selected_for_email):
                                 row = action_items[action_items['SKU'] == sku].iloc[0]
 
-                                if bulk_email_type == "CAPA Request":
-                                    email = VendorEmailGenerator.generate_capa_request(
-                                        sku=row['SKU'],
-                                        product_name=row.get('Name', row['SKU']),
-                                        issue_summary=row.get('Complaint_Text', 'Quality concerns identified'),
-                                        return_rate=row['Return_Rate'],
-                                        defect_description=row.get('Triggers', ''),
-                                        units_affected=int(row.get('Returned', 0))
-                                    )
-                                elif bulk_email_type == "RCA Request":
-                                    email = VendorEmailGenerator.generate_rca_request(
-                                        sku=row['SKU'],
-                                        product_name=row.get('Name', row['SKU']),
-                                        defect_type=row['Action'],
-                                        occurrence_rate=row['Return_Rate'],
-                                        sample_complaints=str(row.get('Complaint_Text', '')).split(',')[:5]
-                                    )
+                                if use_ai:
+                                    # AI-powered generation
+                                    if bulk_email_type == "CAPA Request":
+                                        result = st.session_state.multilingual_communicator.generate_capa_email(
+                                            sku=row['SKU'],
+                                            product_name=row.get('Name', row['SKU']),
+                                            issue_summary=row.get('Complaint_Text', 'Quality concerns identified'),
+                                            return_rate=row['Return_Rate'],
+                                            defect_description=row.get('Triggers', ''),
+                                            units_affected=int(row.get('Returned', 0)),
+                                            severity='major',
+                                            english_level=english_level_map[bulk_english_level],
+                                            target_language=target_lang_map[bulk_target_lang],
+                                            vendor_region=bulk_vendor_region
+                                        )
+                                    elif bulk_email_type == "RCA Request":
+                                        result = st.session_state.multilingual_communicator.generate_rca_request(
+                                            sku=row['SKU'],
+                                            product_name=row.get('Name', row['SKU']),
+                                            defect_type=row['Action'],
+                                            occurrence_rate=row['Return_Rate'],
+                                            sample_complaints=str(row.get('Complaint_Text', '')).split(',')[:5],
+                                            english_level=english_level_map[bulk_english_level],
+                                            target_language=target_lang_map[bulk_target_lang],
+                                            vendor_region=bulk_vendor_region
+                                        )
+                                    else:  # Quality Report
+                                        products_list = [{
+                                            'sku': row['SKU'],
+                                            'product_name': row.get('Name', row['SKU']),
+                                            'return_rate': row['Return_Rate'],
+                                            'issue_summary': row.get('Triggers', '')
+                                        }]
+                                        result = st.session_state.multilingual_communicator.generate_quality_report(
+                                            products=products_list,
+                                            report_type="product review",
+                                            english_level=english_level_map[bulk_english_level],
+                                            target_language=target_lang_map[bulk_target_lang],
+                                            vendor_region=bulk_vendor_region
+                                        )
+
+                                    bulk_emails.append({
+                                        'SKU': sku,
+                                        'Product': row.get('Name', sku)[:50],
+                                        'Email_Type': bulk_email_type,
+                                        'Subject_English': result['subject_english'],
+                                        'Body_English': result['body_english'],
+                                        'Subject_Translated': result.get('subject_translated', ''),
+                                        'Body_Translated': result.get('body_translated', ''),
+                                        'Language': result['language'],
+                                        'Priority': row.get('Action', 'Monitor'),
+                                        'Vendor_Region': bulk_vendor_region,
+                                        'English_Level': bulk_english_level
+                                    })
                                 else:
-                                    email = VendorEmailGenerator.generate_inspection_notice(
-                                        sku=row['SKU'],
-                                        product_name=row.get('Name', row['SKU']),
-                                        special_focus=str(row.get('Triggers', '')).split(';')
-                                    )
+                                    # Fallback to basic generator
+                                    if bulk_email_type == "CAPA Request":
+                                        email = VendorEmailGenerator.generate_capa_request(
+                                            sku=row['SKU'],
+                                            product_name=row.get('Name', row['SKU']),
+                                            issue_summary=row.get('Complaint_Text', 'Quality concerns identified'),
+                                            return_rate=row['Return_Rate'],
+                                            defect_description=row.get('Triggers', ''),
+                                            units_affected=int(row.get('Returned', 0))
+                                        )
+                                    elif bulk_email_type == "RCA Request":
+                                        email = VendorEmailGenerator.generate_rca_request(
+                                            sku=row['SKU'],
+                                            product_name=row.get('Name', row['SKU']),
+                                            defect_type=row['Action'],
+                                            occurrence_rate=row['Return_Rate'],
+                                            sample_complaints=str(row.get('Complaint_Text', '')).split(',')[:5]
+                                        )
 
-                                bulk_emails.append({
-                                    'SKU': sku,
-                                    'Product': row.get('Name', sku),
-                                    'Email_Type': bulk_email_type,
-                                    'Subject': f"Quality Issue - {sku}",
-                                    'Body': email,
-                                    'Priority': row.get('Action', 'Monitor')
-                                })
+                                    bulk_emails.append({
+                                        'SKU': sku,
+                                        'Product': row.get('Name', sku),
+                                        'Email_Type': bulk_email_type,
+                                        'Subject_English': f"Quality Issue - {sku}",
+                                        'Body_English': email,
+                                        'Priority': row.get('Action', 'Monitor')
+                                    })
 
-                            st.success(f"✅ Generated {len(bulk_emails)} emails!")
+                                # Update progress
+                                progress_bar.progress((idx + 1) / len(selected_for_email))
+
+                            progress_bar.empty()
+                            st.success(f"✅ Generated {len(bulk_emails)} {'AI-powered' if use_ai else ''} emails!")
 
                             # Display preview
-                            for i, email_data in enumerate(bulk_emails[:3]):  # Show first 3
+                            st.markdown("### 📧 Email Previews (First 3)")
+                            for i, email_data in enumerate(bulk_emails[:3]):
                                 with st.expander(f"📧 {email_data['SKU']} - {email_data['Product']}", expanded=(i==0)):
                                     st.markdown(f"**Priority:** {email_data['Priority']}")
-                                    st.text_area("Email Content", email_data['Body'], height=200, key=f"preview_email_{i}")
+                                    if use_ai:
+                                        st.markdown(f"**Language:** {email_data.get('Language', 'English')} | **Region:** {email_data.get('Vendor_Region', 'N/A')}")
+
+                                    st.markdown("**English Version:**")
+                                    st.text_area("Subject", email_data['Subject_English'], height=50, key=f"subj_en_{i}")
+                                    st.text_area("Body", email_data['Body_English'], height=200, key=f"body_en_{i}")
+
+                                    if email_data.get('Body_Translated'):
+                                        st.markdown(f"**{email_data['Language']} Translation:**")
+                                        if email_data.get('Subject_Translated'):
+                                            st.text_area("Subject (Translated)", email_data['Subject_Translated'], height=50, key=f"subj_tr_{i}")
+                                        st.text_area("Body (Translated)", email_data['Body_Translated'], height=200, key=f"body_tr_{i}")
 
                             if len(bulk_emails) > 3:
-                                st.info(f"+ {len(bulk_emails) - 3} more emails (see CSV export)")
+                                st.info(f"+ {len(bulk_emails) - 3} more emails (see exports below)")
 
-                            # Export option
-                            email_df = pd.DataFrame(bulk_emails)
-                            csv_data = email_df.to_csv(index=False)
+                            # Export options
+                            col_exp1, col_exp2 = st.columns(2)
 
-                            st.download_button(
-                                "📥 Download All Emails (CSV)",
-                                csv_data,
-                                file_name=f"bulk_vendor_emails_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                                mime="text/csv"
-                            )
+                            with col_exp1:
+                                email_df = pd.DataFrame(bulk_emails)
+                                csv_data = email_df.to_csv(index=False)
+                                st.download_button(
+                                    "📥 Download All Emails (CSV)",
+                                    csv_data,
+                                    file_name=f"bulk_vendor_emails_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                                    mime="text/csv"
+                                )
+
+                            with col_exp2:
+                                # Create individual text files combined
+                                combined_text = ""
+                                for email in bulk_emails:
+                                    combined_text += f"\n{'='*80}\n"
+                                    combined_text += f"SKU: {email['SKU']} - {email['Product']}\n"
+                                    combined_text += f"Priority: {email['Priority']}\n"
+                                    combined_text += f"{'='*80}\n\n"
+                                    combined_text += f"SUBJECT: {email['Subject_English']}\n\n"
+                                    combined_text += email['Body_English']
+                                    if email.get('Body_Translated'):
+                                        combined_text += f"\n\n--- {email['Language']} TRANSLATION ---\n\n"
+                                        combined_text += f"SUBJECT: {email.get('Subject_Translated', email['Subject_English'])}\n\n"
+                                        combined_text += email['Body_Translated']
+                                    combined_text += "\n\n"
+
+                                st.download_button(
+                                    "📥 Download All as Text",
+                                    combined_text,
+                                    file_name=f"bulk_vendor_emails_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+                                    mime="text/plain"
+                                )
 
                         except Exception as e:
                             st.error(f"Bulk email generation failed: {e}")
-                            logger.error(f"Bulk email error: {e}")
+                            logger.error(f"Bulk email error: {e}", exc_info=True)
 
         # TAB 3: Bulk Investigation Plans
         with tab3:
@@ -4029,8 +4450,7 @@ def render_screening_results():
                                     issue_type=row.get('Action', 'Quality Issue'),
                                     complaint_summary=row.get('Complaint_Text', 'See triggers'),
                                     return_rate=row['Return_Rate'],
-                                    risk_score=row['Risk_Score'],
-                                    investigation_method=assigned_method
+                                    risk_score=row['Risk_Score']
                                 )
 
                                 bulk_plans.append({
@@ -4585,8 +5005,49 @@ def render_help_guide():
     """Render interactive help guide"""
     with st.expander("📚 Interactive Help Guide", expanded=False):
         st.markdown("""
+        ### 🤖 AI-Powered Features
+
+        **This application extensively uses AI/ML for quality management:**
+
+        #### 1️⃣ **AI Return Categorization (Tab 1)**
+        - **Technology:** OpenAI GPT-3.5 / Claude Haiku/Sonnet
+        - **What it does:** Automatically categorizes customer complaints into standardized quality categories
+        - **How it helps:** Eliminates manual categorization, processes thousands of complaints in minutes
+
+        #### 2️⃣ **Multilingual Vendor Communications (Tab 3)**
+        - **Technology:** AI-powered content generation + translation
+        - **What it does:**
+          - Generates professional vendor emails (CAPA requests, RCA requests)
+          - Translates to 9 languages (Chinese, Spanish, Portuguese, Hindi, German, French, Italian)
+          - Adjusts language complexity based on recipient's English proficiency (5 levels)
+          - Adapts cultural communication style (China, India, LATAM, EU, USA)
+        - **How it helps:** Communicate effectively with global supply chain partners
+
+        #### 3️⃣ **Fuzzy Product Matching (Tab 3)**
+        - **Technology:** AI semantic similarity + keyword matching
+        - **What it does:**
+          - Compares your products against 231 historical products
+          - Finds similar products using fuzzy logic (e.g., "4-wheel scooter" matches "3-wheel scooter")
+          - Benchmarks performance against similar historical products
+        - **How it helps:** Understand if your return rates are normal compared to similar products
+
+        #### 4️⃣ **Deep Dive Analysis (Tab 3)**
+        - **Technology:** Claude Sonnet with document analysis
+        - **What it does:**
+          - Analyzes product manuals, specs, and listings
+          - Recommends investigation methodologies (5 Whys, Fishbone, RCA, FMEA, 8D)
+          - Identifies root cause patterns and risk levels
+        - **How it helps:** AI reads your documents and suggests the best investigation approach
+
+        #### 5️⃣ **AI Assistant Chat**
+        - **Technology:** Conversational AI with quality management expertise
+        - **What it does:** Answers questions about thresholds, results, risk scores, and quality processes
+        - **How it helps:** On-demand expert guidance without searching through SOPs
+
+        ---
+
         ### Quality Case Screening - Quick Start Guide
-        
+
         #### Lite Mode (1-5 Products)
         1. Fill in **required fields**: Product Name, SKU, Category, Sales, Returns
         2. Add **complaint reasons** (comma-separated)
@@ -4630,16 +5091,40 @@ def render_help_guide():
             {'SKU': 'SUP1036', 'Name': 'Post Op Shoe', 'Category': 'SUP', 'Sold': 500, 'Returned': 45, 'Landed Cost': 12.00, 'Complaint_Text': 'Wrong size, poor fit'},
             {'SKU': 'LVA1004', 'Name': 'Pressure Mattress', 'Category': 'LVA', 'Sold': 800, 'Returned': 150, 'Landed Cost': 145.00, 'Complaint_Text': 'Pump failure, air leak'},
         ])
-        
+
         csv_buffer = io.StringIO()
         example_data.to_csv(csv_buffer, index=False)
-        
-        st.download_button(
-            "📥 Download Example Data",
-            csv_buffer.getvalue(),
-            file_name="example_screening_data.csv",
-            mime="text/csv"
-        )
+
+        col_ex1, col_ex2 = st.columns(2)
+
+        with col_ex1:
+            st.download_button(
+                "📥 Download Simple Example (3 products)",
+                csv_buffer.getvalue(),
+                file_name="example_screening_data.csv",
+                mime="text/csv",
+                help="Basic example with 3 sample products"
+            )
+
+        with col_ex2:
+            # Load advanced demo data if available
+            try:
+                demo_path = os.path.join(os.path.dirname(__file__), 'demo_quality_screening_data_advanced.csv')
+                if os.path.exists(demo_path):
+                    demo_df = pd.read_csv(demo_path)
+                    demo_csv = demo_df.to_csv(index=False)
+                    st.download_button(
+                        "🚀 Download Advanced Demo Dataset",
+                        demo_csv,
+                        file_name="demo_quality_screening_advanced.csv",
+                        mime="text/csv",
+                        help="⭐ 70 real products with realistic quality issues - perfect for testing all AI features",
+                        type="primary",
+                        use_container_width=True
+                    )
+                    st.caption("✨ **Advanced Demo includes:** Products from actual catalog, realistic return scenarios, safety risks, multilingual support testing, fuzzy matching against 231 historical products")
+            except Exception as e:
+                pass  # Silently fail if advanced demo not available
 
 
 def render_inventory_integration_tab():
@@ -5334,7 +5819,8 @@ def main():
             <strong>Enterprise Quality Management System v20.0</strong>
         </p>
         <p style="color: rgba(255,255,255,0.9); margin: 0; font-size: 0.9rem;">
-            AI-Powered Quality Screening | Inventory Integration | ISO 13485 & FDA 21 CFR 820 Compliant
+            🤖 <strong>AI-Powered:</strong> OpenAI/Claude LLMs | Multilingual Translation | Fuzzy Product Matching | Deep Dive Analysis<br/>
+            📊 <strong>Standards:</strong> ISO 13485 & FDA 21 CFR 820 Compliant
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -5342,6 +5828,19 @@ def main():
     if not AI_AVAILABLE:
         st.error("❌ AI Modules Missing. Please check deployment.")
         st.stop()
+
+    # Add AI status indicator
+    keys = check_api_keys()
+    ai_status = []
+    if keys.get('openai'):
+        ai_status.append("✅ OpenAI Active")
+    if keys.get('claude'):
+        ai_status.append("✅ Claude Active")
+
+    if ai_status:
+        st.success(f"🤖 AI Status: {' | '.join(ai_status)}")
+    else:
+        st.warning("⚠️ No AI API keys configured. Some features will be limited.")
     
     # Sidebar
     with st.sidebar:
@@ -5376,11 +5875,13 @@ def main():
         # Use Tab 1/2 provider
         st.session_state.ai_provider = provider_map_t12[provider_t12]
         
-        st.markdown("### 📁 Return Categorization (Column I → K)")
+        st.markdown("### 📁 AI-Powered Return Categorization (Column I → K)")
         st.markdown("""
-        <div style="background: rgba(255, 183, 0, 0.1); border: 1px solid var(--accent); 
+        <div style="background: rgba(255, 183, 0, 0.1); border: 1px solid var(--accent);
                     border-radius: 8px; padding: 0.8rem; margin-bottom: 1rem;">
-            <strong>📌 Goal:</strong> Categorize complaints into standardized Quality Categories.
+            <strong>🤖 AI-Powered:</strong> Uses OpenAI/Claude LLMs to automatically categorize customer complaints<br/>
+            <strong>📌 Goal:</strong> Convert unstructured complaint text into standardized Quality Categories<br/>
+            <strong>⚡ Speed:</strong> Processes thousands of complaints in minutes (vs hours manually)
         </div>
         """, unsafe_allow_html=True)
         
