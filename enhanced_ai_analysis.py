@@ -1004,7 +1004,12 @@ Provide a comprehensive analysis with:
 Format your response as structured JSON."""
 
         try:
-            response = self.ai._call_api(prompt, mode='enhanced', provider=self.ai.primary_provider)
+            # Use generate_text instead of _call_api
+            system_prompt = "You are a quality investigation expert. Analyze the provided quality issue and recommend the best investigation approach."
+            response = self.ai.generate_text(prompt, system_prompt, mode='chat')
+
+            if not response:
+                raise Exception("No response from AI")
 
             # Try to parse as JSON, fallback to text
             try:
