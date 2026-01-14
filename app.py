@@ -325,78 +325,149 @@ def inject_custom_css():
     }}
     
     html, body, .stApp {{
-        font-family: 'Inter', sans-serif;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     }}
-    
+
+    /* Main header - works in both modes */
     .main-header {{
-        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        background: linear-gradient(135deg, #0066cc 0%, #0099ff 100%);
         padding: 2rem;
         border-radius: 10px;
         text-align: center;
         margin-bottom: 1.5rem;
-        box-shadow: 0 5px 20px rgba(0, 217, 255, 0.3);
+        box-shadow: 0 4px 16px rgba(0, 102, 204, 0.3);
     }}
-    
+
     .main-title {{
         font-size: 2.2em;
         font-weight: 700;
-        color: white;
+        color: #ffffff;
         margin: 0;
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
     }}
-    
+
+    /* Info boxes - dark mode compatible */
     .info-box {{
-        background: rgba(26, 26, 46, 0.8);
-        border: 1px solid var(--primary);
+        background: rgba(30, 30, 50, 0.6);
+        border: 2px solid #0099ff;
         border-radius: 8px;
         padding: 1.2rem;
         margin: 0.8rem 0;
+        color: #f0f0f0;
     }}
-    
+
+    /* Light mode info boxes */
+    @media (prefers-color-scheme: light) {{
+        .info-box {{
+            background: rgba(240, 248, 255, 0.9);
+            border: 2px solid #0066cc;
+            color: #1a1a1a;
+        }}
+        .processing-log {{
+            background: #f5f5f5;
+            border: 1px solid #d0d0d0;
+            color: #1a1a1a;
+        }}
+        .methodology-box {{
+            background: #ffffff;
+            border-left: 4px solid #0066cc;
+            color: #1a1a1a;
+        }}
+    }}
+
+    /* Buttons - high contrast */
     .stButton > button {{
-        background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+        background: linear-gradient(135deg, #0066cc 0%, #0099ff 100%);
         color: white;
         border: none;
         padding: 0.7rem 1.5rem;
         border-radius: 6px;
         font-weight: 600;
+        box-shadow: 0 2px 8px rgba(0, 102, 204, 0.3);
+        transition: all 0.3s ease;
     }}
-    
+
+    .stButton > button:hover {{
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 102, 204, 0.5);
+    }}
+
+    /* Risk indicators - high contrast for both modes */
     .risk-critical {{
-        background-color: #ff4b4b !important;
+        background-color: #dc2626 !important;
         color: white !important;
+        font-weight: 700 !important;
+        padding: 0.5rem 1rem !important;
+        border-radius: 6px !important;
     }}
-    
+
     .risk-warning {{
-        background-color: #ffa500 !important;
-        color: black !important;
+        background-color: #f59e0b !important;
+        color: #1a1a1a !important;
+        font-weight: 700 !important;
+        padding: 0.5rem 1rem !important;
+        border-radius: 6px !important;
     }}
-    
+
     .risk-monitor {{
-        background-color: #ffff00 !important;
-        color: black !important;
+        background-color: #fbbf24 !important;
+        color: #1a1a1a !important;
+        font-weight: 700 !important;
+        padding: 0.5rem 1rem !important;
+        border-radius: 6px !important;
     }}
-    
+
     .risk-ok {{
-        background-color: #00ff00 !important;
-        color: black !important;
+        background-color: #10b981 !important;
+        color: white !important;
+        font-weight: 700 !important;
+        padding: 0.5rem 1rem !important;
+        border-radius: 6px !important;
     }}
-    
+
+    /* Processing log - works in both modes */
     .processing-log {{
-        background: #1a1a2e;
-        border: 1px solid #333;
+        background: #1e1e2e;
+        border: 1px solid #404050;
         border-radius: 5px;
         padding: 10px;
         max-height: 200px;
         overflow-y: auto;
-        font-family: monospace;
-        font-size: 12px;
+        font-family: 'Courier New', monospace;
+        font-size: 13px;
+        color: #e0e0e0;
+        line-height: 1.5;
     }}
-    
+
+    /* Methodology boxes */
     .methodology-box {{
-        background: #f8f9fa;
-        border-left: 4px solid #4facfe;
+        background: rgba(30, 30, 50, 0.5);
+        border-left: 4px solid #0099ff;
         padding: 15px;
         margin: 10px 0;
+        border-radius: 4px;
+        color: #f0f0f0;
+    }}
+
+    /* Ensure text is readable in all contexts */
+    .stMarkdown, .stText {{
+        color: inherit;
+    }}
+
+    /* Improve dataframe visibility */
+    .dataframe {{
+        font-size: 14px !important;
+    }}
+
+    /* Better metric card styling */
+    [data-testid="stMetricValue"] {{
+        font-size: 2rem !important;
+        font-weight: 700 !important;
+    }}
+
+    [data-testid="stMetricLabel"] {{
+        font-size: 1rem !important;
+        font-weight: 600 !important;
     }}
     
     /* Hide Streamlit branding */
@@ -4803,76 +4874,87 @@ def render_screening_results():
 
                     submitted = st.form_submit_button("🚀 Generate Rework Plan", type="primary")
 
-                    if submitted:
-                        with st.spinner("Generating customized rework plan..."):
-                            try:
-                                rework_details = {
-                                    'batch_size': batch_size,
-                                    'complexity': complexity,
-                                    'inspection_level': inspection_level,
-                                    'team_size': team_size,
-                                    'requires_disassembly': requires_disassembly,
-                                    'requires_cleaning': requires_cleaning,
-                                    'requires_testing': requires_testing,
-                                    'requires_reassembly': requires_reassembly,
-                                    'requires_relabeling': requires_relabeling,
-                                    'requires_repackaging': requires_repackaging,
-                                    'required_materials': required_materials,
-                                    'rework_steps': rework_steps
-                                }
+                # Process form submission OUTSIDE the form context
+                if submitted:
+                    with st.spinner("Generating customized rework plan..."):
+                        try:
+                            rework_details = {
+                                'batch_size': batch_size,
+                                'complexity': complexity,
+                                'inspection_level': inspection_level,
+                                'team_size': team_size,
+                                'requires_disassembly': requires_disassembly,
+                                'requires_cleaning': requires_cleaning,
+                                'requires_testing': requires_testing,
+                                'requires_reassembly': requires_reassembly,
+                                'requires_relabeling': requires_relabeling,
+                                'requires_repackaging': requires_repackaging,
+                                'required_materials': required_materials,
+                                'rework_steps': rework_steps
+                            }
 
-                                rework_plan = ReworkProjectPlan(
-                                    sku=rework_sku,
-                                    product_name=row.get('Name', rework_sku),
-                                    units_to_rework=rework_units,
-                                    rework_type=rework_type,
-                                    rework_details=rework_details,
-                                    assigned_lead="Production Manager",
-                                    start_date=datetime.now()
-                                )
+                            rework_plan = ReworkProjectPlan(
+                                sku=rework_sku,
+                                product_name=row.get('Name', rework_sku),
+                                units_to_rework=rework_units,
+                                rework_type=rework_type,
+                                rework_details=rework_details,
+                                assigned_lead="Production Manager",
+                                start_date=datetime.now()
+                            )
 
-                                st.success(f"✅ Generated rework plan with {len(rework_plan.tasks)} tasks for {rework_units:,} units!")
+                            # Store in session state so download buttons work
+                            st.session_state['rework_plan'] = rework_plan
+                            st.session_state['rework_generated'] = True
 
-                                # Summary
-                                col1, col2, col3 = st.columns(3)
-                                col1.metric("Units to Rework", f"{rework_units:,}")
-                                col2.metric("Rework Type", rework_type)
-                                col3.metric("Complexity", complexity)
+                            st.success(f"✅ Generated rework plan with {len(rework_plan.tasks)} tasks for {rework_units:,} units!")
 
-                                # Preview
-                                preview_df = rework_plan.to_dataframe()
-                                with st.expander("📋 Preview Plan", expanded=True):
-                                    st.dataframe(preview_df[['Task ID', 'Task Name', 'Assigned To', 'Duration (Days)', 'Status', 'Priority']],
-                                               width="stretch", height=400)
+                            # Summary
+                            col1, col2, col3 = st.columns(3)
+                            col1.metric("Units to Rework", f"{rework_units:,}")
+                            col2.metric("Rework Type", rework_type)
+                            col3.metric("Complexity", complexity)
 
-                                # Download options
-                                col1, col2 = st.columns(2)
-                                with col1:
-                                    csv_data = rework_plan.to_csv()
-                                    st.download_button(
-                                        "📥 Download CSV (Smartsheet)",
-                                        csv_data,
-                                        file_name=f"REWORK_{rework_sku}_{datetime.now().strftime('%Y%m%d')}.csv",
-                                        mime="text/csv"
-                                    )
-                                    st.success("✅ CSV ready!")
+                            # Preview
+                            preview_df = rework_plan.to_dataframe()
+                            with st.expander("📋 Preview Plan", expanded=True):
+                                st.dataframe(preview_df[['Task ID', 'Task Name', 'Assigned To', 'Duration (Days)', 'Status', 'Priority']],
+                                           width="stretch", height=400)
 
-                                with col2:
-                                    excel_data = rework_plan.to_excel()
-                                    st.download_button(
-                                        "📥 Download Excel",
-                                        excel_data,
-                                        file_name=f"REWORK_{rework_sku}_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                                    )
-                                    st.success("✅ Excel ready!")
+                            # AI-customized info
+                            st.info(f"🤖 **AI-Customized Plan:** Based on {complexity} complexity, {batch_size} units, {team_size} team members")
 
-                                # AI-customized info
-                                st.info(f"🤖 **AI-Customized Plan:** Based on {complexity} complexity, {batch_size} units, {team_size} team members")
+                        except Exception as e:
+                            st.error(f"❌ Rework plan generation failed: {str(e)}")
+                            logger.error(f"Rework error: {e}", exc_info=True)
 
-                            except Exception as e:
-                                st.error(f"❌ Rework plan generation failed: {str(e)}")
-                                logger.error(f"Rework error: {e}", exc_info=True)
+                # Download buttons OUTSIDE form - displayed if plan exists
+                if st.session_state.get('rework_generated', False) and 'rework_plan' in st.session_state:
+                    st.markdown("---")
+                    st.markdown("#### 📥 Download Rework Plan")
+
+                    col1, col2 = st.columns(2)
+                    rework_plan = st.session_state['rework_plan']
+
+                    with col1:
+                        csv_data = rework_plan.to_csv()
+                        st.download_button(
+                            "📥 Download CSV (Smartsheet)",
+                            csv_data,
+                            file_name=f"REWORK_{rework_sku}_{datetime.now().strftime('%Y%m%d')}.csv",
+                            mime="text/csv",
+                            key="rework_csv_dl"
+                        )
+
+                    with col2:
+                        excel_data = rework_plan.to_excel()
+                        st.download_button(
+                            "📥 Download Excel",
+                            excel_data,
+                            file_name=f"REWORK_{rework_sku}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key="rework_excel_dl"
+                        )
 
     # ========== END SMARTSHEET FEATURES ==========
 
