@@ -2225,6 +2225,35 @@ def render_quick_eval_mode():
 
     st.markdown("---")
 
+    # Date Range Section
+    st.markdown("### 📅 Evaluation Period")
+    date_col1, date_col2 = st.columns(2)
+
+    with date_col1:
+        start_date = st.date_input(
+            "Start Date",
+            value=datetime.now() - timedelta(days=90),
+            key="qe_start_date",
+            help="Beginning of analysis period"
+        )
+
+    with date_col2:
+        end_date = st.date_input(
+            "End Date",
+            value=datetime.now(),
+            key="qe_end_date",
+            help="End of analysis period"
+        )
+
+    if start_date >= end_date:
+        st.error("⚠️ Start date must be before end date")
+        return
+
+    days_in_period = (end_date - start_date).days
+    st.caption(f"Analysis Period: {days_in_period} days ({start_date.strftime('%B %d, %Y')} - {end_date.strftime('%B %d, %Y')})")
+
+    st.markdown("---")
+
     # Product Entry Section
     st.markdown("### 📦 Product Information (1-3 Products)")
 
@@ -2320,18 +2349,27 @@ def render_quick_eval_mode():
                 # Show return rate with status indicator
                 exceeds_threshold = return_rate > category_threshold
 
+                # Calculate both percentage points and percent change
+                percentage_points_diff = return_rate - category_threshold
+                if category_threshold > 0:
+                    percent_change = ((return_rate - category_threshold) / category_threshold) * 100
+                else:
+                    percent_change = 0
+
                 st.metric(
                     label="Return Rate",
                     value=f"{return_rate:.2f}%",
-                    delta=f"{return_rate - category_threshold:+.2f}% vs SOP",
+                    delta=f"{percentage_points_diff:+.2f} pts",
                     delta_color="inverse"
                 )
 
-                # Visual indicator
+                # Show both metrics
                 if exceeds_threshold:
-                    st.markdown("🔴 **EXCEEDS SOP**")
+                    st.markdown(f"🔴 **EXCEEDS SOP**")
+                    st.caption(f"+{percentage_points_diff:.2f} pts | +{percent_change:.1f}% change")
                 else:
-                    st.markdown("🟢 **Within SOP**")
+                    st.markdown(f"🟢 **Within SOP**")
+                    st.caption(f"{percentage_points_diff:+.2f} pts | {percent_change:+.1f}% change")
 
             # Complaint summary for this product
             complaint_summary = st.text_area(
@@ -2363,18 +2401,36 @@ def render_quick_eval_mode():
         st.session_state.quick_eval_summary = summary
 
     with col2:
-        st.markdown("**Speech to Text**")
-        st.caption("*Feature available in browser with microphone*")
+        st.markdown("**🎤 Voice Input**")
+        st.caption("*Dictate your summary*")
 
-        # Speech-to-text placeholder (browser-based)
-        st.markdown("""
-        <div style="background: #f0f2f6; border-radius: 8px; padding: 1rem; text-align: center;">
-            <p style="font-size: 2rem; margin: 0;">🎤</p>
-            <p style="font-size: 0.8rem; margin: 0.5rem 0 0 0;">Click mic icon in text area (browser feature)</p>
-        </div>
-        """, unsafe_allow_html=True)
+        # Initialize audio transcription session state
+        if 'audio_transcription' not in st.session_state:
+            st.session_state.audio_transcription = ""
 
-        st.caption("Tip: Most modern browsers support speech input. Look for microphone icon in the text field.")
+        # Simple voice recording button
+        if st.button("🎙️ Start Recording", key="voice_record", use_container_width=True):
+            st.info("🎤 **Voice Recording Instructions:**\n\n"
+                   "1. Click the button below\n"
+                   "2. Speak clearly into your microphone\n"
+                   "3. Click 'Stop' when finished\n"
+                   "4. Text will appear in the summary box")
+
+        # Alternative: Quick voice input
+        voice_input = st.text_input(
+            "Or type to speak:",
+            key="quick_voice",
+            placeholder="Type here, or use browser's voice input...",
+            help="Many browsers support voice-to-text when you click the microphone icon in this field"
+        )
+
+        if voice_input and st.button("➕ Add to Summary", use_container_width=True):
+            current_summary = st.session_state.quick_eval_summary
+            if current_summary:
+                st.session_state.quick_eval_summary = current_summary + " " + voice_input
+            else:
+                st.session_state.quick_eval_summary = voice_input
+            st.rerun()
 
     st.markdown("---")
 
@@ -2478,44 +2534,74 @@ def render_quick_eval_mode():
                     "Monitor closely for trend development"
                 ]
 
-            # AI Enhancement (if available and summary provided)
-            if st.session_state.quick_eval_summary.strip() and AI_AVAILABLE:
+            # AI Enhancement (if available - always run for comprehensive analysis)
+            if AI_AVAILABLE:
                 try:
                     ai_analyzer = EnhancedAIAnalyzer(st.session_state.ai_provider)
 
-                    # Build context for AI
-                    products_context = "\n".join([
-                        f"- {p['sku']} ({p['product_name']}): {p['return_rate']:.2f}% return rate "
-                        f"(Threshold: {p['threshold']:.1f}%, {'EXCEEDS' if p['exceeds_sop'] else 'Within'} SOP)"
+                    # Build comprehensive context for AI including product names, complaints, and date range
+                    products_detail = "\n".join([
+                        f"- **{p['sku']} - {p['product_name']}** ({p['category']})\n"
+                        f"  Return Rate: {p['return_rate']:.2f}% (SOP Threshold: {p['threshold']:.1f}%)\n"
+                        f"  Units: {p['units_returned']:,} returned of {p['units_sold']:,} sold\n"
+                        f"  Status: {'🔴 EXCEEDS SOP' if p['exceeds_sop'] else '🟢 Within SOP'}\n"
+                        f"  Complaints: {valid_products[results['products'].index(p)].get('complaint_summary', 'None provided')}"
                         for p in results['products']
                     ])
 
                     ai_prompt = f"""
-                    You are a medical device quality expert reviewing a case evaluation.
+                    You are a medical device quality expert conducting a formal case evaluation.
+
+                    EVALUATION PERIOD: {start_date.strftime('%B %d, %Y')} to {end_date.strftime('%B %d, %Y')} ({days_in_period} days)
 
                     PRODUCTS EVALUATED:
-                    {products_context}
+                    {products_detail}
 
                     USER CONTEXT:
-                    {st.session_state.quick_eval_summary}
+                    {st.session_state.quick_eval_summary if st.session_state.quick_eval_summary.strip() else 'No additional context provided'}
 
-                    Based on the return rates vs SOP thresholds AND the user's context, provide:
-                    1. SEVERITY ASSESSMENT (Low/Medium/High/Critical)
-                    2. KEY CONCERNS (2-3 bullet points)
-                    3. REGULATORY IMPLICATIONS (if any - FDA, ISO 13485, MDR)
-                    4. RECOMMENDED PRIORITY ACTIONS (numbered list)
+                    Based on the PRODUCT NAMES (identify failure modes based on product type), COMPLAINT PATTERNS, RETURN DATA, and DATE RANGE, provide:
 
-                    Keep response concise and actionable (200 words max).
+                    1. **PRODUCT-SPECIFIC RISK ASSESSMENT:**
+                       - Analyze each product name to identify likely failure modes (e.g., "Knee Scooter" → mobility/stability issues, "Rollator Walker" → wheel/brake failures)
+                       - Cross-reference with complaint summaries to validate hypotheses
+
+                    2. **SEVERITY & URGENCY:**
+                       - Overall severity (Low/Medium/High/Critical)
+                       - Time sensitivity based on trend (getting worse/stable/improving?)
+
+                    3. **ROOT CAUSE HYPOTHESES:**
+                       - Based on product types and complaint patterns
+                       - Consider: design flaws, manufacturing defects, supplier issues, user errors
+
+                    4. **REGULATORY IMPLICATIONS:**
+                       - FDA reporting requirements (MDR/MAUDE)?
+                       - ISO 13485 / EU MDR concerns?
+                       - Recall risk assessment
+
+                    5. **SPECIFIC RECOMMENDED ACTIONS:**
+                       - Numbered list with PRODUCT-SPECIFIC steps
+                       - Investigation methods (5 Whys, Fishbone, FMEA, 8D)
+                       - Timeline for each action
+
+                    Keep response detailed but actionable (400 words max). Be specific to the actual products, not generic advice.
                     """
 
                     ai_response = ai_analyzer.analyze_with_retry(ai_prompt, max_retries=2)
 
                     if ai_response:
                         results['ai_analysis'] = ai_response
+                        # Extract severity from AI if mentioned
+                        if 'Critical' in ai_response:
+                            results['severity'] = 'Critical'
+                        elif 'High' in ai_response and results['severity'] not in ['Critical']:
+                            results['severity'] = 'High'
 
                 except Exception as e:
                     logger.error(f"AI analysis failed: {e}")
                     results['ai_analysis'] = None
+            else:
+                results['ai_analysis'] = None
 
             st.session_state.quick_eval_results = results
 
@@ -2605,33 +2691,96 @@ def render_quick_eval_mode():
         col1, col2, col3 = st.columns(3)
 
         with col1:
-            # Generate summary report
+            # Generate comprehensive summary report matching display
             report_lines = [
-                f"QUICK CASE EVALUATION REPORT",
+                "=" * 80,
+                "QUICK CASE EVALUATION REPORT",
+                "=" * 80,
                 f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-                f"Profile: {active_profile_name}",
-                f"",
-                f"OVERALL ASSESSMENT:",
-                f"Meets Case Criteria: {'YES' if results['meets_case_criteria'] else 'NO'}",
-                f"Severity: {results['severity']}",
-                f"",
-                f"PRODUCTS EVALUATED:"
+                f"Evaluation Period: {start_date.strftime('%B %d, %Y')} - {end_date.strftime('%B %d, %Y')} ({days_in_period} days)",
+                f"Threshold Profile: {active_profile_name}",
+                f"Screened By: {st.session_state.screened_by}",
+                "",
+                "=" * 80,
+                "OVERALL ASSESSMENT",
+                "=" * 80,
+                f"Case Investigation Required: {'YES' if results['meets_case_criteria'] else 'NO'}",
+                f"Severity Level: {results['severity']}",
+                "",
+                results['overall_assessment'].strip(),
+                "",
+                "=" * 80,
+                "PRODUCT-BY-PRODUCT ANALYSIS",
+                "=" * 80,
             ]
 
-            for p in results['products']:
-                report_lines.append(
-                    f"- {p['sku']}: {p['return_rate']:.2f}% (Threshold: {p['threshold']:.1f}%) - {p['status']}"
-                )
+            for idx, p in enumerate(results['products'], 1):
+                # Calculate percent change
+                if p['threshold'] > 0:
+                    percent_change = ((p['return_rate'] - p['threshold']) / p['threshold']) * 100
+                else:
+                    percent_change = 0
 
-            report_lines.append("")
-            report_lines.append("RECOMMENDED ACTIONS:")
+                report_lines.extend([
+                    f"",
+                    f"Product {idx}: {p['sku']} - {p['product_name']}",
+                    f"-" * 80,
+                    f"Category: {p['category']}",
+                    f"Status: {p['status']}",
+                    f"",
+                    f"Return Rate: {p['return_rate']:.2f}%",
+                    f"SOP Threshold: {p['threshold']:.1f}%",
+                    f"Difference: {p['excess_amount']:+.2f} percentage points ({percent_change:+.1f}% change)",
+                    f"",
+                    f"Units Sold: {p['units_sold']:,}",
+                    f"Units Returned: {p['units_returned']:,}",
+                ])
+
+                # Add complaint summary if available
+                for prod in valid_products:
+                    if prod['sku'] == p['sku'] and prod.get('complaint_summary'):
+                        report_lines.extend([
+                            f"",
+                            f"Complaint Summary:",
+                            f"{prod['complaint_summary']}"
+                        ])
+                        break
+
+            report_lines.extend([
+                "",
+                "=" * 80,
+                "RECOMMENDED ACTIONS",
+                "=" * 80,
+            ])
+
             for idx, action in enumerate(results['recommended_actions'], 1):
                 report_lines.append(f"{idx}. {action}")
 
             if st.session_state.quick_eval_summary:
-                report_lines.append("")
-                report_lines.append("USER CONTEXT:")
-                report_lines.append(st.session_state.quick_eval_summary)
+                report_lines.extend([
+                    "",
+                    "=" * 80,
+                    "SITUATIONAL CONTEXT",
+                    "=" * 80,
+                    st.session_state.quick_eval_summary
+                ])
+
+            # Add AI analysis if available
+            if 'ai_analysis' in results and results['ai_analysis']:
+                report_lines.extend([
+                    "",
+                    "=" * 80,
+                    "AI EXPERT ANALYSIS",
+                    "=" * 80,
+                    results['ai_analysis']
+                ])
+
+            report_lines.extend([
+                "",
+                "=" * 80,
+                "END OF REPORT",
+                "=" * 80
+            ])
 
             report_text = "\n".join(report_lines)
 
@@ -4007,8 +4156,9 @@ def render_screening_results():
                                     csv_data,
                                     file_name=f"CAPA_{capa_sku}_{datetime.now().strftime('%Y%m%d')}.csv",
                                     mime="text/csv",
-                                    help="Import this CSV directly into Smartsheet"
+                                    help="✅ Import this CSV directly into Smartsheet"
                                 )
+                                st.success("✅ CSV ready for Smartsheet import!")
 
                             with col2:
                                 excel_data = capa_plan.to_excel()
@@ -4018,10 +4168,30 @@ def render_screening_results():
                                     file_name=f"CAPA_{capa_sku}_{datetime.now().strftime('%Y%m%d')}.xlsx",
                                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                                 )
+                                st.success("✅ Excel format available!")
 
-                            # Statistics
+                            # Statistics and Instructions
                             total_days = max([t['Duration (Days)'] for t in capa_plan.tasks])
                             st.info(f"📅 **Estimated Timeline:** {total_days} days | **Total Tasks:** {len(capa_plan.tasks)}")
+
+                            with st.expander("📖 How to Import into Smartsheet"):
+                                st.markdown("""
+                                **Import Instructions:**
+                                1. Download the CSV file above
+                                2. Go to Smartsheet.com and create a new sheet
+                                3. Click **File → Import → Microsoft Excel**
+                                4. Select the downloaded CSV file
+                                5. Smartsheet will automatically detect columns and structure
+                                6. Click "Import" to complete
+
+                                **Features Included:**
+                                - ✅ Task hierarchy with dependencies
+                                - ✅ Assigned team members
+                                - ✅ Auto-calculated start/end dates
+                                - ✅ Progress tracking (0%, 50%, 100%)
+                                - ✅ Priority levels
+                                - ✅ 8D methodology phases
+                                """)
 
                         except Exception as e:
                             st.error(f"CAPA generation failed: {e}")
@@ -4109,6 +4279,7 @@ def render_screening_results():
                                     file_name=f"CRITICAL_INVESTIGATION_{crit_sku}_{datetime.now().strftime('%Y%m%d')}.csv",
                                     mime="text/csv"
                                 )
+                                st.success("✅ CSV ready for Smartsheet!")
 
                             with col2:
                                 excel_data = crit_plan.to_excel()
@@ -4118,10 +4289,15 @@ def render_screening_results():
                                     file_name=f"CRITICAL_INVESTIGATION_{crit_sku}_{datetime.now().strftime('%Y%m%d')}.xlsx",
                                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                                 )
+                                st.success("✅ Excel format available!")
+
+                            # Timeline info
+                            total_days = sum([t['Duration (Days)'] for t in crit_plan.tasks if t['Indent Level'] == 0])
+                            st.info(f"⏱️ **Critical Timeline:** {total_days} days total | Phases include immediate 24-hour actions")
 
                         except Exception as e:
-                            st.error(f"Investigation plan generation failed: {e}")
-                            logger.error(f"Investigation error: {e}")
+                            st.error(f"❌ Investigation plan generation failed: {str(e)}")
+                            logger.error(f"Investigation error: {e}", exc_info=True)
 
             # TAB 3: Rework Operation (AI-Driven with Questions)
             with smartsheet_tab3:
@@ -4259,6 +4435,7 @@ def render_screening_results():
                                         file_name=f"REWORK_{rework_sku}_{datetime.now().strftime('%Y%m%d')}.csv",
                                         mime="text/csv"
                                     )
+                                    st.success("✅ CSV ready!")
 
                                 with col2:
                                     excel_data = rework_plan.to_excel()
@@ -4268,10 +4445,14 @@ def render_screening_results():
                                         file_name=f"REWORK_{rework_sku}_{datetime.now().strftime('%Y%m%d')}.xlsx",
                                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                                     )
+                                    st.success("✅ Excel ready!")
+
+                                # AI-customized info
+                                st.info(f"🤖 **AI-Customized Plan:** Based on {complexity} complexity, {batch_size} units, {team_size} team members")
 
                             except Exception as e:
-                                st.error(f"Rework plan generation failed: {e}")
-                                logger.error(f"Rework error: {e}")
+                                st.error(f"❌ Rework plan generation failed: {str(e)}")
+                                logger.error(f"Rework error: {e}", exc_info=True)
 
     # ========== END SMARTSHEET FEATURES ==========
 
@@ -4830,6 +5011,24 @@ def render_inventory_integration_tab():
     with inv_tab4:
         st.markdown("### 🚨 Critical Integration View: Quality + Inventory + Reorder")
         st.caption("Unified view showing SKUs with BOTH quality issues AND inventory urgency")
+
+        # Prompt to use quality screening data
+        if st.session_state.qc_results_df is None or st.session_state.qc_results_df.empty:
+            st.info("""
+            💡 **Tip: Integrate Quality Screening Data**
+
+            This view combines quality issues with inventory urgency to help you answer:
+            - "Can we fix quality issues BEFORE reordering?"
+            - "Which problems are most urgent financially?"
+            - "Do we have time for corrective action?"
+
+            **To enable this view:**
+            1. Go to **Tab 3: Quality Screening**
+            2. Run screening (Lite, Pro, or Quick Eval modes)
+            3. Return here to see integrated analysis
+
+            The tool will automatically merge quality flags with your inventory data!
+            """)
 
         # Check if we have both quality and inventory data
         has_quality_data = st.session_state.qc_results_df is not None and not st.session_state.qc_results_df.empty
