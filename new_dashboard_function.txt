@@ -1,0 +1,299 @@
+def render_quality_cases_dashboard():
+    """Render the Quality Tracker Dashboard - Manual Entry with Leadership/Company Wide Exports"""
+
+    with st.expander("📊 **QUALITY TRACKER DASHBOARD** - Top Cases Tracking", expanded=True):
+        st.markdown("""
+        <div style="background: linear-gradient(90deg, rgba(35,178,190,0.15) 0%, rgba(35,178,190,0.03) 100%);
+                    border-left: 4px solid #004366; padding: 1.2rem; margin-bottom: 1.2rem; border-radius: 6px;">
+            <strong style="color: #23b2be; font-size: 1.2em; font-family: 'Poppins', sans-serif;">Quality Cases Management</strong><br>
+            <span style="font-family: 'Poppins', sans-serif;">Track quality issues with manual entry, AI summaries, and dual exports (Leadership with financials / Company Wide sanitized)</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Initialize tracker manager
+        if 'quality_tracker' not in st.session_state:
+            st.session_state.quality_tracker = QualityTrackerManager(st.session_state.get('ai_analyzer'))
+            st.session_state.tracker_cases = []
+            st.session_state.show_leadership_fields = False
+
+        tracker = st.session_state.quality_tracker
+
+        # Demo button and leadership toggle
+        col1, col2, col3 = st.columns([2, 2, 2])
+        with col1:
+            if st.button("📥 Load Demo Cases (3 samples)", key="load_demo_tracker"):
+                demo_cases = generate_demo_tracker_cases()
+                st.session_state.tracker_cases = demo_cases
+                tracker.cases = demo_cases
+                st.success("✅ Loaded 3 demo cases")
+                st.rerun()
+
+        with col2:
+            st.session_state.show_leadership_fields = st.checkbox(
+                "🔒 Show Leadership Fields (Financials)",
+                value=st.session_state.show_leadership_fields,
+                help="Enable to see and enter Priority, Total orders, Financials, Case Status"
+            )
+
+        with col3:
+            if tracker.cases:
+                if st.button("🗑️ Clear All Cases", key="clear_all_cases"):
+                    st.session_state.tracker_cases = []
+                    tracker.cases = []
+                    st.success("✅ Cleared all cases")
+                    st.rerun()
+
+        st.markdown("---")
+
+        # Cases Summary
+        if tracker.cases:
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total Cases", len(tracker.cases))
+            with col2:
+                total_refund_cost = sum(c.cost_of_refunds_annualized or 0 for c in tracker.cases)
+                st.metric("Total Refund Cost (Annual)", f"${total_refund_cost:,.0f}" if st.session_state.show_leadership_fields else "---")
+            with col3:
+                total_savings = sum(c.savings_captured_12m or 0 for c in tracker.cases)
+                st.metric("Total Savings (12m)", f"${total_savings:,.0f}" if st.session_state.show_leadership_fields else "---")
+            with col4:
+                avg_return_rate = sum(c.return_rate_amazon or 0 for c in tracker.cases) / len(tracker.cases) if tracker.cases else 0
+                st.metric("Avg Return Rate", f"{avg_return_rate:.2%}")
+
+            st.markdown("---")
+
+            # Display cases table
+            st.markdown("#### 📋 Current Cases")
+
+            cases_df = tracker.get_cases_dataframe(leadership_version=st.session_state.show_leadership_fields)
+
+            if not cases_df.empty:
+                # Show only key columns for display
+                display_cols = ['Product name', 'SKU', 'Return rate Amazon', 'Top Issue(s)', 'Case Status'] if st.session_state.show_leadership_fields else ['Product name', 'SKU', 'Return rate Amazon', 'Top Issue(s)']
+                display_cols = [c for c in display_cols if c in cases_df.columns]
+
+                if display_cols:
+                    display_df = cases_df[display_cols].copy()
+
+                    # Format return rate
+                    if 'Return rate Amazon' in display_df.columns:
+                        display_df['Return rate Amazon'] = display_df['Return rate Amazon'].apply(
+                            lambda x: f"{x:.2%}" if pd.notna(x) and x is not None else "N/A"
+                        )
+
+                    st.dataframe(display_df, use_container_width=True, height=300)
+
+            st.markdown("---")
+
+            # Export Section
+            st.markdown("#### 📤 Export Options")
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.markdown("**🔒 Leadership Export** (31 columns with financials)")
+                st.caption("Includes: Priority, Total orders, Cost of Refunds, Savings, Case Status")
+
+                col1a, col1b = st.columns(2)
+                with col1a:
+                    leadership_excel = tracker.export_leadership_excel()
+                    st.download_button(
+                        "📥 Excel (Leadership)",
+                        data=leadership_excel,
+                        file_name="Tracker_ Priority List (Leadership).xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="dl_leadership_excel"
+                    )
+                with col1b:
+                    leadership_csv = tracker.export_leadership_csv()
+                    st.download_button(
+                        "📥 CSV (Leadership)",
+                        data=leadership_csv,
+                        file_name="Tracker_ Priority List (Leadership).csv",
+                        mime="text/csv",
+                        key="dl_leadership_csv"
+                    )
+
+            with col2:
+                st.markdown("**🌐 Company Wide Export** (25 columns, no financials)")
+                st.caption("Excludes: Priority, Total orders, Flag Source 1, Financials, Case Status")
+
+                col2a, col2b = st.columns(2)
+                with col2a:
+                    company_excel = tracker.export_company_wide_excel()
+                    st.download_button(
+                        "📥 Excel (Company Wide)",
+                        data=company_excel,
+                        file_name="Company Wide Quality Tracker.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="dl_company_excel"
+                    )
+                with col2b:
+                    company_csv = tracker.export_company_wide_csv()
+                    st.download_button(
+                        "📥 CSV (Company Wide)",
+                        data=company_csv,
+                        file_name="Company Wide Quality Tracker.csv",
+                        mime="text/csv",
+                        key="dl_company_csv"
+                    )
+
+            st.markdown("---")
+
+        # Manual Entry Form
+        st.markdown("#### ➕ Add New Quality Case")
+
+        with st.form("add_quality_case_form"):
+            st.markdown("##### Product Information")
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                product_name = st.text_input("Product Name*", placeholder="e.g., Vive Mobility Walker")
+            with col2:
+                sku = st.text_input("SKU*", placeholder="e.g., VMW-001")
+            with col3:
+                asin = st.text_input("ASIN", placeholder="e.g., B07EXAMPLE")
+
+            col4, col5, col6 = st.columns(3)
+            with col4:
+                main_sales_channel = st.selectbox("Main Sales Channel", ["Amazon", "B2B", "Direct", "Other"])
+            with col5:
+                fulfilled_by = st.selectbox("Fulfilled By", ["FBA", "FBM", "Direct Ship", "Other"])
+            with col6:
+                if st.session_state.show_leadership_fields:
+                    priority = st.number_input("Priority (1=Highest)", min_value=1, max_value=100, value=1)
+
+            st.markdown("##### Quality Metrics")
+
+            col7, col8, col9, col10 = st.columns(4)
+            with col7:
+                return_rate_amazon = st.number_input("Return Rate Amazon (%)", min_value=0.0, max_value=100.0, value=0.0, step=0.1) / 100
+            with col8:
+                return_rate_b2b = st.number_input("Return Rate B2B (%)", min_value=0.0, max_value=100.0, value=0.0, step=0.1) / 100
+            with col9:
+                star_rating = st.number_input("Star Rating Amazon", min_value=0.0, max_value=5.0, value=0.0, step=0.1)
+            with col10:
+                ncx_rate = st.number_input("NCX Rate (%)", min_value=0.0, max_value=100.0, value=0.0, step=0.1) / 100
+
+            col11, col12, col13 = st.columns(3)
+            with col11:
+                ncx_orders = st.number_input("NCX Orders", min_value=0, value=0)
+            with col12:
+                if st.session_state.show_leadership_fields:
+                    total_orders_t30 = st.number_input("Total Orders (t30)", min_value=0, value=0)
+            with col13:
+                return_badge = st.selectbox("Return Badge Displayed?", ["No", "Yes"])
+
+            st.markdown("##### Issue Documentation")
+
+            top_issues = st.text_area("Top Issue(s)*", placeholder="Describe the main quality issues", height=80)
+            notification_notes = st.text_area("Notification/Notes", placeholder="Additional context", height=60)
+
+            col14, col15 = st.columns(2)
+            with col14:
+                flag_source = st.selectbox("Flag Source", ["Returns Analysis", "B2B Sales Feedback", "Reviews Analysis", "Analytics", "Customer Service", "Other"])
+            with col15:
+                if st.session_state.show_leadership_fields:
+                    flag_source_1 = st.text_input("Flag Source 1 (Internal)", placeholder="e.g., High Return Rate")
+
+            if st.session_state.show_leadership_fields:
+                st.markdown("##### Financial Information (Leadership Only)")
+                col16, col17 = st.columns(2)
+                with col16:
+                    cost_of_refunds = st.number_input("Cost of Refunds (Annualized) $", min_value=0.0, value=0.0, step=100.0)
+                with col17:
+                    savings_captured = st.number_input("12m Savings Captured $", min_value=0.0, value=0.0, step=100.0)
+
+            st.markdown("##### Corrective Actions")
+
+            action_taken = st.text_area("Action Taken", placeholder="Describe actions taken to address the issue", height=60)
+
+            col18, col19, col20 = st.columns(3)
+            with col18:
+                date_action_taken = st.date_input("Date Action Taken", value=None)
+            with col19:
+                listing_manager_notified = st.selectbox("Listing Manager Notified?", ["No", "Yes"])
+            with col20:
+                product_dev_notified = st.selectbox("Product Dev Notified?", ["No", "Yes"])
+
+            col21, col22 = st.columns(2)
+            with col21:
+                follow_up_date = st.date_input("Follow Up Date", value=None)
+            with col22:
+                if st.session_state.show_leadership_fields:
+                    case_status = st.selectbox("Case Status", ["Open", "Active Investigation", "Monitoring", "Action Taken - Monitoring", "Closed"])
+
+            st.markdown("##### Results Tracking")
+
+            col23, col24, col25, col26 = st.columns(4)
+            with col23:
+                result_1_rr = st.number_input("Result 1 (rr%) %", min_value=0.0, max_value=100.0, value=0.0, step=0.1) / 100
+            with col24:
+                result_check_date_1 = st.date_input("Result Check Date 1", value=None)
+            with col25:
+                result_2_rr = st.number_input("Result 2 (rr%) %", min_value=0.0, max_value=100.0, value=0.0, step=0.1) / 100
+            with col26:
+                result_2_date = st.date_input("Result 2 Date", value=None)
+
+            col27, col28 = st.columns(2)
+            with col27:
+                top_issues_change = st.text_input("Top Issue(s) Change", placeholder="Describe improvements")
+            with col28:
+                top_issues_change_date = st.date_input("Top Issue(s) Change Date", value=None)
+
+            submitted = st.form_submit_button("➕ Add Case", type="primary")
+
+            if submitted:
+                if not product_name or not sku or not top_issues:
+                    st.error("⚠️ Please fill in required fields: Product Name, SKU, Top Issue(s)")
+                else:
+                    # Create new case
+                    new_case = QualityTrackerCase()
+                    new_case.product_name = product_name
+                    new_case.sku = sku
+                    new_case.asin = asin
+                    new_case.main_sales_channel = main_sales_channel
+                    new_case.fulfilled_by = fulfilled_by
+                    new_case.return_rate_amazon = return_rate_amazon if return_rate_amazon > 0 else None
+                    new_case.return_rate_b2b = return_rate_b2b if return_rate_b2b > 0 else None
+                    new_case.star_rating_amazon = star_rating if star_rating > 0 else None
+                    new_case.ncx_rate = ncx_rate if ncx_rate > 0 else None
+                    new_case.ncx_orders = ncx_orders if ncx_orders > 0 else None
+                    new_case.return_badge_displayed = return_badge
+                    new_case.top_issues = top_issues
+                    new_case.notification_notes = notification_notes
+                    new_case.flag_source = flag_source
+                    new_case.action_taken = action_taken
+                    new_case.date_action_taken = date_action_taken
+                    new_case.listing_manager_notified = listing_manager_notified
+                    new_case.product_dev_notified = product_dev_notified
+                    new_case.follow_up_date = follow_up_date
+                    new_case.result_1_rr = result_1_rr if result_1_rr > 0 else None
+                    new_case.result_check_date_1 = result_check_date_1
+                    new_case.result_2_rr = result_2_rr if result_2_rr > 0 else None
+                    new_case.result_2_date = result_2_date
+                    new_case.top_issues_change = top_issues_change
+                    new_case.top_issues_change_date = top_issues_change_date
+
+                    # Leadership fields
+                    if st.session_state.show_leadership_fields:
+                        new_case.priority = priority
+                        new_case.total_orders_t30 = total_orders_t30 if total_orders_t30 > 0 else None
+                        new_case.flag_source_1 = flag_source_1
+                        new_case.cost_of_refunds_annualized = cost_of_refunds if cost_of_refunds > 0 else None
+                        new_case.savings_captured_12m = savings_captured if savings_captured > 0 else None
+                        new_case.case_status = case_status
+
+                    # Add to tracker
+                    tracker.add_case(new_case)
+                    st.session_state.tracker_cases.append(new_case)
+
+                    st.success(f"✅ Added case for {product_name} ({sku})")
+
+                    # Generate AI summary if available
+                    if tracker.ai_analyzer:
+                        with st.spinner("🤖 Generating AI summary..."):
+                            summary = tracker.generate_ai_summary(new_case)
+                            st.info(f"**AI Summary:** {summary}")
+
+                    st.rerun()

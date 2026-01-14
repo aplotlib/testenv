@@ -1,0 +1,222 @@
+================================================================================
+                    VISUAL SIDE-BY-SIDE COMPARISON
+    Leadership Version (31 cols)  vs  Company Wide Version (25 cols)
+================================================================================
+
+LEGEND:
+  [SAME]     = Column exists in both files
+  [REMOVED]  = Column only in Leadership, removed from Company Wide
+  [$$$]      = Financial/sensitive data
+  [STRATEGIC]= Strategic business metrics
+  [INTERNAL] = Internal tracking only
+
+================================================================================
+
+LEADERSHIP VERSION                              COMPANY WIDE VERSION
+(31 columns)                                    (25 columns)
+--------------------------------------------------------------------------------
+
+1.  Priority                     [REMOVED]     <NOT INCLUDED>
+    Sample: 1                    [STRATEGIC]   Reason: Strategic prioritization
+
+2.  Product name                 [SAME]   -->  1.  Product name
+    Sample: Vive Mobility Walker                  Sample: Vive Mobility Walker
+
+3.  Main Sales Channel           [SAME]   -->  2.  Main Sales Channel
+    Sample: Amazon                                Sample: Amazon
+
+4.  ASIN                         [SAME]   -->  3.  ASIN
+    Sample: B07XAMPLE1                            Sample: B07XAMPLE1
+
+5.  SKU                          [SAME]   -->  4.  SKU
+    Sample: VMW-001                               Sample: VMW-001
+
+6.  Fulfilled by                 [SAME]   -->  5.  Fulfilled by
+    Sample: FBA                                   Sample: FBA
+
+7.  NCX rate                     [SAME]   -->  6.  NCX rate
+    Sample: 0.0234                                Sample: 0.0234
+
+8.  NCX orders                   [SAME]   -->  7.  NCX orders
+    Sample: 45                                    Sample: 45
+
+9.  Total orders (t30)           [REMOVED]     <NOT INCLUDED>
+    Sample: 1923                 [STRATEGIC]   Reason: Reveals sales volume
+
+10. Star Rating Amazon           [SAME]   -->  8.  Star Rating Amazon
+    Sample: 4.5                                   Sample: 4.5
+
+11. Return rate Amazon           [SAME]   -->  9.  Return rate Amazon
+    Sample: 0.0812                                Sample: 0.0812
+
+12. Return Rate B2B              [SAME]   -->  10. Return Rate B2B
+    Sample: 0.0345                                Sample: 0.0345
+
+13. Flag Source 1                [REMOVED]     <NOT INCLUDED>
+    Sample: High Return Rate     [INTERNAL]    Reason: Internal flagging logic
+
+14. Return Badge Displayed       [SAME]   -->  11. Return Badge Displayed
+    Sample: Yes                                   Sample: Yes
+
+15. Notification/Notes           [SAME]   -->  12. Notification/Notes
+    Sample: Customer reports...                   Sample: Customer reports...
+
+16. Top Issue(s)                 [SAME]   -->  13. Top Issue(s)
+    Sample: Handle durability                     Sample: Handle durability
+
+17. Cost of Refunds              [REMOVED]     <NOT INCLUDED>
+    Sample: $25,340              [$$$]         Reason: FINANCIAL DATA
+
+18. 12m Savings Captured         [REMOVED]     <NOT INCLUDED>
+    Sample: $8,250               [$$$]         Reason: FINANCIAL DATA
+
+19. Action Taken                 [SAME]   -->  14. Action Taken
+    Sample: Redesigned handle...                  Sample: Redesigned handle...
+
+20. Date Action Taken            [SAME]   -->  15. Date Action Taken
+    Sample: 2024-11-15                            Sample: 2024-11-15
+
+21. Listing Manager Notified?   [SAME]   -->  16. Listing Manager Notified?
+    Sample: Yes                                   Sample: Yes
+
+22. Product Dev Notified?       [SAME]   -->  17. Product Dev Notified?
+    Sample: Yes                                   Sample: Yes
+
+23. Flag Source                  [SAME]   -->  18. Flag Source
+    Sample: Analytics                             Sample: Analytics
+
+24. Follow Up Date               [SAME]   -->  19. Follow Up Date
+    Sample: 2025-01-15                            Sample: 2025-01-15
+
+25. Result 1 (rr%)              [SAME]   -->  20. Result 1 (rr%)
+    Sample: 0.0612                                Sample: 0.0612
+
+26. Result Check Date 1          [SAME]   -->  21. Result Check Date 1
+    Sample: 2024-12-15                            Sample: 2024-12-15
+
+27. Result 2 (rr%)              [SAME]   -->  22. Result 2 (rr%)
+    Sample: 0.0498                                Sample: 0.0498
+
+28. Result 2 Date                [SAME]   -->  23. Result 2 Date
+    Sample: 2025-01-10                            Sample: 2025-01-10
+
+29. Top Issue(s) Change         [SAME]   -->  24. Top Issue(s) Change
+    Sample: Reduced handle...                     Sample: Reduced handle...
+
+30. Top Issue(s) Change Date    [SAME]   -->  25. Top Issue(s) Change Date
+    Sample: 2025-01-10                            Sample: 2025-01-10
+
+31. Case Status                  [REMOVED]     <NOT INCLUDED>
+    Sample: Monitoring           [INTERNAL]    Reason: Internal workflow status
+
+================================================================================
+
+                            SUMMARY STATISTICS
+
+Leadership Version:                    Company Wide Version:
+  - 31 columns total                     - 25 columns total
+  - 25 shared columns                    - 25 shared columns (100%)
+  - 6 leadership-only columns            - 0 unique columns
+  - 2 financial columns                  - No financial data
+  - 2 strategic metric columns           - No strategic metrics
+  - 2 internal tracking columns          - No internal tracking
+
+Exclusions from Company Wide:
+  1. Priority                    [Strategic prioritization]
+  2. Total orders (t30)         [Sales volume data]
+  3. Flag Source 1              [Internal flagging logic]
+  4. Cost of Refunds            [Financial - Sensitive]
+  5. 12m Savings Captured       [Financial - Sensitive]
+  6. Case Status                [Internal workflow]
+
+================================================================================
+
+                         DATA SENSITIVITY BREAKDOWN
+
+PUBLIC/OPERATIONAL (25 columns) - Safe for Company Wide:
+  - Product identification (name, ASIN, SKU, channel, fulfillment)
+  - Quality metrics (NCX rate/orders, star rating, return rates)
+  - Amazon status (return badge)
+  - Issue documentation (notes, top issues)
+  - Corrective actions (actions taken, dates, notifications)
+  - Tracking (flag source, follow-up dates)
+  - Results (return rate results, issue changes, dates)
+
+RESTRICTED/LEADERSHIP (6 columns) - Leadership Only:
+  - Priority ranking (reveals strategic focus)
+  - Total order volume (reveals business performance)
+  - Flag Source 1 (reveals internal detection systems)
+  - Cost of Refunds (reveals financial impact)
+  - 12m Savings Captured (reveals cost savings performance)
+  - Case Status (reveals internal workflow state)
+
+================================================================================
+
+                         EXPORT DECISION TREE
+
+                          [User requests export]
+                                   |
+                         [Check user role/permission]
+                                   |
+                +------------------+------------------+
+                |                                     |
+         [Leadership/Admin]                     [Standard User]
+                |                                     |
+                v                                     v
+    Export all 31 columns                 Export 25 columns
+    Include financial data                Exclude 6 sensitive columns
+    Include strategic data                Only operational data
+    Include internal tracking             Public-safe information
+    Filename: "Tracker_ Priority          Filename: "Company Wide
+               List (Leadership).xlsx"               Quality Tracker.xlsx"
+
+================================================================================
+
+                            USE CASE EXAMPLES
+
+Leadership Version - WHO SHOULD SEE IT:
+  - C-suite executives
+  - VP of Quality
+  - Finance team (for cost analysis)
+  - Strategic planning team
+  - Department heads making resource decisions
+
+Company Wide Version - WHO SHOULD SEE IT:
+  - Quality engineers (non-management)
+  - Product development team
+  - Customer service team
+  - Listing/marketing managers
+  - Warehouse/operations staff
+  - External partners (vendors, suppliers)
+  - Training materials
+
+================================================================================
+
+                          IMPLEMENTATION NOTES
+
+When building the manual entry form:
+  1. Show ALL 31 fields to leadership users
+  2. Show only 25 fields to standard users
+  3. Financial fields should have $ formatting
+  4. Return rates should validate between 0-1 (0-100%)
+  5. Dates should auto-populate where appropriate
+  6. Required fields: Product name, SKU, Top Issue(s)
+
+When exporting to Excel:
+  1. Check user role BEFORE export
+  2. Filter columns based on role
+  3. Maintain exact column order as specified
+  4. Include "Comments" sheet in both versions
+  5. Apply header formatting (bold, gray background)
+  6. Enable Excel auto-filter
+  7. Auto-adjust column widths
+  8. Use correct filename based on version
+
+Security considerations:
+  1. Leadership version should require authentication
+  2. Log all exports of Leadership version
+  3. Prevent screen capture on financial columns (if possible)
+  4. Include data classification watermark
+  5. Set document permissions appropriately
+
+================================================================================
