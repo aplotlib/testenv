@@ -95,19 +95,19 @@ APP_CONFIG = {
     'default_chunk': 500,
 }
 
-# Colors
+# Colors - Vive Health Brand Guide
 COLORS = {
-    'primary': '#00D9FF',
-    'secondary': '#FF006E',
-    'accent': '#FFB700',
-    'success': '#00F5A0',
-    'warning': '#FF6B35',
-    'danger': '#FF0054',
-    'dark': '#0A0A0F',
-    'light': '#1A1A2E',
-    'text': '#E0E0E0',
-    'muted': '#666680',
-    'cost': '#50C878'
+    'primary': '#23b2be',      # Vive Turquoise (Pantone P 121-6 C)
+    'secondary': '#004366',    # Navy Blue (Pantone P 111-16 C)
+    'accent': '#EB3300',       # Red/Orange (Pantone P 2028 C)
+    'success': '#23b2be',      # Using Vive Turquoise for success
+    'warning': '#F0B323',      # Yellow/Gold (Pantone 7409 C)
+    'danger': '#EB3300',       # Red/Orange for alerts
+    'dark': '#004366',         # Navy for dark elements
+    'light': '#1A1A2E',        # Keep original for backgrounds
+    'text': '#E0E0E0',         # Keep original for readability
+    'muted': '#777473',        # Gray (Pantone P 172-9 C)
+    'cost': '#23b2be'          # Vive Turquoise
 }
 
 # Quality categories (For Tab 1 Analysis)
@@ -308,11 +308,11 @@ DEFAULT_CATEGORY_THRESHOLDS = {
 # --- Initialization & Styling ---
 
 def inject_custom_css():
-    """Inject custom CSS for modern UI"""
+    """Inject custom CSS for modern UI - Vive Health Brand"""
     st.markdown(f"""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-    
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&family=Montserrat:wght@400;600;700&display=swap');
+
     :root {{
         --primary: {COLORS['primary']};
         --secondary: {COLORS['secondary']};
@@ -324,33 +324,52 @@ def inject_custom_css():
         --light: {COLORS['light']};
         --text: {COLORS['text']};
     }}
-    
+
     html, body, .stApp {{
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-family: 'Poppins', 'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
     }}
 
-    /* Main header - works in both modes */
+    /* Main header with Vive brand colors and diagonal accent */
     .main-header {{
-        background: linear-gradient(135deg, #0066cc 0%, #0099ff 100%);
+        background: linear-gradient(135deg, #23b2be 0%, #1a8f98 100%);
         padding: 2rem;
         border-radius: 10px;
         text-align: center;
         margin-bottom: 1.5rem;
-        box-shadow: 0 4px 16px rgba(0, 102, 204, 0.3);
+        box-shadow: 0 4px 16px rgba(35, 178, 190, 0.3);
+        position: relative;
+        overflow: hidden;
+    }}
+
+    .main-header::before {{
+        content: '';
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: 30%;
+        height: 100%;
+        background: #004366;
+        clip-path: polygon(30% 0, 100% 0, 100% 100%, 0% 100%);
+        opacity: 0.8;
+        z-index: 0;
     }}
 
     .main-title {{
         font-size: 2.2em;
         font-weight: 700;
+        font-family: 'Poppins', sans-serif;
         color: #ffffff;
         margin: 0;
         text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
+        position: relative;
+        z-index: 1;
     }}
 
-    /* Info boxes - dark mode compatible */
+    /* Info boxes - Vive brand colors, dark mode compatible */
     .info-box {{
-        background: rgba(30, 30, 50, 0.6);
-        border: 2px solid #0099ff;
+        background: rgba(35, 178, 190, 0.15);
+        border: 2px solid #23b2be;
+        border-left: 4px solid #004366;
         border-radius: 8px;
         padding: 1.2rem;
         margin: 0.8rem 0;
@@ -360,70 +379,81 @@ def inject_custom_css():
     /* Light mode info boxes */
     @media (prefers-color-scheme: light) {{
         .info-box {{
-            background: rgba(240, 248, 255, 0.9);
-            border: 2px solid #0066cc;
+            background: rgba(35, 178, 190, 0.08);
+            border: 2px solid #23b2be;
+            border-left: 4px solid #004366;
             color: #1a1a1a;
         }}
         .processing-log {{
             background: #f5f5f5;
-            border: 1px solid #d0d0d0;
+            border: 1px solid #23b2be;
             color: #1a1a1a;
         }}
         .methodology-box {{
             background: #ffffff;
-            border-left: 4px solid #0066cc;
+            border-left: 4px solid #23b2be;
             color: #1a1a1a;
         }}
     }}
 
-    /* Buttons - high contrast */
+    /* Buttons - Vive brand colors */
     .stButton > button {{
-        background: linear-gradient(135deg, #0066cc 0%, #0099ff 100%);
+        background: linear-gradient(135deg, #23b2be 0%, #1a8f98 100%);
         color: white;
         border: none;
         padding: 0.7rem 1.5rem;
         border-radius: 6px;
         font-weight: 600;
-        box-shadow: 0 2px 8px rgba(0, 102, 204, 0.3);
+        font-family: 'Poppins', sans-serif;
+        box-shadow: 0 2px 8px rgba(35, 178, 190, 0.3);
         transition: all 0.3s ease;
     }}
 
     .stButton > button:hover {{
         transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0, 102, 204, 0.5);
+        box-shadow: 0 4px 12px rgba(35, 178, 190, 0.5);
+        background: linear-gradient(135deg, #1a8f98 0%, #23b2be 100%);
     }}
 
-    /* Risk indicators - high contrast for both modes */
+    /* Risk indicators - Vive brand colors with high contrast */
     .risk-critical {{
-        background-color: #dc2626 !important;
+        background-color: #EB3300 !important;
         color: white !important;
         font-weight: 700 !important;
+        font-family: 'Poppins', sans-serif !important;
         padding: 0.5rem 1rem !important;
         border-radius: 6px !important;
+        border-left: 4px solid #004366 !important;
     }}
 
     .risk-warning {{
-        background-color: #f59e0b !important;
+        background-color: #F0B323 !important;
         color: #1a1a1a !important;
         font-weight: 700 !important;
+        font-family: 'Poppins', sans-serif !important;
         padding: 0.5rem 1rem !important;
         border-radius: 6px !important;
+        border-left: 4px solid #004366 !important;
     }}
 
     .risk-monitor {{
-        background-color: #fbbf24 !important;
-        color: #1a1a1a !important;
+        background-color: #23b2be !important;
+        color: white !important;
         font-weight: 700 !important;
+        font-family: 'Poppins', sans-serif !important;
         padding: 0.5rem 1rem !important;
         border-radius: 6px !important;
+        border-left: 4px solid #004366 !important;
     }}
 
     .risk-ok {{
-        background-color: #10b981 !important;
+        background-color: #004366 !important;
         color: white !important;
         font-weight: 700 !important;
+        font-family: 'Poppins', sans-serif !important;
         padding: 0.5rem 1rem !important;
         border-radius: 6px !important;
+        border-left: 4px solid #23b2be !important;
     }}
 
     /* Processing log - works in both modes */
@@ -440,14 +470,15 @@ def inject_custom_css():
         line-height: 1.5;
     }}
 
-    /* Methodology boxes */
+    /* Methodology boxes - Vive brand style */
     .methodology-box {{
-        background: rgba(30, 30, 50, 0.5);
-        border-left: 4px solid #0099ff;
+        background: rgba(35, 178, 190, 0.12);
+        border-left: 4px solid #23b2be;
         padding: 15px;
         margin: 10px 0;
         border-radius: 4px;
         color: #f0f0f0;
+        font-family: 'Poppins', sans-serif;
     }}
 
     /* Ensure text is readable in all contexts */
@@ -455,20 +486,45 @@ def inject_custom_css():
         color: inherit;
     }}
 
+    /* Headings - Poppins Bold */
+    h1, h2, h3, h4, h5, h6 {{
+        font-family: 'Poppins', sans-serif !important;
+        font-weight: 700 !important;
+        color: #23b2be !important;
+    }}
+
+    /* Light mode heading colors */
+    @media (prefers-color-scheme: light) {{
+        h1, h2, h3, h4, h5, h6 {{
+            color: #004366 !important;
+        }}
+    }}
+
     /* Improve dataframe visibility */
     .dataframe {{
         font-size: 14px !important;
+        font-family: 'Poppins', sans-serif !important;
     }}
 
-    /* Better metric card styling */
+    /* Better metric card styling - Vive brand */
     [data-testid="stMetricValue"] {{
         font-size: 2rem !important;
         font-weight: 700 !important;
+        font-family: 'Poppins', sans-serif !important;
+        color: #23b2be !important;
     }}
 
     [data-testid="stMetricLabel"] {{
         font-size: 1rem !important;
         font-weight: 600 !important;
+        font-family: 'Poppins', sans-serif !important;
+    }}
+
+    /* Light mode metrics */
+    @media (prefers-color-scheme: light) {{
+        [data-testid="stMetricValue"] {{
+            color: #004366 !important;
+        }}
     }}
     
     /* Hide Streamlit branding */
@@ -3808,9 +3864,13 @@ def render_screening_results():
     if st.session_state.product_matcher:
         with st.expander("🔍 Product Comparison vs. Historical Data", expanded=False):
             st.markdown("""
-            **✨ NEW:** Compare your products against 231 historical products from trailing 12-month Amazon data.
-            Uses AI-powered fuzzy matching to find similar products (e.g., "4-wheel scooter" matches "3-wheel scooter").
-            """)
+            <div style="background: linear-gradient(90deg, rgba(35,178,190,0.15) 0%, rgba(35,178,190,0.03) 100%);
+                        border-left: 4px solid #004366; padding: 1.2rem; margin-bottom: 1.2rem; border-radius: 6px;">
+                <strong style="color: #23b2be; font-size: 1.1em; font-family: 'Poppins', sans-serif;">✨ AI-Powered Product Benchmarking</strong><br>
+                <span style="font-family: 'Poppins', sans-serif;">Compare your products against <strong>231 historical products</strong> from trailing 12-month Amazon data.<br>
+                Uses fuzzy matching to find similar products (e.g., "4-wheel scooter" matches "3-wheel scooter").</span>
+            </div>
+            """, unsafe_allow_html=True)
 
             # Add benchmark columns to dataframe
             benchmark_data = []
@@ -3840,40 +3900,53 @@ def render_screening_results():
             if benchmark_data:
                 benchmark_df = pd.DataFrame(benchmark_data)
 
-                # Color code performance
+                # Color code performance with Vive brand colors
                 def color_performance(row):
                     perf = row['Performance']
                     colors = []
                     for _ in range(len(row)):
                         if perf == 'Excellent':
-                            colors.append('background-color: #d4edda')
+                            # Vive Turquoise with Navy accent
+                            colors.append('background-color: rgba(35,178,190,0.25); color: #004366; font-weight: 600; font-family: Poppins, sans-serif')
                         elif perf == 'Good':
-                            colors.append('background-color: #d1ecf1')
+                            # Light Turquoise
+                            colors.append('background-color: rgba(35,178,190,0.12); color: #004366; font-family: Poppins, sans-serif')
                         elif perf == 'Fair':
-                            colors.append('background-color: #fff3cd')
+                            # Yellow/Gold
+                            colors.append('background-color: rgba(240,179,35,0.2); color: #004366; font-family: Poppins, sans-serif')
                         else:
-                            colors.append('background-color: #f8d7da')
+                            # Red/Orange for needs improvement
+                            colors.append('background-color: rgba(235,51,0,0.2); color: #004366; font-weight: 600; font-family: Poppins, sans-serif')
                     return colors
 
+                st.markdown("##### 📊 Benchmark Comparison Results")
                 st.dataframe(
                     benchmark_df.style.apply(color_performance, axis=1),
                     width="stretch",
-                    height=300
+                    height=400
                 )
 
-                st.caption("**Performance:** Excellent = Top 25% | Good = Above Median | Fair = Below Median | Needs Improvement = Bottom 25%")
+                st.markdown("""
+                <div style="background: rgba(35,178,190,0.08); border-left: 3px solid #23b2be; padding: 0.8rem; margin-top: 1rem; border-radius: 4px; font-family: 'Poppins', sans-serif;">
+                    <strong style="color: #004366;">Performance Categories:</strong><br>
+                    <span style="background: rgba(35,178,190,0.25); padding: 0.2rem 0.5rem; border-radius: 3px; margin-right: 0.5rem; color: #004366; font-weight: 600;">Excellent</span> Top 25% (Best in class)<br>
+                    <span style="background: rgba(35,178,190,0.12); padding: 0.2rem 0.5rem; border-radius: 3px; margin-right: 0.5rem; color: #004366;">Good</span> Above Median (Better than average)<br>
+                    <span style="background: rgba(240,179,35,0.2); padding: 0.2rem 0.5rem; border-radius: 3px; margin-right: 0.5rem; color: #004366;">Fair</span> Below Median (Room for improvement)<br>
+                    <span style="background: rgba(235,51,0,0.2); padding: 0.2rem 0.5rem; border-radius: 3px; margin-right: 0.5rem; color: #004366; font-weight: 600;">Needs Improvement</span> Bottom 25% (Requires immediate attention)
+                </div>
+                """, unsafe_allow_html=True)
             else:
                 st.info("Product matching in progress... Refresh to see results.")
 
-    # Add color coding based on action
+    # Add color coding based on action - Vive brand colors
     def highlight_action(row):
         if 'Immediate' in str(row.get('Action', '')):
-            return ['background-color: #ff4b4b'] * len(row)
+            return ['background-color: rgba(235,51,0,0.25); color: #004366; font-weight: 600; font-family: Poppins, sans-serif'] * len(row)
         elif 'Case' in str(row.get('Action', '')):
-            return ['background-color: #ffa500'] * len(row)
+            return ['background-color: rgba(240,179,35,0.25); color: #004366; font-weight: 600; font-family: Poppins, sans-serif'] * len(row)
         elif 'Monitor' in str(row.get('Action', '')):
-            return ['background-color: #ffff99'] * len(row)
-        return [''] * len(row)
+            return ['background-color: rgba(35,178,190,0.15); color: #004366; font-family: Poppins, sans-serif'] * len(row)
+        return ['font-family: Poppins, sans-serif'] * len(row)
 
     # Select display columns
     display_cols = ['SKU', 'Name', 'Category', 'Return_Rate', 'Category_Threshold',
