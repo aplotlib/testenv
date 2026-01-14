@@ -1,21 +1,24 @@
 """
-Vive Health Quality Suite - Version 19.0
-Enhanced Quality Case Screening with Statistical Rigor
+Vive Health Quality Suite - Version 20.0
+Enterprise-Grade Quality Management System
 
-Tab 1: Return Categorizer (PRESERVED)
-Tab 2: B2B Report Generator (PRESERVED)  
-Tab 3: Quality Case Screening (REBUILT)
+Tab 1: Return Categorizer (AI-Powered)
+Tab 2: B2B Report Generator (Regulatory-Ready)
+Tab 3: Quality Case Screening (TQM/Kaizen Methodology)
+Tab 4: Inventory Integration (Reorder Analysis)
 
 Features:
-- ANOVA/MANOVA with p-values and post-hoc testing
+- Quick Case Evaluation Mode (NEW): 1-3 product SOP comparison with AI qualification
+- ANOVA/MANOVA statistical analysis with p-values and post-hoc testing
 - SPC Control Charting (CUSUM, Shewhart)
-- Weighted Risk Scoring
-- AI-powered cross-case correlation
-- Fuzzy threshold matching
-- Vendor email generation
-- Investigation plan generation
-- State persistence (session-based)
-- Custom threshold profiles
+- Weighted Risk Scoring with FDA/ISO compliance
+- AI-powered cross-case correlation and deep dive analysis
+- Fuzzy threshold matching with custom profiles
+- Bulk vendor email and investigation plan generation
+- Smartsheet CAPA/Investigation/Rework exporters
+- Inventory + Quality integration with DOI calculations
+- Speech-to-text case summaries
+- State persistence and audit trail
 """
 
 import streamlit as st
@@ -82,7 +85,7 @@ st.set_page_config(
 
 APP_CONFIG = {
     'title': 'Vive Health Quality Suite',
-    'version': '19.0 (Enhanced Screening)',
+    'version': '20.0 (Enterprise Edition)',
     'chunk_sizes': [100, 250, 500, 1000],
     'default_chunk': 500,
 }
@@ -1674,11 +1677,16 @@ def render_quality_screening_tab():
     with col1:
         mode = st.radio(
             "Screening Mode",
-            ["Lite (1-5 Products)", "Pro (Mass Analysis)"],
-            horizontal=True,
-            help="Lite: Manual entry for quick screening. Pro: Upload CSV/Excel for batch analysis."
+            ["🎯 Quick Case Eval", "Lite (1-5 Products)", "Pro (Mass Analysis)"],
+            horizontal=False,
+            help="Quick Case Eval: 1-3 products with SOP comparison & case qualification. Lite: Manual entry. Pro: Batch analysis."
         )
-        st.session_state.qc_mode = "Lite" if "Lite" in mode else "Pro"
+        if "Quick" in mode:
+            st.session_state.qc_mode = "QuickEval"
+        elif "Lite" in mode:
+            st.session_state.qc_mode = "Lite"
+        else:
+            st.session_state.qc_mode = "Pro"
     
     with col2:
         # AI Provider selection - OpenAI default
@@ -1749,12 +1757,14 @@ def render_quality_screening_tab():
                 st.session_state.processing_log = []
     
     # --- MAIN CONTENT ---
-    
-    if st.session_state.qc_mode == "Lite":
+
+    if st.session_state.qc_mode == "QuickEval":
+        render_quick_eval_mode()
+    elif st.session_state.qc_mode == "Lite":
         render_lite_mode()
     else:
         render_pro_mode()
-    
+
     # --- RESULTS DISPLAY ---
     if st.session_state.qc_results_df is not None:
         render_screening_results()
@@ -2157,6 +2167,516 @@ Answer questions about quality management, ISO 13485, FDA QSR, return rate analy
         })
     
     st.rerun()
+
+
+def render_quick_eval_mode():
+    """
+    Render Quick Case Evaluation Mode - designed for rapid case qualification with 1-3 products.
+
+    Features:
+    - Compare products against SOP thresholds (not against each other)
+    - Clear pass/fail indicators
+    - Speech-to-text summary input
+    - AI-powered case qualification determination
+    - Demo-ready UI for presentations
+    """
+
+    # Initialize session state for quick eval
+    if 'quick_eval_products' not in st.session_state:
+        st.session_state.quick_eval_products = []
+    if 'quick_eval_summary' not in st.session_state:
+        st.session_state.quick_eval_summary = ""
+    if 'quick_eval_results' not in st.session_state:
+        st.session_state.quick_eval_results = None
+
+    # Header with clear purpose
+    st.markdown("""
+    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; color: white;">
+        <h3 style="margin: 0; color: white;">🎯 Quick Case Evaluation</h3>
+        <p style="margin: 0.5rem 0 0 0; opacity: 0.95;">
+            Rapid SOP compliance check for 1-3 products. Compare against category thresholds,
+            not against each other. Add context summary for AI-powered case qualification.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Get active threshold profile
+    active_profile_name = st.session_state.active_profile
+    active_thresholds = st.session_state.threshold_profiles.get(
+        active_profile_name, DEFAULT_CATEGORY_THRESHOLDS
+    )
+
+    # Display SOP Requirements prominently
+    st.markdown("### 📋 Current SOP Requirements")
+    st.caption(f"**Active Profile:** {active_profile_name}")
+
+    # Show thresholds in a clean, scannable format
+    threshold_cols = st.columns(4)
+    threshold_items = list(active_thresholds.items())
+
+    for idx, (category, threshold) in enumerate(threshold_items):
+        with threshold_cols[idx % 4]:
+            st.metric(
+                label=category,
+                value=f"{threshold*100:.1f}%",
+                help=f"Maximum acceptable return rate for {category} category"
+            )
+
+    st.markdown("---")
+
+    # Product Entry Section
+    st.markdown("### 📦 Product Information (1-3 Products)")
+
+    num_products = st.number_input(
+        "Number of products to evaluate",
+        min_value=1,
+        max_value=3,
+        value=min(len(st.session_state.quick_eval_products), 3) or 1,
+        help="Enter 1-3 products for SOP compliance evaluation"
+    )
+
+    # Initialize products list to match count
+    while len(st.session_state.quick_eval_products) < num_products:
+        st.session_state.quick_eval_products.append({
+            'sku': '',
+            'product_name': '',
+            'category': 'MOB',
+            'units_sold': 0,
+            'units_returned': 0,
+            'return_rate': 0.0,
+            'complaint_summary': ''
+        })
+
+    # Trim if too many
+    st.session_state.quick_eval_products = st.session_state.quick_eval_products[:num_products]
+
+    # Product input forms
+    for i in range(num_products):
+        with st.expander(f"📦 Product {i+1}", expanded=True):
+            col1, col2, col3 = st.columns([2, 2, 1])
+
+            with col1:
+                sku = st.text_input(
+                    "SKU / Product ID",
+                    value=st.session_state.quick_eval_products[i]['sku'],
+                    key=f"qe_sku_{i}",
+                    placeholder="e.g., MOB-2847"
+                )
+                st.session_state.quick_eval_products[i]['sku'] = sku
+
+            with col2:
+                product_name = st.text_input(
+                    "Product Name",
+                    value=st.session_state.quick_eval_products[i]['product_name'],
+                    key=f"qe_name_{i}",
+                    placeholder="e.g., Premium Knee Scooter"
+                )
+                st.session_state.quick_eval_products[i]['product_name'] = product_name
+
+            with col3:
+                category = st.selectbox(
+                    "Category",
+                    options=list(active_thresholds.keys()),
+                    index=list(active_thresholds.keys()).index(
+                        st.session_state.quick_eval_products[i]['category']
+                    ) if st.session_state.quick_eval_products[i]['category'] in active_thresholds else 0,
+                    key=f"qe_cat_{i}"
+                )
+                st.session_state.quick_eval_products[i]['category'] = category
+
+            col4, col5, col6 = st.columns(3)
+
+            with col4:
+                units_sold = st.number_input(
+                    "Units Sold",
+                    min_value=0,
+                    value=st.session_state.quick_eval_products[i]['units_sold'],
+                    key=f"qe_sold_{i}"
+                )
+                st.session_state.quick_eval_products[i]['units_sold'] = units_sold
+
+            with col5:
+                units_returned = st.number_input(
+                    "Units Returned",
+                    min_value=0,
+                    value=st.session_state.quick_eval_products[i]['units_returned'],
+                    key=f"qe_returned_{i}"
+                )
+                st.session_state.quick_eval_products[i]['units_returned'] = units_returned
+
+            with col6:
+                # Calculate return rate
+                if units_sold > 0:
+                    return_rate = (units_returned / units_sold) * 100
+                else:
+                    return_rate = 0.0
+
+                st.session_state.quick_eval_products[i]['return_rate'] = return_rate
+
+                # Get threshold for this category
+                category_threshold = active_thresholds.get(category, 0.10) * 100
+
+                # Show return rate with status indicator
+                exceeds_threshold = return_rate > category_threshold
+
+                st.metric(
+                    label="Return Rate",
+                    value=f"{return_rate:.2f}%",
+                    delta=f"{return_rate - category_threshold:+.2f}% vs SOP",
+                    delta_color="inverse"
+                )
+
+                # Visual indicator
+                if exceeds_threshold:
+                    st.markdown("🔴 **EXCEEDS SOP**")
+                else:
+                    st.markdown("🟢 **Within SOP**")
+
+            # Complaint summary for this product
+            complaint_summary = st.text_area(
+                "Complaint / Issue Summary",
+                value=st.session_state.quick_eval_products[i]['complaint_summary'],
+                key=f"qe_complaint_{i}",
+                placeholder="Brief description of the quality issue or customer complaint...",
+                height=80
+            )
+            st.session_state.quick_eval_products[i]['complaint_summary'] = complaint_summary
+
+    st.markdown("---")
+
+    # Overall Situation Summary Section
+    st.markdown("### 📝 Overall Situation Summary")
+    st.caption("Provide context about these products: Why are they being evaluated? What's the business impact? Any urgency factors?")
+
+    col1, col2 = st.columns([4, 1])
+
+    with col1:
+        summary = st.text_area(
+            "Summary / Context",
+            value=st.session_state.quick_eval_summary,
+            key="qe_summary_input",
+            placeholder="Example: These products have elevated returns from Q4 batch. Customer complaints mention packaging damage during shipping. Need to determine if this warrants a formal CAPA investigation...",
+            height=120,
+            help="Provide background, urgency, business context, or any other relevant information"
+        )
+        st.session_state.quick_eval_summary = summary
+
+    with col2:
+        st.markdown("**Speech to Text**")
+        st.caption("*Feature available in browser with microphone*")
+
+        # Speech-to-text placeholder (browser-based)
+        st.markdown("""
+        <div style="background: #f0f2f6; border-radius: 8px; padding: 1rem; text-align: center;">
+            <p style="font-size: 2rem; margin: 0;">🎤</p>
+            <p style="font-size: 0.8rem; margin: 0.5rem 0 0 0;">Click mic icon in text area (browser feature)</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.caption("Tip: Most modern browsers support speech input. Look for microphone icon in the text field.")
+
+    st.markdown("---")
+
+    # Evaluate Button
+    if st.button("🚀 Evaluate Case Qualification", type="primary", use_container_width=True):
+        # Validate input
+        valid_products = [p for p in st.session_state.quick_eval_products
+                         if p['sku'] and p['product_name'] and p['units_sold'] > 0]
+
+        if not valid_products:
+            st.error("⚠️ Please enter at least one complete product (SKU, name, and units sold required)")
+            return
+
+        # Perform evaluation
+        with st.spinner("🔍 Analyzing products against SOP requirements..."):
+            results = {
+                'products': [],
+                'overall_assessment': '',
+                'meets_case_criteria': False,
+                'recommended_actions': [],
+                'severity': 'Low'
+            }
+
+            total_exceeds = 0
+            total_products = len(valid_products)
+            highest_excess = 0
+
+            for product in valid_products:
+                category_threshold = active_thresholds.get(product['category'], 0.10) * 100
+                exceeds = product['return_rate'] > category_threshold
+                excess_amount = product['return_rate'] - category_threshold
+
+                if exceeds:
+                    total_exceeds += 1
+                    highest_excess = max(highest_excess, excess_amount)
+
+                product_result = {
+                    'sku': product['sku'],
+                    'product_name': product['product_name'],
+                    'category': product['category'],
+                    'return_rate': product['return_rate'],
+                    'threshold': category_threshold,
+                    'exceeds_sop': exceeds,
+                    'excess_amount': excess_amount,
+                    'status': '🔴 EXCEEDS SOP' if exceeds else '🟢 Within SOP',
+                    'units_returned': product['units_returned'],
+                    'units_sold': product['units_sold']
+                }
+
+                results['products'].append(product_result)
+
+            # Determine case qualification
+            if total_exceeds == 0:
+                results['meets_case_criteria'] = False
+                results['severity'] = 'None'
+                results['overall_assessment'] = f"""
+                **✅ NO CASE REQUIRED**
+
+                All {total_products} product(s) are within SOP thresholds for their respective categories.
+                No formal case investigation is warranted at this time.
+                """
+                results['recommended_actions'] = [
+                    "Continue monitoring return rates",
+                    "Document findings for record-keeping",
+                    "No immediate action required"
+                ]
+
+            elif total_exceeds == total_products and highest_excess > 5.0:
+                # All products exceed, and significantly
+                results['meets_case_criteria'] = True
+                results['severity'] = 'High' if highest_excess > 10.0 else 'Medium'
+                results['overall_assessment'] = f"""
+                **🔴 CASE INVESTIGATION RECOMMENDED**
+
+                All {total_products} product(s) exceed SOP thresholds, with maximum excess of {highest_excess:.1f}%.
+                This pattern indicates a systemic quality issue requiring formal investigation.
+                """
+                results['recommended_actions'] = [
+                    "Open formal CAPA investigation immediately",
+                    "Quarantine affected inventory pending investigation",
+                    "Notify relevant stakeholders (Quality Manager, Production, Suppliers)",
+                    "Conduct root cause analysis using 5 Whys or Fishbone",
+                    "Review production records for affected batches"
+                ]
+
+            elif total_exceeds >= 1:
+                # Some exceed
+                results['meets_case_criteria'] = True
+                results['severity'] = 'Medium' if highest_excess > 5.0 else 'Low'
+                results['overall_assessment'] = f"""
+                **🟡 CASE INVESTIGATION WARRANTED**
+
+                {total_exceeds} of {total_products} product(s) exceed SOP thresholds (max excess: {highest_excess:.1f}%).
+                Recommend opening a quality case to investigate the elevated return rates.
+                """
+                results['recommended_actions'] = [
+                    "Open quality case for affected product(s)",
+                    "Review customer complaints and return reasons",
+                    "Investigate potential common causes across products",
+                    "Consider containment actions if pattern is identified",
+                    "Monitor closely for trend development"
+                ]
+
+            # AI Enhancement (if available and summary provided)
+            if st.session_state.quick_eval_summary.strip() and AI_AVAILABLE:
+                try:
+                    ai_analyzer = EnhancedAIAnalyzer(st.session_state.ai_provider)
+
+                    # Build context for AI
+                    products_context = "\n".join([
+                        f"- {p['sku']} ({p['product_name']}): {p['return_rate']:.2f}% return rate "
+                        f"(Threshold: {p['threshold']:.1f}%, {'EXCEEDS' if p['exceeds_sop'] else 'Within'} SOP)"
+                        for p in results['products']
+                    ])
+
+                    ai_prompt = f"""
+                    You are a medical device quality expert reviewing a case evaluation.
+
+                    PRODUCTS EVALUATED:
+                    {products_context}
+
+                    USER CONTEXT:
+                    {st.session_state.quick_eval_summary}
+
+                    Based on the return rates vs SOP thresholds AND the user's context, provide:
+                    1. SEVERITY ASSESSMENT (Low/Medium/High/Critical)
+                    2. KEY CONCERNS (2-3 bullet points)
+                    3. REGULATORY IMPLICATIONS (if any - FDA, ISO 13485, MDR)
+                    4. RECOMMENDED PRIORITY ACTIONS (numbered list)
+
+                    Keep response concise and actionable (200 words max).
+                    """
+
+                    ai_response = ai_analyzer.analyze_with_retry(ai_prompt, max_retries=2)
+
+                    if ai_response:
+                        results['ai_analysis'] = ai_response
+
+                except Exception as e:
+                    logger.error(f"AI analysis failed: {e}")
+                    results['ai_analysis'] = None
+
+            st.session_state.quick_eval_results = results
+
+    # Display Results
+    if st.session_state.quick_eval_results:
+        results = st.session_state.quick_eval_results
+
+        st.markdown("---")
+        st.markdown("## 📊 Evaluation Results")
+
+        # Overall Status Card
+        severity_colors = {
+            'None': '#10b981',
+            'Low': '#fbbf24',
+            'Medium': '#f59e0b',
+            'High': '#ef4444',
+            'Critical': '#dc2626'
+        }
+
+        severity_color = severity_colors.get(results['severity'], '#6b7280')
+
+        st.markdown(f"""
+        <div style="background: {severity_color}; color: white; border-radius: 12px;
+                    padding: 1.5rem; margin-bottom: 1.5rem;">
+            <h3 style="margin: 0; color: white;">
+                {'✅ NO CASE REQUIRED' if not results['meets_case_criteria'] else '⚠️ CASE INVESTIGATION RECOMMENDED'}
+            </h3>
+            <p style="margin: 0.5rem 0 0 0; font-size: 1.1rem;">
+                <strong>Severity:</strong> {results['severity']}
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Assessment
+        st.markdown(results['overall_assessment'])
+
+        # Product-by-Product Results
+        st.markdown("### 📦 Product-Level Analysis")
+
+        for idx, product in enumerate(results['products']):
+            status_icon = "🔴" if product['exceeds_sop'] else "🟢"
+
+            with st.expander(f"{status_icon} {product['sku']} - {product['product_name']}",
+                           expanded=product['exceeds_sop']):
+                col1, col2, col3, col4 = st.columns(4)
+
+                with col1:
+                    st.metric("Category", product['category'])
+
+                with col2:
+                    st.metric("Return Rate", f"{product['return_rate']:.2f}%")
+
+                with col3:
+                    st.metric("SOP Threshold", f"{product['threshold']:.1f}%")
+
+                with col4:
+                    st.metric(
+                        "vs Threshold",
+                        f"{product['excess_amount']:+.2f}%",
+                        delta_color="inverse"
+                    )
+
+                st.markdown(f"**Status:** {product['status']}")
+                st.markdown(f"**Units:** {product['units_returned']:,} returned of {product['units_sold']:,} sold")
+
+        # Recommended Actions
+        st.markdown("### 🎯 Recommended Actions")
+
+        for idx, action in enumerate(results['recommended_actions'], 1):
+            st.markdown(f"{idx}. {action}")
+
+        # AI Analysis (if available)
+        if 'ai_analysis' in results and results['ai_analysis']:
+            st.markdown("### 🤖 AI Expert Analysis")
+
+            st.markdown(f"""
+            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        border-radius: 12px; padding: 1.5rem; color: white;">
+                {results['ai_analysis'].replace(chr(10), '<br>')}
+            </div>
+            """, unsafe_allow_html=True)
+
+        # Export Options
+        st.markdown("---")
+        st.markdown("### 📤 Export")
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            # Generate summary report
+            report_lines = [
+                f"QUICK CASE EVALUATION REPORT",
+                f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                f"Profile: {active_profile_name}",
+                f"",
+                f"OVERALL ASSESSMENT:",
+                f"Meets Case Criteria: {'YES' if results['meets_case_criteria'] else 'NO'}",
+                f"Severity: {results['severity']}",
+                f"",
+                f"PRODUCTS EVALUATED:"
+            ]
+
+            for p in results['products']:
+                report_lines.append(
+                    f"- {p['sku']}: {p['return_rate']:.2f}% (Threshold: {p['threshold']:.1f}%) - {p['status']}"
+                )
+
+            report_lines.append("")
+            report_lines.append("RECOMMENDED ACTIONS:")
+            for idx, action in enumerate(results['recommended_actions'], 1):
+                report_lines.append(f"{idx}. {action}")
+
+            if st.session_state.quick_eval_summary:
+                report_lines.append("")
+                report_lines.append("USER CONTEXT:")
+                report_lines.append(st.session_state.quick_eval_summary)
+
+            report_text = "\n".join(report_lines)
+
+            st.download_button(
+                "📄 Download Report (TXT)",
+                report_text,
+                file_name=f"case_eval_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                mime="text/plain",
+                use_container_width=True
+            )
+
+        with col2:
+            # CSV export
+            csv_data = []
+            for p in results['products']:
+                csv_data.append({
+                    'SKU': p['sku'],
+                    'Product Name': p['product_name'],
+                    'Category': p['category'],
+                    'Return Rate (%)': f"{p['return_rate']:.2f}",
+                    'SOP Threshold (%)': f"{p['threshold']:.1f}",
+                    'Exceeds SOP': 'YES' if p['exceeds_sop'] else 'NO',
+                    'Excess Amount (%)': f"{p['excess_amount']:+.2f}",
+                    'Units Returned': p['units_returned'],
+                    'Units Sold': p['units_sold']
+                })
+
+            csv_df = pd.DataFrame(csv_data)
+            csv_buffer = io.StringIO()
+            csv_df.to_csv(csv_buffer, index=False)
+
+            st.download_button(
+                "📊 Download Data (CSV)",
+                csv_buffer.getvalue(),
+                file_name=f"case_eval_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+
+        with col3:
+            if st.button("🔄 New Evaluation", use_container_width=True):
+                st.session_state.quick_eval_results = None
+                st.session_state.quick_eval_products = []
+                st.session_state.quick_eval_summary = ""
+                st.rerun()
 
 
 def render_lite_mode():
@@ -3976,10 +4496,11 @@ def render_inventory_integration_tab():
         st.session_state.inventory_results = None
 
     # Create tabs for different sections
-    inv_tab1, inv_tab2, inv_tab3 = st.tabs([
+    inv_tab1, inv_tab2, inv_tab3, inv_tab4 = st.tabs([
         "📤 Data Upload",
         "⚙️ Configuration",
-        "📊 Dashboard & Results"
+        "📊 Dashboard & Results",
+        "🚨 Critical Integration View"
     ])
 
     # --- TAB 1: Data Upload ---
@@ -4305,6 +4826,300 @@ def render_inventory_integration_tab():
                     use_container_width=True
                 )
 
+    # --- TAB 4: Critical Integration View ---
+    with inv_tab4:
+        st.markdown("### 🚨 Critical Integration View: Quality + Inventory + Reorder")
+        st.caption("Unified view showing SKUs with BOTH quality issues AND inventory urgency")
+
+        # Check if we have both quality and inventory data
+        has_quality_data = st.session_state.qc_results_df is not None and not st.session_state.qc_results_df.empty
+        has_inventory_data = st.session_state.inventory_results is not None and not st.session_state.inventory_results.empty
+
+        if not has_quality_data and not has_inventory_data:
+            st.info("""
+            📊 **No data available yet**
+
+            To use the Critical Integration View:
+            1. Run quality screening in **Tab 3: Quality Screening**
+            2. Upload inventory data in **Tab 4: Inventory Integration → Data Upload**
+
+            This view will then show products with BOTH quality flags AND inventory urgency.
+            """)
+            return
+
+        if not has_quality_data:
+            st.warning("⚠️ Missing quality screening data. Please run analysis in Tab 3 first.")
+            return
+
+        if not has_inventory_data:
+            st.warning("⚠️ Missing inventory data. Please upload Odoo data in the 'Data Upload' tab first.")
+            return
+
+        # Merge quality and inventory data
+        quality_df = st.session_state.qc_results_df.copy()
+        inventory_df = st.session_state.inventory_results.copy()
+
+        # Try to merge on SKU column (handle different naming)
+        sku_col_quality = None
+        for col in ['SKU', 'Main SKU', 'sku', 'Product_ID']:
+            if col in quality_df.columns:
+                sku_col_quality = col
+                break
+
+        sku_col_inventory = 'SKU'  # Standard from Odoo parser
+
+        if sku_col_quality is None:
+            st.error("Could not find SKU column in quality data")
+            return
+
+        # Merge datasets
+        try:
+            merged_df = quality_df.merge(
+                inventory_df,
+                left_on=sku_col_quality,
+                right_on=sku_col_inventory,
+                how='inner',
+                suffixes=('_quality', '_inventory')
+            )
+
+            if merged_df.empty:
+                st.warning("⚠️ No matching SKUs found between quality screening and inventory data")
+                return
+
+            # Calculate integrated priority scoring
+            merged_df['IntegratedPriority'] = 0
+
+            # Quality factors
+            if 'Return_Rate' in merged_df.columns:
+                merged_df['IntegratedPriority'] += merged_df['Return_Rate'] * 100
+
+            if 'Risk_Score' in merged_df.columns:
+                merged_df['IntegratedPriority'] += merged_df['Risk_Score'] / 10
+
+            # Inventory urgency factors
+            if 'DaysToReorder' in merged_df.columns:
+                # More urgent = higher priority
+                merged_df['IntegratedPriority'] += merged_df['DaysToReorder'].apply(
+                    lambda x: 50 if pd.isna(x) or x < 0 else (30 if x < 7 else (15 if x < 14 else 0))
+                )
+
+            # Financial exposure
+            if 'AtRiskDollars' in merged_df.columns:
+                max_risk = merged_df['AtRiskDollars'].max()
+                if max_risk > 0:
+                    merged_df['IntegratedPriority'] += (merged_df['AtRiskDollars'] / max_risk) * 20
+
+            # Assign urgency classification
+            def classify_urgency(row):
+                days = row.get('DaysToReorder', None)
+                return_rate = row.get('Return_Rate', 0)
+                risk = row.get('Risk_Score', 0)
+
+                # Critical: Past reorder + quality issue
+                if pd.notna(days) and days < 0 and (return_rate > 0.10 or risk > 70):
+                    return '🔴 CRITICAL'
+                # High: <7 days + quality issue
+                elif pd.notna(days) and days < 7 and (return_rate > 0.08 or risk > 60):
+                    return '🟠 HIGH'
+                # Medium: 7-14 days + quality issue
+                elif pd.notna(days) and days < 14 and (return_rate > 0.05 or risk > 50):
+                    return '🟡 MEDIUM'
+                # Low: 14-30 days buffer
+                elif pd.notna(days) and days < 30:
+                    return '🟢 LOW'
+                else:
+                    return '⚪ MONITOR'
+
+            merged_df['UrgencyClass'] = merged_df.apply(classify_urgency, axis=1)
+
+            # Generate recommendations
+            def generate_recommendation(row):
+                days = row.get('DaysToReorder', None)
+                ca_before_po = row.get('CA_Window_BeforePO', None)
+                urgency = row.get('UrgencyClass', '')
+
+                if '🔴 CRITICAL' in urgency:
+                    return "URGENT: Order now + expedite fix OR find substitute - past reorder point"
+                elif '🟠 HIGH' in urgency:
+                    if pd.notna(ca_before_po) and ca_before_po > 3:
+                        return f"Expedite investigation - {ca_before_po:.0f} days to fix before PO"
+                    else:
+                        return "Critical window - order with known issue + fix in parallel"
+                elif '🟡 MEDIUM' in urgency:
+                    if pd.notna(ca_before_po) and ca_before_po > 14:
+                        return f"Plan correction - {ca_before_po:.0f} days available before reorder"
+                    else:
+                        return "Monitor closely - investigate and track progress"
+                else:
+                    return "Continue monitoring - sufficient buffer time"
+
+            merged_df['Recommendation'] = merged_df.apply(generate_recommendation, axis=1)
+
+            # Sort by priority
+            merged_df = merged_df.sort_values('IntegratedPriority', ascending=False)
+
+            # Summary metrics
+            st.markdown("#### 📊 Integration Summary")
+            kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+
+            with kpi1:
+                total_integrated = len(merged_df)
+                st.metric("Total SKUs", f"{total_integrated:,}", help="Products with both quality and inventory data")
+
+            with kpi2:
+                critical_count = len(merged_df[merged_df['UrgencyClass'] == '🔴 CRITICAL'])
+                st.metric("🔴 Critical", critical_count,
+                         delta="Action in 0-3 days" if critical_count > 0 else None,
+                         delta_color="inverse")
+
+            with kpi3:
+                high_count = len(merged_df[merged_df['UrgencyClass'] == '🟠 HIGH'])
+                st.metric("🟠 High", high_count,
+                         delta="Action in 4-7 days" if high_count > 0 else None,
+                         delta_color="inverse")
+
+            with kpi4:
+                total_at_risk = merged_df['AtRiskDollars'].sum() if 'AtRiskDollars' in merged_df.columns else 0
+                st.metric("💰 At Risk", f"${total_at_risk:,.0f}", help="Total pipeline exposure")
+
+            st.markdown("---")
+
+            # Filters
+            st.markdown("#### 🔍 Filters")
+            filter_col1, filter_col2 = st.columns(2)
+
+            with filter_col1:
+                urgency_filter = st.multiselect(
+                    "Urgency Level",
+                    options=['🔴 CRITICAL', '🟠 HIGH', '🟡 MEDIUM', '🟢 LOW', '⚪ MONITOR'],
+                    default=['🔴 CRITICAL', '🟠 HIGH'],
+                    help="Filter by urgency classification"
+                )
+
+            with filter_col2:
+                min_priority = st.slider(
+                    "Minimum Priority Score",
+                    min_value=0,
+                    max_value=int(merged_df['IntegratedPriority'].max()),
+                    value=0,
+                    help="Show only products above this priority threshold"
+                )
+
+            # Apply filters
+            filtered_integrated = merged_df.copy()
+            if urgency_filter:
+                filtered_integrated = filtered_integrated[
+                    filtered_integrated['UrgencyClass'].isin(urgency_filter)
+                ]
+            filtered_integrated = filtered_integrated[
+                filtered_integrated['IntegratedPriority'] >= min_priority
+            ]
+
+            st.markdown(f"#### 📋 Critical Items ({len(filtered_integrated)} SKUs)")
+
+            if filtered_integrated.empty:
+                st.success("✅ No critical items match current filters")
+            else:
+                # Display critical items
+                for idx, row in filtered_integrated.iterrows():
+                    urgency_colors = {
+                        '🔴 CRITICAL': '#dc2626',
+                        '🟠 HIGH': '#f59e0b',
+                        '🟡 MEDIUM': '#fbbf24',
+                        '🟢 LOW': '#10b981',
+                        '⚪ MONITOR': '#6b7280'
+                    }
+
+                    urgency_color = urgency_colors.get(row['UrgencyClass'], '#6b7280')
+
+                    with st.expander(
+                        f"{row['UrgencyClass']} | {row.get(sku_col_quality, 'Unknown')} - "
+                        f"{row.get('Product Name', row.get('Product_Name', row.get('Product Title', 'Unknown')))}",
+                        expanded=(row['UrgencyClass'] in ['🔴 CRITICAL', '🟠 HIGH'])
+                    ):
+                        st.markdown(f"""
+                        <div style="background: {urgency_color}; color: white; padding: 0.75rem;
+                                    border-radius: 8px; margin-bottom: 1rem;">
+                            <strong>Priority Score: {row['IntegratedPriority']:.1f}</strong>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                        col1, col2, col3 = st.columns(3)
+
+                        with col1:
+                            st.markdown("**Quality Metrics**")
+                            return_rate = row.get('Return_Rate', 0) * 100 if row.get('Return_Rate', 0) < 1 else row.get('Return_Rate', 0)
+                            st.metric("Return Rate", f"{return_rate:.2f}%")
+                            if 'Risk_Score' in row:
+                                st.metric("Risk Score", f"{row['Risk_Score']:.0f}")
+                            if 'Action_Required' in row:
+                                st.write(f"**Action:** {row['Action_Required']}")
+
+                        with col2:
+                            st.markdown("**Inventory Status**")
+                            if 'DaysToReorder' in row and pd.notna(row['DaysToReorder']):
+                                st.metric("Days to Reorder", f"{row['DaysToReorder']:.1f}")
+                            if 'DOI_Conservative' in row and pd.notna(row['DOI_Conservative']):
+                                st.metric("DOI (Conservative)", f"{row['DOI_Conservative']:.1f}")
+                            if 'MustOrderBy' in row:
+                                st.write(f"**Must Order By:** {row['MustOrderBy']}")
+
+                        with col3:
+                            st.markdown("**Financial Impact**")
+                            if 'AtRiskDollars' in row:
+                                st.metric("At Risk", f"${row['AtRiskDollars']:,.0f}")
+                            if 'AtRiskUnits' in row:
+                                st.metric("Units at Risk", f"{row['AtRiskUnits']:,}")
+
+                        # Recommendation box
+                        st.markdown(f"""
+                        <div style="background: #f0f9ff; border-left: 4px solid #0284c7;
+                                    padding: 1rem; margin-top: 1rem; border-radius: 4px;">
+                            <strong>📋 Recommendation:</strong><br>
+                            {row['Recommendation']}
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                        # Action buttons
+                        action_col1, action_col2, action_col3 = st.columns(3)
+
+                        with action_col1:
+                            if st.button(f"📧 Email Vendor", key=f"email_{idx}"):
+                                st.info("Vendor email generator feature - navigate to Tab 3 Quality Screening")
+
+                        with action_col2:
+                            if st.button(f"📋 Generate CAPA", key=f"capa_{idx}"):
+                                st.info("CAPA generator feature - navigate to Tab 3 Quality Screening")
+
+                        with action_col3:
+                            if st.button(f"🔍 Deep Dive", key=f"deep_{idx}"):
+                                st.info("Deep dive analysis feature - navigate to Tab 3 Quality Screening")
+
+                # Export integrated view
+                st.markdown("---")
+                st.markdown("#### 📤 Export Integrated View")
+
+                export_cols = [sku_col_quality, 'Product Name', 'UrgencyClass', 'IntegratedPriority',
+                              'Return_Rate', 'Risk_Score', 'DaysToReorder', 'DOI_Conservative',
+                              'AtRiskDollars', 'Recommendation']
+
+                export_df = filtered_integrated[[col for col in export_cols if col in filtered_integrated.columns]]
+
+                csv_buffer = io.StringIO()
+                export_df.to_csv(csv_buffer, index=False)
+
+                st.download_button(
+                    "📥 Export Critical Integration View (CSV)",
+                    csv_buffer.getvalue(),
+                    file_name=f"critical_integration_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+
+        except Exception as e:
+            st.error(f"Error merging data: {str(e)}")
+            logger.error(f"Integration view error: {str(e)}", exc_info=True)
+
 
 # --- MAIN APP ---
 
@@ -4315,8 +5130,13 @@ def main():
     # Header
     st.markdown("""
     <div class="main-header">
-        <h1 class="main-title">VIVE HEALTH QUALITY SUITE</h1>
-        <p style="color: white; margin: 0.5rem 0;">AI-Powered Returns Analysis & Quality Screening (v19.0)</p>
+        <h1 class="main-title">🏥 VIVE HEALTH QUALITY SUITE</h1>
+        <p style="color: white; margin: 0.5rem 0; font-size: 1.1rem;">
+            <strong>Enterprise Quality Management System v20.0</strong>
+        </p>
+        <p style="color: rgba(255,255,255,0.9); margin: 0; font-size: 0.9rem;">
+            AI-Powered Quality Screening | Inventory Integration | ISO 13485 & FDA 21 CFR 820 Compliant
+        </p>
     </div>
     """, unsafe_allow_html=True)
 

@@ -170,7 +170,7 @@ class CAPAProjectPlan(SmartsheetProjectPlan):
         # PHASE 2: PROBLEM DEFINITION (D2)
         p2 = self.add_task("Phase 2: Problem Definition & Quantification", 0, self.team_lead, f"{p1+3}", "Not Started", self.severity, 0)
         self.add_task("Document problem statement (5W2H)", days(2), "Quality Engineer", f"{p2}", "Not Started", self.severity, 1,
-                     f"Issue: {self.issue_description}\nReturn Rate: {self.return_rate:.1%}\nUnits Affected: {units_affected:,}")
+                     f"Issue: {self.issue_description}\nReturn Rate: {self.return_rate:.1%}\nUnits Affected: {self.units_affected:,}")
         self.add_task("Quantify impact (financial, customer, regulatory)", days(2), "Quality Analyst", f"{p2+1}", "Not Started", self.severity, 1)
         self.add_task("Review customer complaints & return data", days(3), "Quality Analyst", f"{p2+1}", "Not Started", self.severity, 1)
         self.add_task("Identify affected batches/lots", days(2), "Production Manager", f"{p2+1}", "Not Started", self.severity, 1)
