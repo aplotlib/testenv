@@ -63,6 +63,7 @@ try:
         MultilingualVendorCommunicator, EnglishLevel, TargetLanguage, LANGUAGE_INFO
     )
     from product_matching import ProductMatcher
+    from regulatory_compliance import RegulatoryComplianceAnalyzer, REGULATORY_MARKETS
     AI_AVAILABLE = True
 except ImportError as e:
     AI_AVAILABLE = False
@@ -4502,13 +4503,99 @@ def render_screening_results():
                             key=f"method_{sku}"
                         )
 
-            if st.button("📋 Generate All Plans", type="primary", key="bulk_plans"):
+            # Regulatory Compliance Section
+            st.markdown("---")
+            st.markdown("#### 🌍 Regulatory Compliance Analysis")
+            st.caption("Select markets to analyze regulatory requirements with AI-powered screening")
+
+            # Market selection with checkboxes
+            st.markdown("**Select Markets for Compliance Analysis:**")
+
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                st.markdown("**Americas**")
+                us_market = st.checkbox("🇺🇸 United States (FDA)", value=True, key="market_us")
+                mexico_market = st.checkbox("🇲🇽 Mexico (COFEPRIS)", key="market_mexico")
+                colombia_market = st.checkbox("🇨🇴 Colombia (INVIMA)", key="market_colombia")
+                brazil_market = st.checkbox("🇧🇷 Brazil (ANVISA)", key="market_brazil")
+                chile_market = st.checkbox("🇨🇱 Chile (ISP)", key="market_chile")
+
+            with col2:
+                st.markdown("**Europe**")
+                uk_market = st.checkbox("🇬🇧 United Kingdom (MHRA)", key="market_uk")
+                germany_market = st.checkbox("🇩🇪 Germany (BfArM)", key="market_germany")
+                france_market = st.checkbox("🇫🇷 France (ANSM)", key="market_france")
+                italy_market = st.checkbox("🇮🇹 Italy", key="market_italy")
+                spain_market = st.checkbox("🇪🇸 Spain (AEMPS)", key="market_spain")
+                netherlands_market = st.checkbox("🇳🇱 Netherlands (IGJ)", key="market_netherlands")
+
+            with col3:
+                st.markdown("**Other Markets**")
+                other_markets_text = st.text_area(
+                    "Specify other countries:",
+                    placeholder="e.g., Canada, Australia, Japan",
+                    height=100,
+                    key="other_markets"
+                )
+
+            # Select all button
+            if st.button("✅ Select All Major Markets", key="select_all_markets"):
+                st.info("To select all markets, check the boxes above manually")
+
+            # Collect selected markets
+            selected_markets = []
+            if us_market:
+                selected_markets.append('US')
+            if mexico_market:
+                selected_markets.append('Mexico')
+            if colombia_market:
+                selected_markets.append('Colombia')
+            if brazil_market:
+                selected_markets.append('Brazil')
+            if chile_market:
+                selected_markets.append('Chile')
+            if uk_market:
+                selected_markets.append('UK')
+            if germany_market:
+                selected_markets.append('Germany')
+            if france_market:
+                selected_markets.append('France')
+            if italy_market:
+                selected_markets.append('Italy')
+            if spain_market:
+                selected_markets.append('Spain')
+            if netherlands_market:
+                selected_markets.append('Netherlands')
+
+            # Show regulatory links
+            if selected_markets:
+                with st.expander("📚 Regulatory Agency Links", expanded=False):
+                    for market_code in selected_markets:
+                        if market_code in REGULATORY_MARKETS:
+                            market_info = REGULATORY_MARKETS[market_code]
+                            st.markdown(f"**{market_info['name']}:**")
+                            for agency in market_info['agencies']:
+                                st.markdown(f"- [{agency['name']}]({agency['url']})")
+
+            st.markdown("---")
+
+            if st.button("📋 Generate All Plans with Regulatory Analysis", type="primary", key="bulk_plans"):
                 if not selected_for_plans:
                     st.warning("Please select at least one product")
                 else:
-                    with st.spinner(f"Generating {len(selected_for_plans)} investigation plans..."):
+                    with st.spinner(f"Generating {len(selected_for_plans)} investigation plans with regulatory compliance analysis..."):
                         try:
                             bulk_plans = []
+
+                            # Initialize regulatory analyzer if markets selected
+                            reg_analyzer = None
+                            if selected_markets and AI_AVAILABLE:
+                                try:
+                                    ai_analyzer = st.session_state.get('ai_analyzer')
+                                    reg_analyzer = RegulatoryComplianceAnalyzer(ai_analyzer)
+                                except Exception as e:
+                                    logger.warning(f"Regulatory analyzer initialization failed: {e}")
 
                             for sku in selected_for_plans:
                                 row = action_items[action_items['SKU'] == sku].iloc[0]
@@ -4524,41 +4611,163 @@ def render_screening_results():
                                     risk_score=row['Risk_Score']
                                 )
 
+                                # Regulatory analysis if enabled
+                                reg_requirements = ""
+                                reg_actions = ""
+                                ai_compliance_suggestions = ""
+
+                                if reg_analyzer and selected_markets:
+                                    product_data = {
+                                        'sku': row['SKU'],
+                                        'product_name': row.get('Name', row['SKU']),
+                                        'category': row.get('Category', 'Unknown'),
+                                        'return_rate': row['Return_Rate'],
+                                        'complaint_summary': row.get('Complaint_Text', ''),
+                                        'safety_risk': row.get('Safety_Risk', False)
+                                    }
+
+                                    reg_analysis = reg_analyzer.analyze_compliance_requirements(
+                                        selected_markets,
+                                        product_data,
+                                        row.get('Action', 'Quality Issue')
+                                    )
+
+                                    # Format regulatory requirements
+                                    if reg_analysis.get('injury_reporting_required'):
+                                        reg_requirements = "; ".join([
+                                            f"{r['market']}: {r['timeline']}"
+                                            for r in reg_analysis['injury_reporting_required']
+                                        ])
+
+                                    # Format AI suggestions
+                                    if reg_analysis.get('ai_suggestions'):
+                                        ai_compliance_suggestions = "\n".join([
+                                            f"[{s.get('confidence', 0)}% confidence] {s.get('requirement', '')}"
+                                            for s in reg_analysis['ai_suggestions']
+                                        ])
+
                                 bulk_plans.append({
                                     'SKU': sku,
                                     'Product': row.get('Name', sku),
-                                    'Method': assigned_method,
+                                    'Category': row.get('Category', 'Unknown'),
+                                    'Return_Rate': f"{row['Return_Rate'] * 100:.2f}%",
+                                    'Risk_Score': row['Risk_Score'],
+                                    'Severity': row.get('Action', 'Monitor'),
+                                    'Safety_Risk': row.get('Safety_Risk', False),
+                                    'Complaint_Summary': row.get('Complaint_Text', '')[:200],
+                                    'Investigation_Method': assigned_method,
                                     'Priority': row.get('Action', 'Monitor'),
-                                    'Plan': InvestigationPlanGenerator.format_plan_markdown(plan),
                                     'Estimated_Days': plan.get('timeline_days', 14),
-                                    'Team_Required': ', '.join(plan.get('team', []))
+                                    'Team_Required': ', '.join(plan.get('team', [])),
+                                    'Markets_Analyzed': ', '.join(selected_markets) if selected_markets else 'None',
+                                    'Injury_Reporting_Requirements': reg_requirements or 'N/A',
+                                    'AI_Compliance_Suggestions': ai_compliance_suggestions or 'N/A',
+                                    'Investigation_Plan': InvestigationPlanGenerator.format_plan_markdown(plan),
                                 })
 
-                            st.success(f"✅ Generated {len(bulk_plans)} investigation plans!")
+                            st.success(f"✅ Generated {len(bulk_plans)} investigation plans with regulatory analysis!")
 
                             # Display preview
                             for i, plan_data in enumerate(bulk_plans[:2]):  # Show first 2
                                 with st.expander(f"📋 {plan_data['SKU']} - {plan_data['Product']}", expanded=(i==0)):
-                                    st.markdown(f"**Method:** {plan_data['Method']} | **Priority:** {plan_data['Priority']}")
-                                    st.markdown(plan_data['Plan'])
+                                    col1, col2, col3 = st.columns(3)
+                                    with col1:
+                                        st.metric("Return Rate", plan_data['Return_Rate'])
+                                        st.metric("Risk Score", plan_data['Risk_Score'])
+                                    with col2:
+                                        st.write(f"**Method:** {plan_data['Investigation_Method']}")
+                                        st.write(f"**Timeline:** {plan_data['Estimated_Days']} days")
+                                    with col3:
+                                        st.write(f"**Markets:** {plan_data['Markets_Analyzed']}")
+                                        st.write(f"**Safety Risk:** {'⚠️ YES' if plan_data['Safety_Risk'] else 'No'}")
+
+                                    if plan_data['AI_Compliance_Suggestions'] != 'N/A':
+                                        st.info(f"🤖 **AI Compliance Alerts:**\n{plan_data['AI_Compliance_Suggestions']}")
+
+                                    st.markdown("**Investigation Plan:**")
+                                    st.markdown(plan_data['Investigation_Plan'][:500] + "..." if len(plan_data['Investigation_Plan']) > 500 else plan_data['Investigation_Plan'])
 
                             if len(bulk_plans) > 2:
-                                st.info(f"+ {len(bulk_plans) - 2} more plans (see CSV export)")
+                                st.info(f"+ {len(bulk_plans) - 2} more plans (see CSV/Excel export)")
 
-                            # Export option
+                            # Enhanced Export options
+                            st.markdown("---")
+                            st.markdown("#### 📥 Export Investigation Plans")
+
                             plan_df = pd.DataFrame(bulk_plans)
-                            csv_data = plan_df.to_csv(index=False)
 
-                            st.download_button(
-                                "📥 Download All Plans (CSV)",
-                                csv_data,
-                                file_name=f"bulk_investigation_plans_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                                mime="text/csv"
-                            )
+                            col1, col2 = st.columns(2)
+
+                            with col1:
+                                csv_data = plan_df.to_csv(index=False)
+                                st.download_button(
+                                    "📥 Download All Plans (CSV)",
+                                    csv_data,
+                                    file_name=f"bulk_investigation_plans_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                                    mime="text/csv",
+                                    key="bulk_csv_download"
+                                )
+
+                            with col2:
+                                # Excel export with multiple sheets
+                                excel_buffer = io.BytesIO()
+                                with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                                    # Main plans
+                                    plan_df.to_excel(writer, sheet_name='Investigation Plans', index=False)
+
+                                    # Summary sheet
+                                    summary_df = plan_df[['SKU', 'Product', 'Risk_Score', 'Severity', 'Markets_Analyzed', 'Estimated_Days']].copy()
+                                    summary_df.to_excel(writer, sheet_name='Summary', index=False)
+
+                                    # Regulatory sheet if applicable
+                                    if selected_markets:
+                                        reg_df = plan_df[['SKU', 'Product', 'Markets_Analyzed', 'Injury_Reporting_Requirements', 'AI_Compliance_Suggestions']].copy()
+                                        reg_df.to_excel(writer, sheet_name='Regulatory Compliance', index=False)
+
+                                st.download_button(
+                                    "📥 Download Excel (Multi-Sheet)",
+                                    excel_buffer.getvalue(),
+                                    file_name=f"investigation_plans_complete_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    key="bulk_excel_download"
+                                )
+
+                            # Regulatory compliance report if markets selected
+                            if reg_analyzer and selected_markets:
+                                st.markdown("---")
+                                st.markdown("#### 📄 Regulatory Compliance Report")
+
+                                products_data = [
+                                    {
+                                        'sku': p['SKU'],
+                                        'product_name': p['Product'],
+                                        'return_rate': float(p['Return_Rate'].rstrip('%')) / 100,
+                                        'safety_risk': p['Safety_Risk']
+                                    }
+                                    for p in bulk_plans
+                                ]
+
+                                # Generate overall compliance report
+                                compliance_report = reg_analyzer.generate_compliance_report(
+                                    selected_markets,
+                                    products_data,
+                                    {'injury_reporting_required': [], 'ai_suggestions': []}  # Would aggregate all
+                                )
+
+                                with st.expander("📋 View Compliance Report", expanded=False):
+                                    st.markdown(compliance_report)
+
+                                st.download_button(
+                                    "📥 Download Compliance Report (Markdown)",
+                                    compliance_report,
+                                    file_name=f"regulatory_compliance_report_{datetime.now().strftime('%Y%m%d_%H%M')}.md",
+                                    mime="text/markdown",
+                                    key="compliance_report_download"
+                                )
 
                         except Exception as e:
                             st.error(f"Bulk plan generation failed: {e}")
-                            logger.error(f"Bulk plan error: {e}")
+                            logger.error(f"Bulk plan error: {e}", exc_info=True)
 
     # ========== END ADVANCED FEATURES ==========
 
