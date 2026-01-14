@@ -64,6 +64,10 @@ try:
     )
     from product_matching import ProductMatcher
     from regulatory_compliance import RegulatoryComplianceAnalyzer, REGULATORY_MARKETS
+    from quality_cases_dashboard import (
+        QualityCase, QualityCasesDashboard, REPORT_CRITERIA,
+        PRODUCT_DEVELOPMENT_FOCUS, generate_demo_cases
+    )
     AI_AVAILABLE = True
 except ImportError as e:
     AI_AVAILABLE = False
@@ -1293,6 +1297,206 @@ def generate_b2b_report(df, analyzer, batch_size):
 # TAB 3 LOGIC: Quality Screening (REBUILT)
 # -------------------------
 
+def render_quality_cases_dashboard():
+    """Render the Quality Cases Dashboard - Top 12 Active Cases"""
+
+    with st.expander("📊 **QUALITY TEAM DASHBOARD** - Top 12 Active Cases", expanded=True):
+        st.markdown("""
+        <div style="background: linear-gradient(90deg, rgba(35,178,190,0.15) 0%, rgba(35,178,190,0.03) 100%);
+                    border-left: 4px solid #004366; padding: 1.2rem; margin-bottom: 1.2rem; border-radius: 6px;">
+            <strong style="color: #23b2be; font-size: 1.2em; font-family: 'Poppins', sans-serif;">Active Cases Overview</strong><br>
+            <span style="font-family: 'Poppins', sans-serif;">Cases generated from three key reports: <strong>Returns Analysis</strong>, <strong>B2B Sales Feedback</strong>, and <strong>Carolina's Reviews Analysis</strong></span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Initialize dashboard with demo data
+        if 'quality_dashboard' not in st.session_state:
+            st.session_state.quality_dashboard = generate_demo_cases()
+
+        dashboard = st.session_state.quality_dashboard
+
+        # Monthly Summary Metrics
+        col1, col2, col3, col4 = st.columns(4)
+
+        summary = dashboard.get_monthly_summary()
+
+        with col1:
+            st.metric(
+                "Open Cases",
+                summary['total_open_cases'],
+                delta=None,
+                help="Total active quality cases being tracked"
+            )
+
+        with col2:
+            st.metric(
+                "Critical Priority",
+                summary['critical_cases'],
+                delta=None,
+                help="Cases requiring immediate attention"
+            )
+
+        with col3:
+            st.metric(
+                "High Priority",
+                summary['high_cases'],
+                delta=None,
+                help="Cases requiring urgent action"
+            )
+
+        with col4:
+            st.metric(
+                "Closed This Month",
+                summary['total_closed_cases'],
+                delta="+1" if summary['total_closed_cases'] > 0 else None,
+                delta_color="normal",
+                help="Cases successfully resolved"
+            )
+
+        st.markdown("---")
+
+        # Top 12 Cases Table
+        st.markdown("#### 📋 Top 12 Cases (Priority Ranked)")
+
+        cases_df = dashboard.generate_cases_dataframe()
+
+        if not cases_df.empty:
+            # Color code by priority
+            def highlight_priority(row):
+                priority = row['Priority']
+                if priority == 'Critical':
+                    return ['background-color: rgba(235,51,0,0.25); color: #004366; font-weight: 600; font-family: Poppins, sans-serif'] * len(row)
+                elif priority == 'High':
+                    return ['background-color: rgba(240,179,35,0.25); color: #004366; font-weight: 600; font-family: Poppins, sans-serif'] * len(row)
+                else:
+                    return ['background-color: rgba(35,178,190,0.12); color: #004366; font-family: Poppins, sans-serif'] * len(row)
+
+            st.dataframe(
+                cases_df.style.apply(highlight_priority, axis=1),
+                use_container_width=True,
+                height=450
+            )
+
+            st.markdown("""
+            <div style="background: rgba(35,178,190,0.08); border-left: 3px solid #23b2be; padding: 0.8rem; margin-top: 1rem; border-radius: 4px; font-family: 'Poppins', sans-serif;">
+                <strong style="color: #004366;">Priority Levels:</strong><br>
+                <span style="background: rgba(235,51,0,0.25); padding: 0.2rem 0.5rem; border-radius: 3px; margin-right: 0.5rem; color: #004366; font-weight: 600;">Critical</span> Safety risk or major financial impact<br>
+                <span style="background: rgba(240,179,35,0.25); padding: 0.2rem 0.5rem; border-radius: 3px; margin-right: 0.5rem; color: #004366; font-weight: 600;">High</span> Significant quality issue requiring prompt action<br>
+                <span style="background: rgba(35,178,190,0.12); padding: 0.2rem 0.5rem; border-radius: 3px; margin-right: 0.5rem; color: #004366;">Medium</span> Important issue to be addressed
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("---")
+
+        # Report Criteria Section
+        st.markdown("#### 📋 Resulting Criteria by Report Type")
+        st.caption("Cases are automatically generated when products meet these criteria")
+
+        tab1, tab2, tab3 = st.tabs(["📦 Returns Analysis", "🏢 B2B Sales Feedback", "⭐ Reviews Analysis"])
+
+        with tab1:
+            st.markdown(f"**{REPORT_CRITERIA['Returns Analysis']['description']}**")
+            st.markdown("**Case Generation Logic:** " + REPORT_CRITERIA['Returns Analysis']['case_trigger'])
+
+            for criterion in REPORT_CRITERIA['Returns Analysis']['criteria']:
+                if criterion['name'] == 'Category Return Rate Threshold':
+                    st.markdown(f"**{criterion['name']}**")
+                    st.markdown(f"*Logic:* {criterion['logic']}")
+
+                    # Show thresholds table
+                    threshold_data = []
+                    for category, threshold in criterion['thresholds'].items():
+                        threshold_data.append({
+                            'Category': category,
+                            'Threshold': threshold
+                        })
+                    st.dataframe(pd.DataFrame(threshold_data), use_container_width=True, height=250)
+                else:
+                    st.markdown(f"**{criterion['name']}:** {criterion['logic']}")
+
+        with tab2:
+            st.markdown(f"**{REPORT_CRITERIA['B2B Sales Feedback']['description']}**")
+            st.markdown("**Case Generation Logic:** " + REPORT_CRITERIA['B2B Sales Feedback']['case_trigger'])
+
+            for criterion in REPORT_CRITERIA['B2B Sales Feedback']['criteria']:
+                st.markdown(f"**{criterion['name']}:** {criterion['logic']}")
+
+        with tab3:
+            st.markdown(f"**{REPORT_CRITERIA['Reviews Analysis']['description']}**")
+            st.markdown("**Case Generation Logic:** " + REPORT_CRITERIA['Reviews Analysis']['case_trigger'])
+
+            for criterion in REPORT_CRITERIA['Reviews Analysis']['criteria']:
+                st.markdown(f"**{criterion['name']}:** {criterion['logic']}")
+
+        st.markdown("---")
+
+        # Product Development Focus Areas
+        st.markdown("#### 🎯 Product Development Focus Areas")
+        st.caption("Critical categories requiring heightened upfront quality attention")
+
+        focus_tab1, focus_tab2, focus_tab3 = st.tabs(["😷 CPAP Masks", "🔌 CPAP Machines", "💨 POC (Portable Oxygen)"])
+
+        with focus_tab1:
+            focus = PRODUCT_DEVELOPMENT_FOCUS['CPAP Masks']
+            st.markdown(f"**Why Focus:** {focus['why_focus']}")
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.markdown("**Key Quality Areas:**")
+                for area in focus['key_quality_areas']:
+                    st.markdown(f"- {area}")
+
+            with col2:
+                st.markdown("**Upfront Quality Actions:**")
+                for action in focus['upfront_quality_actions']:
+                    st.markdown(f"- {action}")
+
+            st.markdown("**Success Metrics:**")
+            for metric, value in focus['success_metrics'].items():
+                st.markdown(f"- **{metric.replace('_', ' ').title()}:** {value}")
+
+        with focus_tab2:
+            focus = PRODUCT_DEVELOPMENT_FOCUS['CPAP Machines']
+            st.markdown(f"**Why Focus:** {focus['why_focus']}")
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.markdown("**Key Quality Areas:**")
+                for area in focus['key_quality_areas']:
+                    st.markdown(f"- {area}")
+
+            with col2:
+                st.markdown("**Upfront Quality Actions:**")
+                for action in focus['upfront_quality_actions']:
+                    st.markdown(f"- {action}")
+
+            st.markdown("**Success Metrics:**")
+            for metric, value in focus['success_metrics'].items():
+                st.markdown(f"- **{metric.replace('_', ' ').title()}:** {value}")
+
+        with focus_tab3:
+            focus = PRODUCT_DEVELOPMENT_FOCUS['POC (Portable Oxygen Concentrators)']
+            st.markdown(f"**Why Focus:** {focus['why_focus']}")
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.markdown("**Key Quality Areas:**")
+                for area in focus['key_quality_areas']:
+                    st.markdown(f"- {area}")
+
+            with col2:
+                st.markdown("**Upfront Quality Actions:**")
+                for action in focus['upfront_quality_actions']:
+                    st.markdown(f"- {action}")
+
+            st.markdown("**Success Metrics:**")
+            for metric, value in focus['success_metrics'].items():
+                st.markdown(f"- **{metric.replace('_', ' ').title()}:** {value}")
+
+
 def render_comprehensive_user_guide():
     """Render comprehensive user guide with TQM methodology and actionable examples"""
 
@@ -1808,7 +2012,12 @@ def render_quality_screening_tab():
 
     # Comprehensive User Guide at Top
     render_comprehensive_user_guide()
-    
+
+    # --- QUALITY CASES DASHBOARD (NEW - Top 12 Active Cases) ---
+    render_quality_cases_dashboard()
+
+    st.divider()
+
     # --- SCREENING SESSION INFO (Who, When, Source) ---
     with st.expander("👤 Screening Session Info", expanded=True):
         col1, col2, col3 = st.columns(3)
