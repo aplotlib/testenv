@@ -58,23 +58,36 @@ class OdooInventoryParser:
             DataFrame with canonical schema
         """
         try:
-            # First, read without header to inspect structure
-            df_raw = pd.read_excel(file_content, sheet_name='Sheet1', header=None, nrows=10)
+            # First, try to detect sheet name
+            xl_file = pd.ExcelFile(file_content)
+            sheet_name = xl_file.sheet_names[0]  # Use first sheet if Sheet1 doesn't exist
 
-            # Find which row contains the headers by looking for 'SKU' column
+            # Read without header to inspect structure
+            df_raw = pd.read_excel(file_content, sheet_name=sheet_name, header=None, nrows=20)
+
+            # Find which row contains the headers by looking for 'SKU' or related column names
+            header_keywords = ['sku', 'product', 'asin', 'item']  # Keywords that indicate header row
             header_row = None
-            for idx in range(min(5, len(df_raw))):  # Check first 5 rows
+
+            for idx in range(min(20, len(df_raw))):  # Check first 20 rows
                 row_values = df_raw.iloc[idx].astype(str).str.strip().str.lower()
-                if 'sku' in row_values.values:
+                # Check if row contains multiple expected column keywords
+                keyword_matches = sum(1 for keyword in header_keywords if any(keyword in str(val) for val in row_values.values))
+
+                if keyword_matches >= 2:  # At least 2 keywords found (more robust detection)
                     header_row = idx
                     break
 
             if header_row is None:
-                raise ValueError("Could not find header row containing 'SKU' column")
+                # Provide detailed error with what was found
+                raise ValueError(
+                    f"Could not find header row containing expected columns (SKU, Product, ASIN, etc.)\n"
+                    f"First few rows:\n{df_raw.head(10).to_string()}"
+                )
 
             # Now read with correct header row
             file_content.seek(0)  # Reset file pointer
-            df = pd.read_excel(file_content, sheet_name='Sheet1', header=header_row)
+            df = pd.read_excel(file_content, sheet_name=sheet_name, header=header_row)
 
             # Clean column names (strip whitespace, handle encoding issues)
             df.columns = df.columns.str.strip()
