@@ -2229,6 +2229,783 @@ Be specific with numbers and timelines."""
                 st.markdown("</div>", unsafe_allow_html=True)
 
 
+# =====================================================
+# AI-ASSISTED QUALITY CASE SCREENING WIZARD
+# =====================================================
+
+# Default screening thresholds based on SOPs
+SCREENING_THRESHOLDS = {
+    'return_rate': {
+        'B2B': 0.025,
+        'INS': 0.07,
+        'RHB': 0.075,
+        'LVA': 0.095,
+        'MOB': 0.10,
+        'CSH': 0.105,
+        'SUP': 0.11,
+        'Other': 0.10
+    },
+    'ncx_rate': 0.02,  # 2% NCX rate threshold
+    'star_rating': 3.8,  # Below this triggers review
+    'cost_threshold': 10000,  # Annual cost threshold for priority
+    'ncx_orders_min': 10,  # Minimum NCX orders to consider
+    'safety_keywords': ['brake', 'fall', 'collapse', 'unstable', 'shock', 'burn', 'injury', 'hazard', 'dangerous', 'unsafe', 'cut', 'pinch', 'trap']
+}
+
+# Priority scoring weights
+PRIORITY_WEIGHTS = {
+    'safety_risk': 40,
+    'financial_impact': 25,
+    'return_rate_severity': 20,
+    'customer_volume': 10,
+    'brand_risk': 5
+}
+
+
+def render_ai_screening_wizard(tracker):
+    """
+    AI-Assisted Quality Case Screening Wizard
+
+    Guides user through SOP-based screening with AI recommendations.
+    Populates Smartsheet-compatible case data with priority assessment.
+    """
+
+    # Initialize wizard state
+    if 'wizard_state' not in st.session_state:
+        st.session_state.wizard_state = {
+            'step': 0,
+            'case_data': {},
+            'ai_recommendation': None,
+            'priority_score': 0,
+            'override_requested': False,
+            'thresholds': SCREENING_THRESHOLDS.copy()
+        }
+
+    wizard = st.session_state.wizard_state
+
+    # Wizard Header
+    st.markdown("""
+    <div style="background: linear-gradient(135deg, #8e44ad 0%, #3498db 100%);
+                padding: 1.5rem; border-radius: 10px; margin: 1rem 0;
+                box-shadow: 0 4px 8px rgba(0,0,0,0.15);">
+        <h3 style="color: white; font-family: 'Poppins', sans-serif; margin-bottom: 0.5rem; font-weight: 600;">
+            🧙‍♂️ AI-Assisted Quality Case Screening Wizard
+        </h3>
+        <p style="color: rgba(255,255,255,0.9); font-family: 'Poppins', sans-serif; font-size: 0.95em; margin: 0;">
+            Step-by-step SOP-guided case creation with AI priority recommendations
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Expandable wizard content
+    with st.expander("🚀 Start New Case Screening", expanded=wizard['step'] > 0):
+
+        # Progress indicator
+        steps = ["📋 Flag Source", "📊 Product & Metrics", "🔍 Issue Analysis", "📝 Action Planning", "🎯 Priority Review"]
+        current_step = wizard['step']
+
+        # Progress bar
+        progress_cols = st.columns(len(steps))
+        for i, (col, step_name) in enumerate(zip(progress_cols, steps)):
+            with col:
+                if i < current_step:
+                    st.markdown(f"<div style='text-align:center; color:#27ae60; font-size:0.8em;'>✅ {step_name}</div>", unsafe_allow_html=True)
+                elif i == current_step:
+                    st.markdown(f"<div style='text-align:center; color:#3498db; font-weight:bold; font-size:0.85em;'>➡️ {step_name}</div>", unsafe_allow_html=True)
+                else:
+                    st.markdown(f"<div style='text-align:center; color:#95a5a6; font-size:0.8em;'>⏳ {step_name}</div>", unsafe_allow_html=True)
+
+        st.markdown("---")
+
+        # ==================== STEP 0: FLAG SOURCE ====================
+        if current_step == 0:
+            st.markdown("### 📋 Step 1: Flag Source & Initial Assessment")
+            st.markdown("""
+            <div style="background: rgba(52,152,219,0.1); border-left: 4px solid #3498db; padding: 1rem; margin: 1rem 0; border-radius: 4px;">
+                <strong>SOP Question:</strong> What triggered this quality flag? Understanding the source helps determine the investigation approach.
+            </div>
+            """, unsafe_allow_html=True)
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                flag_source = st.selectbox(
+                    "Primary Flag Source*",
+                    ["Returns Analysis", "B2B Sales Feedback", "Reviews Analysis", "Customer Service Escalation", "Internal QA Audit", "Regulatory Alert", "Other"],
+                    key="wiz_flag_source",
+                    help="Which report or source identified this potential quality issue?"
+                )
+
+                flag_source_detail = st.text_input(
+                    "Flag Source Detail (Internal)",
+                    placeholder="e.g., High Return Rate, Badge Warning, Customer Complaint",
+                    key="wiz_flag_detail",
+                    help="Specific trigger within the flag source"
+                )
+
+            with col2:
+                flag_date = st.date_input(
+                    "Date Flag Identified",
+                    value=datetime.now().date(),
+                    key="wiz_flag_date"
+                )
+
+                urgency = st.selectbox(
+                    "Initial Urgency Assessment",
+                    ["🔴 Critical - Safety/Regulatory", "🟠 High - Financial Impact", "🟡 Medium - Quality Concern", "🟢 Low - Monitoring"],
+                    key="wiz_urgency"
+                )
+
+            st.markdown("#### 💡 AI Context Helper")
+            if st.button("🤖 Get AI Guidance for This Flag Source", key="ai_flag_help"):
+                if tracker.ai_analyzer:
+                    with st.spinner("AI analyzing flag source..."):
+                        prompt = f"""Based on this quality flag source, provide brief guidance:
+
+Flag Source: {flag_source}
+Detail: {flag_source_detail or 'Not specified'}
+Urgency: {urgency}
+
+Provide:
+1. What data should be gathered next (2-3 bullet points)
+2. Key questions to investigate
+3. Typical root causes for this flag type
+
+Keep response under 150 words."""
+
+                        guidance = tracker.ai_analyzer.generate_text(
+                            prompt,
+                            "You are a medical device quality expert following FDA 21 CFR 820 and ISO 13485 guidelines.",
+                            mode='chat'
+                        )
+                        st.info(guidance)
+                else:
+                    st.warning("AI analyzer not available. Continue with manual entry.")
+
+            col_nav1, col_nav2 = st.columns([3, 1])
+            with col_nav2:
+                if st.button("Next →", key="step0_next", type="primary", use_container_width=True):
+                    wizard['case_data']['flag_source'] = flag_source
+                    wizard['case_data']['flag_source_1'] = flag_source_detail
+                    wizard['case_data']['flag_date'] = flag_date
+                    wizard['case_data']['urgency'] = urgency
+                    wizard['step'] = 1
+                    st.rerun()
+
+        # ==================== STEP 1: PRODUCT & METRICS ====================
+        elif current_step == 1:
+            st.markdown("### 📊 Step 2: Product Information & Quality Metrics")
+            st.markdown("""
+            <div style="background: rgba(52,152,219,0.1); border-left: 4px solid #3498db; padding: 1rem; margin: 1rem 0; border-radius: 4px;">
+                <strong>SOP Question:</strong> What product is affected and what are the current quality metrics?
+            </div>
+            """, unsafe_allow_html=True)
+
+            st.markdown("##### Product Identification")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                product_name = st.text_input("Product Name*", placeholder="e.g., Vive Knee Scooter", key="wiz_product")
+            with col2:
+                sku = st.text_input("SKU*", placeholder="e.g., MOB-1234", key="wiz_sku")
+            with col3:
+                asin = st.text_input("ASIN", placeholder="e.g., B07XXXXXXX", key="wiz_asin")
+
+            col4, col5, col6 = st.columns(3)
+            with col4:
+                category = st.selectbox(
+                    "Product Category",
+                    ["MOB (Mobility)", "SUP (Support)", "RHB (Rehabilitation)", "LVA (Living Aids)",
+                     "CSH (Cushions)", "INS (Insoles)", "B2B", "Other"],
+                    key="wiz_category"
+                )
+            with col5:
+                sales_channel = st.selectbox("Main Sales Channel", ["Amazon", "B2B", "Direct", "Multi-Channel"], key="wiz_channel")
+            with col6:
+                fulfilled_by = st.selectbox("Fulfilled By", ["FBA", "FBM", "Direct Ship", "Hybrid"], key="wiz_fulfilled")
+
+            st.markdown("##### Quality Metrics")
+            st.caption("Enter current metrics - these will be compared against SOP thresholds")
+
+            col7, col8, col9, col10 = st.columns(4)
+            with col7:
+                return_rate = st.number_input(
+                    "Return Rate Amazon (%)",
+                    min_value=0.0, max_value=100.0, value=0.0, step=0.1,
+                    key="wiz_return_rate",
+                    help="Current Amazon return rate as percentage"
+                )
+            with col8:
+                return_rate_b2b = st.number_input(
+                    "Return Rate B2B (%)",
+                    min_value=0.0, max_value=100.0, value=0.0, step=0.1,
+                    key="wiz_return_rate_b2b"
+                )
+            with col9:
+                ncx_rate = st.number_input(
+                    "NCX Rate (%)",
+                    min_value=0.0, max_value=100.0, value=0.0, step=0.1,
+                    key="wiz_ncx_rate",
+                    help="Negative Customer Experience rate"
+                )
+            with col10:
+                star_rating = st.number_input(
+                    "Star Rating",
+                    min_value=1.0, max_value=5.0, value=4.5, step=0.1,
+                    key="wiz_star_rating"
+                )
+
+            col11, col12, col13 = st.columns(3)
+            with col11:
+                ncx_orders = st.number_input("NCX Orders (count)", min_value=0, value=0, key="wiz_ncx_orders")
+            with col12:
+                total_orders = st.number_input("Total Orders (t30)", min_value=0, value=0, key="wiz_total_orders")
+            with col13:
+                badge_displayed = st.selectbox("Return Badge Displayed?", ["No", "Yes", "Unknown"], key="wiz_badge")
+
+            # Real-time threshold check
+            st.markdown("##### 🎯 Real-Time Threshold Analysis")
+            cat_code = category.split(" ")[0] if " " in category else category
+            threshold = wizard['thresholds']['return_rate'].get(cat_code, wizard['thresholds']['return_rate']['Other'])
+
+            col_thresh1, col_thresh2, col_thresh3 = st.columns(3)
+            with col_thresh1:
+                if return_rate > 0:
+                    if return_rate / 100 > threshold:
+                        st.error(f"⚠️ Return Rate {return_rate}% EXCEEDS threshold ({threshold*100}%)")
+                    else:
+                        st.success(f"✅ Return Rate {return_rate}% within threshold ({threshold*100}%)")
+            with col_thresh2:
+                if ncx_rate > 0:
+                    if ncx_rate / 100 > wizard['thresholds']['ncx_rate']:
+                        st.error(f"⚠️ NCX Rate {ncx_rate}% EXCEEDS threshold ({wizard['thresholds']['ncx_rate']*100}%)")
+                    else:
+                        st.success(f"✅ NCX Rate within threshold")
+            with col_thresh3:
+                if star_rating < wizard['thresholds']['star_rating']:
+                    st.warning(f"⚠️ Star Rating {star_rating} below {wizard['thresholds']['star_rating']}")
+                else:
+                    st.success(f"✅ Star Rating acceptable")
+
+            col_nav1, col_nav2, col_nav3 = st.columns([1, 2, 1])
+            with col_nav1:
+                if st.button("← Back", key="step1_back", use_container_width=True):
+                    wizard['step'] = 0
+                    st.rerun()
+            with col_nav3:
+                if st.button("Next →", key="step1_next", type="primary", use_container_width=True):
+                    if not product_name or not sku:
+                        st.error("Product Name and SKU are required")
+                    else:
+                        wizard['case_data']['product_name'] = product_name
+                        wizard['case_data']['sku'] = sku
+                        wizard['case_data']['asin'] = asin
+                        wizard['case_data']['category'] = category
+                        wizard['case_data']['sales_channel'] = sales_channel
+                        wizard['case_data']['fulfilled_by'] = fulfilled_by
+                        wizard['case_data']['return_rate'] = return_rate / 100
+                        wizard['case_data']['return_rate_b2b'] = return_rate_b2b / 100
+                        wizard['case_data']['ncx_rate'] = ncx_rate / 100
+                        wizard['case_data']['star_rating'] = star_rating
+                        wizard['case_data']['ncx_orders'] = ncx_orders
+                        wizard['case_data']['total_orders'] = total_orders
+                        wizard['case_data']['badge_displayed'] = badge_displayed
+                        wizard['step'] = 2
+                        st.rerun()
+
+        # ==================== STEP 2: ISSUE ANALYSIS ====================
+        elif current_step == 2:
+            st.markdown("### 🔍 Step 3: Issue Analysis & Root Cause Investigation")
+            st.markdown("""
+            <div style="background: rgba(52,152,219,0.1); border-left: 4px solid #3498db; padding: 1rem; margin: 1rem 0; border-radius: 4px;">
+                <strong>SOP Questions:</strong>
+                <ul style="margin: 0.5rem 0 0 0; padding-left: 1.5rem;">
+                    <li>Are there actionable return reasons/complaints/negative reviews?</li>
+                    <li>What are the top 3 issues identified?</li>
+                    <li>Is this a safety concern?</li>
+                </ul>
+            </div>
+            """, unsafe_allow_html=True)
+
+            st.markdown("##### Top Issues Identified")
+            st.caption("List the primary quality issues from returns/reviews/complaints")
+
+            top_issues = st.text_area(
+                "Top Issue(s)*",
+                placeholder="Enter the main quality issues identified, e.g.:\n1. Wheel locking mechanism fails after 2-3 months\n2. Paint peeling on handlebars\n3. Assembly instructions unclear",
+                height=120,
+                key="wiz_top_issues",
+                help="Be specific - these will be used for AI analysis and tracking"
+            )
+
+            st.markdown("##### Issue Classification")
+            col1, col2 = st.columns(2)
+            with col1:
+                actionable = st.radio(
+                    "Are these actionable issues?",
+                    ["Yes - Clear corrective action possible", "Partially - Some aspects actionable", "No - Cosmetic/preference issues", "Needs Investigation"],
+                    key="wiz_actionable"
+                )
+
+                issue_trend = st.selectbox(
+                    "Issue Trend",
+                    ["New - First occurrence", "Recurring - Seen before", "Worsening - Getting worse", "Improving - Getting better", "Stable - No change"],
+                    key="wiz_trend"
+                )
+
+            with col2:
+                # Safety keyword detection
+                safety_detected = False
+                if top_issues:
+                    for keyword in wizard['thresholds']['safety_keywords']:
+                        if keyword.lower() in top_issues.lower():
+                            safety_detected = True
+                            break
+
+                if safety_detected:
+                    st.error("⚠️ **SAFETY KEYWORDS DETECTED** - This case requires immediate attention")
+                    safety_concern = st.selectbox(
+                        "Confirm Safety Classification",
+                        ["🔴 CONFIRMED SAFETY ISSUE", "🟠 Potential Safety Concern", "🟢 False Positive - Not Safety Related"],
+                        key="wiz_safety"
+                    )
+                else:
+                    safety_concern = st.selectbox(
+                        "Safety Classification",
+                        ["🟢 No Safety Concern", "🟠 Potential Safety Concern", "🔴 CONFIRMED SAFETY ISSUE"],
+                        key="wiz_safety"
+                    )
+
+                issue_source = st.multiselect(
+                    "Issue Evidence Sources",
+                    ["Amazon Returns Data", "Customer Reviews", "B2B Feedback", "Customer Service Tickets", "QA Inspection", "Regulatory Report"],
+                    key="wiz_evidence"
+                )
+
+            st.markdown("##### 🤖 AI Issue Analysis")
+            if st.button("Analyze Issues with AI", key="ai_analyze_issues"):
+                if tracker.ai_analyzer and top_issues:
+                    with st.spinner("AI analyzing issues..."):
+                        prompt = f"""Analyze these quality issues for a medical device product:
+
+Product: {wizard['case_data'].get('product_name', 'Unknown')} ({wizard['case_data'].get('sku', 'Unknown')})
+Category: {wizard['case_data'].get('category', 'Unknown')}
+Return Rate: {wizard['case_data'].get('return_rate', 0)*100:.1f}%
+
+Top Issues Reported:
+{top_issues}
+
+Provide:
+1. **Root Cause Hypothesis** (most likely 2-3 causes)
+2. **Severity Assessment** (Critical/High/Medium/Low)
+3. **Recommended Investigation Steps** (3-4 specific actions)
+4. **Similar Historical Patterns** (common in this product category?)
+
+Keep response concise and actionable."""
+
+                        analysis = tracker.ai_analyzer.generate_text(
+                            prompt,
+                            "You are a medical device quality engineer with expertise in root cause analysis and CAPA processes.",
+                            mode='chat'
+                        )
+
+                        st.markdown("""
+                        <div style="background: #f8f9fa; border: 2px solid #8e44ad; padding: 1rem; border-radius: 8px; margin: 1rem 0;">
+                        """, unsafe_allow_html=True)
+                        st.markdown(analysis)
+                        st.markdown("</div>", unsafe_allow_html=True)
+
+                        wizard['case_data']['ai_analysis'] = analysis
+                elif not top_issues:
+                    st.warning("Please enter top issues first")
+                else:
+                    st.warning("AI analyzer not available")
+
+            col_nav1, col_nav2, col_nav3 = st.columns([1, 2, 1])
+            with col_nav1:
+                if st.button("← Back", key="step2_back", use_container_width=True):
+                    wizard['step'] = 1
+                    st.rerun()
+            with col_nav3:
+                if st.button("Next →", key="step2_next", type="primary", use_container_width=True):
+                    if not top_issues:
+                        st.error("Please enter the top issues")
+                    else:
+                        wizard['case_data']['top_issues'] = top_issues
+                        wizard['case_data']['actionable'] = actionable
+                        wizard['case_data']['issue_trend'] = issue_trend
+                        wizard['case_data']['safety_concern'] = safety_concern
+                        wizard['case_data']['issue_sources'] = issue_source
+                        wizard['step'] = 3
+                        st.rerun()
+
+        # ==================== STEP 3: ACTION PLANNING ====================
+        elif current_step == 3:
+            st.markdown("### 📝 Step 4: Action Planning & Notifications")
+            st.markdown("""
+            <div style="background: rgba(52,152,219,0.1); border-left: 4px solid #3498db; padding: 1rem; margin: 1rem 0; border-radius: 4px;">
+                <strong>SOP Questions:</strong>
+                <ul style="margin: 0.5rem 0 0 0; padding-left: 1.5rem;">
+                    <li>What is our plan to address these issues?</li>
+                    <li>Who needs to be notified?</li>
+                    <li>What is the follow-up timeline?</li>
+                </ul>
+            </div>
+            """, unsafe_allow_html=True)
+
+            st.markdown("##### Planned Actions")
+            action_taken = st.text_area(
+                "Action Plan / Actions Taken",
+                placeholder="Describe the corrective actions planned or already taken:\n• Contacted supplier about wheel mechanism\n• Initiated quality hold on current inventory\n• Scheduled engineering review",
+                height=100,
+                key="wiz_action"
+            )
+
+            col1, col2 = st.columns(2)
+            with col1:
+                action_date = st.date_input("Date Action Taken/Planned", value=datetime.now().date(), key="wiz_action_date")
+                follow_up_date = st.date_input(
+                    "Follow-Up Date",
+                    value=datetime.now().date() + timedelta(days=30),
+                    key="wiz_followup"
+                )
+
+            with col2:
+                case_status = st.selectbox(
+                    "Case Status",
+                    ["Open - New", "Open - In Progress", "Open - Awaiting Response", "Monitoring", "Closed - Resolved", "Closed - No Action"],
+                    key="wiz_status"
+                )
+
+            st.markdown("##### Notifications")
+            col3, col4 = st.columns(2)
+            with col3:
+                listing_notified = st.selectbox("Listing Manager Notified?", ["No", "Yes", "N/A"], key="wiz_listing")
+            with col4:
+                product_dev_notified = st.selectbox("Product Dev Notified?", ["No", "Yes", "N/A"], key="wiz_proddev")
+
+            notification_notes = st.text_area(
+                "Notification Notes / Additional Comments",
+                placeholder="Any additional context, escalation notes, or communication details",
+                height=80,
+                key="wiz_notes"
+            )
+
+            st.markdown("##### Financial Impact (Leadership Only)")
+            show_financial = st.checkbox("Include Financial Data", value=st.session_state.get('show_leadership_fields', False), key="wiz_show_financial")
+
+            if show_financial:
+                col5, col6 = st.columns(2)
+                with col5:
+                    cost_of_refunds = st.number_input(
+                        "Cost of Refunds (Annualized $)",
+                        min_value=0.0, value=0.0, step=100.0,
+                        key="wiz_cost"
+                    )
+                with col6:
+                    savings_captured = st.number_input(
+                        "12m Savings Captured ($)",
+                        min_value=0.0, value=0.0, step=100.0,
+                        key="wiz_savings"
+                    )
+            else:
+                cost_of_refunds = 0.0
+                savings_captured = 0.0
+
+            # AI Action Recommendation
+            if st.button("🤖 Get AI Action Recommendations", key="ai_action_rec"):
+                if tracker.ai_analyzer:
+                    with st.spinner("Generating recommendations..."):
+                        prompt = f"""Based on this quality case, recommend specific actions:
+
+Product: {wizard['case_data'].get('product_name')} ({wizard['case_data'].get('sku')})
+Issues: {wizard['case_data'].get('top_issues')}
+Safety Level: {wizard['case_data'].get('safety_concern')}
+Return Rate: {wizard['case_data'].get('return_rate', 0)*100:.1f}%
+Current Plan: {action_taken or 'None specified'}
+
+Provide:
+1. **Immediate Actions** (within 24-48 hours)
+2. **Short-term Actions** (within 1-2 weeks)
+3. **Long-term Prevention** (process/design changes)
+4. **Stakeholders to Notify** (specific roles)
+
+Be specific and actionable."""
+
+                        recommendations = tracker.ai_analyzer.generate_text(
+                            prompt,
+                            "You are a quality management expert specializing in CAPA and corrective actions for medical devices.",
+                            mode='chat'
+                        )
+                        st.info(recommendations)
+
+            col_nav1, col_nav2, col_nav3 = st.columns([1, 2, 1])
+            with col_nav1:
+                if st.button("← Back", key="step3_back", use_container_width=True):
+                    wizard['step'] = 2
+                    st.rerun()
+            with col_nav3:
+                if st.button("Next →", key="step3_next", type="primary", use_container_width=True):
+                    wizard['case_data']['action_taken'] = action_taken
+                    wizard['case_data']['action_date'] = action_date
+                    wizard['case_data']['follow_up_date'] = follow_up_date
+                    wizard['case_data']['case_status'] = case_status
+                    wizard['case_data']['listing_notified'] = listing_notified
+                    wizard['case_data']['product_dev_notified'] = product_dev_notified
+                    wizard['case_data']['notification_notes'] = notification_notes
+                    wizard['case_data']['cost_of_refunds'] = cost_of_refunds
+                    wizard['case_data']['savings_captured'] = savings_captured
+                    wizard['step'] = 4
+                    st.rerun()
+
+        # ==================== STEP 4: PRIORITY REVIEW & SUBMISSION ====================
+        elif current_step == 4:
+            st.markdown("### 🎯 Step 5: AI Priority Assessment & Case Submission")
+
+            # Calculate priority score
+            data = wizard['case_data']
+            priority_score = 0
+            priority_factors = []
+
+            # Safety risk (40 points max)
+            if '🔴' in data.get('safety_concern', ''):
+                priority_score += 40
+                priority_factors.append(("🔴 Safety Issue Confirmed", 40))
+            elif '🟠' in data.get('safety_concern', ''):
+                priority_score += 25
+                priority_factors.append(("🟠 Potential Safety Concern", 25))
+
+            # Return rate severity (20 points max)
+            cat_code = data.get('category', 'Other').split(" ")[0]
+            threshold = wizard['thresholds']['return_rate'].get(cat_code, 0.10)
+            return_rate = data.get('return_rate', 0)
+            if return_rate > 0:
+                exceedance = (return_rate - threshold) / threshold if threshold > 0 else 0
+                if exceedance > 0.5:  # 50%+ over threshold
+                    priority_score += 20
+                    priority_factors.append((f"Return Rate {exceedance*100:.0f}% over threshold", 20))
+                elif exceedance > 0.25:
+                    priority_score += 15
+                    priority_factors.append((f"Return Rate {exceedance*100:.0f}% over threshold", 15))
+                elif exceedance > 0:
+                    priority_score += 10
+                    priority_factors.append((f"Return Rate above threshold", 10))
+
+            # Financial impact (25 points max)
+            cost = data.get('cost_of_refunds', 0)
+            if cost >= 50000:
+                priority_score += 25
+                priority_factors.append((f"High Financial Impact (${cost:,.0f})", 25))
+            elif cost >= 25000:
+                priority_score += 18
+                priority_factors.append((f"Moderate Financial Impact (${cost:,.0f})", 18))
+            elif cost >= 10000:
+                priority_score += 12
+                priority_factors.append((f"Financial Impact (${cost:,.0f})", 12))
+
+            # Customer volume (10 points max)
+            ncx_orders = data.get('ncx_orders', 0)
+            if ncx_orders >= 100:
+                priority_score += 10
+                priority_factors.append((f"High NCX Volume ({ncx_orders} orders)", 10))
+            elif ncx_orders >= 50:
+                priority_score += 7
+                priority_factors.append((f"Moderate NCX Volume ({ncx_orders} orders)", 7))
+            elif ncx_orders >= 20:
+                priority_score += 4
+                priority_factors.append((f"NCX Volume ({ncx_orders} orders)", 4))
+
+            # Star rating impact (5 points max)
+            star = data.get('star_rating', 5.0)
+            if star < 3.5:
+                priority_score += 5
+                priority_factors.append((f"Low Star Rating ({star})", 5))
+            elif star < 3.8:
+                priority_score += 3
+                priority_factors.append((f"Below Target Star Rating ({star})", 3))
+
+            # Determine priority level
+            if priority_score >= 70:
+                priority_level = "🔴 CRITICAL"
+                priority_num = 1
+                should_add = True
+            elif priority_score >= 50:
+                priority_level = "🟠 HIGH"
+                priority_num = 2
+                should_add = True
+            elif priority_score >= 30:
+                priority_level = "🟡 MEDIUM"
+                priority_num = 3
+                should_add = True
+            else:
+                priority_level = "🟢 LOW"
+                priority_num = 4
+                should_add = False
+
+            wizard['priority_score'] = priority_score
+
+            # Display priority assessment
+            st.markdown(f"""
+            <div style="background: linear-gradient(135deg, {'#e74c3c' if priority_score >= 70 else '#f39c12' if priority_score >= 50 else '#f1c40f' if priority_score >= 30 else '#27ae60'} 0%,
+                        {'#c0392b' if priority_score >= 70 else '#d68910' if priority_score >= 50 else '#d4ac0d' if priority_score >= 30 else '#1e8449'} 100%);
+                        padding: 1.5rem; border-radius: 10px; margin: 1rem 0; text-align: center;">
+                <h2 style="color: white; margin: 0;">AI Priority Assessment: {priority_level}</h2>
+                <h3 style="color: rgba(255,255,255,0.9); margin: 0.5rem 0;">Score: {priority_score}/100</h3>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Show scoring breakdown
+            with st.expander("📊 Priority Score Breakdown", expanded=True):
+                for factor, points in priority_factors:
+                    st.markdown(f"• **{factor}**: +{points} points")
+                if not priority_factors:
+                    st.info("No significant risk factors identified")
+
+            # Case summary
+            st.markdown("##### 📋 Case Summary")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown(f"""
+                **Product:** {data.get('product_name')} ({data.get('sku')})
+                **Category:** {data.get('category')}
+                **Flag Source:** {data.get('flag_source')}
+                **Return Rate:** {data.get('return_rate', 0)*100:.1f}%
+                **Star Rating:** {data.get('star_rating', 'N/A')}
+                """)
+            with col2:
+                st.markdown(f"""
+                **Safety Level:** {data.get('safety_concern')}
+                **Status:** {data.get('case_status')}
+                **Follow-up:** {data.get('follow_up_date')}
+                **Cost Impact:** ${data.get('cost_of_refunds', 0):,.0f}
+                """)
+
+            st.markdown(f"**Top Issues:** {data.get('top_issues', 'Not specified')[:200]}...")
+
+            # AI recommendation
+            if not should_add:
+                st.markdown("""
+                <div style="background: rgba(46,204,113,0.1); border: 2px solid #27ae60; padding: 1rem; border-radius: 8px; margin: 1rem 0;">
+                    <h4 style="color: #27ae60; margin: 0;">🤖 AI Recommendation: MONITOR ONLY</h4>
+                    <p style="margin: 0.5rem 0 0 0;">Based on current metrics, this case does not meet the threshold for priority tracking.
+                    Consider monitoring and re-evaluating if metrics worsen.</p>
+                </div>
+                """, unsafe_allow_html=True)
+
+                override = st.checkbox("⚠️ Override AI recommendation and add to tracker anyway", key="wiz_override")
+                if override:
+                    override_reason = st.text_input("Reason for override*", placeholder="e.g., Executive request, Customer escalation", key="wiz_override_reason")
+                    should_add = True
+                    data['override_reason'] = override_reason
+            else:
+                st.markdown(f"""
+                <div style="background: rgba(231,76,60,0.1); border: 2px solid #e74c3c; padding: 1rem; border-radius: 8px; margin: 1rem 0;">
+                    <h4 style="color: #e74c3c; margin: 0;">🤖 AI Recommendation: ADD TO PRIORITY TRACKER</h4>
+                    <p style="margin: 0.5rem 0 0 0;">This case meets criteria for priority tracking based on the factors above.</p>
+                </div>
+                """, unsafe_allow_html=True)
+
+            # Threshold configuration
+            with st.expander("⚙️ Adjust Screening Thresholds", expanded=False):
+                st.caption("Modify thresholds for this screening session")
+
+                thresh_col1, thresh_col2 = st.columns(2)
+                with thresh_col1:
+                    st.markdown("**Return Rate Thresholds by Category:**")
+                    for cat, thresh in wizard['thresholds']['return_rate'].items():
+                        new_thresh = st.number_input(
+                            f"{cat} (%)",
+                            min_value=0.0, max_value=50.0,
+                            value=thresh * 100,
+                            step=0.5,
+                            key=f"thresh_{cat}"
+                        )
+                        wizard['thresholds']['return_rate'][cat] = new_thresh / 100
+
+                with thresh_col2:
+                    st.markdown("**Other Thresholds:**")
+                    wizard['thresholds']['ncx_rate'] = st.number_input(
+                        "NCX Rate Threshold (%)",
+                        min_value=0.0, max_value=20.0,
+                        value=wizard['thresholds']['ncx_rate'] * 100,
+                        step=0.5,
+                        key="thresh_ncx"
+                    ) / 100
+
+                    wizard['thresholds']['star_rating'] = st.number_input(
+                        "Star Rating Threshold",
+                        min_value=1.0, max_value=5.0,
+                        value=wizard['thresholds']['star_rating'],
+                        step=0.1,
+                        key="thresh_star"
+                    )
+
+                    wizard['thresholds']['cost_threshold'] = st.number_input(
+                        "Cost Threshold ($)",
+                        min_value=0, max_value=100000,
+                        value=int(wizard['thresholds']['cost_threshold']),
+                        step=1000,
+                        key="thresh_cost"
+                    )
+
+                if st.button("🔄 Recalculate Priority with New Thresholds", key="recalc_priority"):
+                    st.rerun()
+
+            # Navigation and submission
+            st.markdown("---")
+            col_nav1, col_nav2, col_nav3 = st.columns([1, 1, 2])
+            with col_nav1:
+                if st.button("← Back", key="step4_back", use_container_width=True):
+                    wizard['step'] = 3
+                    st.rerun()
+            with col_nav2:
+                if st.button("🗑️ Cancel", key="step4_cancel", use_container_width=True):
+                    wizard['step'] = 0
+                    wizard['case_data'] = {}
+                    st.rerun()
+            with col_nav3:
+                submit_label = "✅ Add to Priority Tracker" if should_add else "📋 Add to Tracker (Override)"
+                if st.button(submit_label, key="step4_submit", type="primary", use_container_width=True, disabled=not should_add):
+                    # Create the case
+                    new_case = QualityTrackerCase()
+                    new_case.priority = priority_num
+                    new_case.product_name = data.get('product_name', '')
+                    new_case.main_sales_channel = data.get('sales_channel', '')
+                    new_case.asin = data.get('asin', '')
+                    new_case.sku = data.get('sku', '')
+                    new_case.fulfilled_by = data.get('fulfilled_by', '')
+                    new_case.ncx_rate = data.get('ncx_rate')
+                    new_case.ncx_orders = data.get('ncx_orders')
+                    new_case.total_orders_t30 = data.get('total_orders')
+                    new_case.star_rating_amazon = data.get('star_rating')
+                    new_case.return_rate_amazon = data.get('return_rate')
+                    new_case.return_rate_b2b = data.get('return_rate_b2b')
+                    new_case.flag_source_1 = data.get('flag_source_1', '')
+                    new_case.return_badge_displayed = data.get('badge_displayed', '')
+                    new_case.notification_notes = data.get('notification_notes', '')
+                    new_case.top_issues = data.get('top_issues', '')
+                    new_case.cost_of_refunds_annualized = data.get('cost_of_refunds')
+                    new_case.savings_captured_12m = data.get('savings_captured')
+                    new_case.action_taken = data.get('action_taken', '')
+                    new_case.date_action_taken = data.get('action_date')
+                    new_case.listing_manager_notified = data.get('listing_notified', '')
+                    new_case.product_dev_notified = data.get('product_dev_notified', '')
+                    new_case.flag_source = data.get('flag_source', '')
+                    new_case.follow_up_date = data.get('follow_up_date')
+                    new_case.case_status = data.get('case_status', 'Open - New')
+
+                    # Add to tracker
+                    tracker.add_case(new_case)
+                    st.session_state.tracker_cases = tracker.cases
+
+                    # Reset wizard
+                    wizard['step'] = 0
+                    wizard['case_data'] = {}
+
+                    st.success(f"✅ Case added to tracker: {new_case.product_name} ({new_case.sku}) - Priority: {priority_level}")
+                    st.balloons()
+                    st.rerun()
+
+
 def render_quality_cases_dashboard():
     """Render the Quality Tracker Dashboard - Manual Entry with Leadership/Company Wide Exports"""
 
@@ -2679,6 +3456,13 @@ def render_quality_cases_dashboard():
                     )
 
             st.markdown("---")
+
+        # =====================================================
+        # AI-ASSISTED QUALITY CASE SCREENING WIZARD
+        # =====================================================
+        render_ai_screening_wizard(tracker)
+
+        st.markdown("---")
 
         # Manual Entry Form
         st.markdown("#### ➕ Add New Quality Case")
