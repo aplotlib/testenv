@@ -17,17 +17,19 @@ import io
 logger = logging.getLogger(__name__)
 
 
-# Leadership-only column names (6 sensitive columns)
+# Leadership-only column names (7 sensitive columns)
 LEADERSHIP_ONLY_COLUMNS = [
     'Priority',
     'Total orders (t30)',
     'Flag Source 1',
     'Cost of Refunds (Annualized)',
     '12m Savings Captured (based on rr% reduction)',
-    'Case Status'
+    'Case Status',
+    'Financial Impact'
 ]
 
-# All 31 column names in exact order (Leadership version)
+# All 35 column names in exact order (Leadership version)
+# Based on actual Tracker_ Priority List (Leadership) template
 ALL_COLUMNS_LEADERSHIP = [
     'Priority',  # 1 - LEADERSHIP ONLY
     'Product name',  # 2
@@ -59,7 +61,11 @@ ALL_COLUMNS_LEADERSHIP = [
     'Result 2 Date',  # 28
     'Top Issue(s) Change',  # 29
     'Top Issue(s) Change Date',  # 30
-    'Case Status'  # 31 - LEADERSHIP ONLY
+    'Case Status',  # 31 - LEADERSHIP ONLY
+    'Financial Impact',  # 32 - LEADERSHIP ONLY (FINANCIAL)
+    'Total Defective Inventory',  # 33
+    'Estimated Completion date',  # 34
+    'Completion Date (Actual)'  # 35
 ]
 
 # 25 columns for Company Wide (excludes 6 leadership columns)
@@ -67,7 +73,7 @@ ALL_COLUMNS_COMPANY_WIDE = [col for col in ALL_COLUMNS_LEADERSHIP if col not in 
 
 
 class QualityTrackerCase:
-    """Represents a single quality tracker case"""
+    """Represents a single quality tracker case with all 35 Leadership fields"""
 
     def __init__(self):
         # Initialize all fields as empty/None
@@ -102,9 +108,14 @@ class QualityTrackerCase:
         self.top_issues_change: str = ""
         self.top_issues_change_date: Optional[date] = None
         self.case_status: str = ""
+        # New fields (columns 32-35)
+        self.financial_impact: str = ""  # Text description of financial impact
+        self.total_defective_inventory: Optional[int] = None  # Count of defective units
+        self.estimated_completion_date: Optional[date] = None  # Target completion
+        self.completion_date_actual: Optional[date] = None  # Actual completion date
 
     def to_dict_leadership(self) -> Dict[str, Any]:
-        """Convert to dict with all 31 columns (Leadership version)"""
+        """Convert to dict with all 35 columns (Leadership version)"""
         return {
             'Priority': self.priority,
             'Product name': self.product_name,
@@ -136,11 +147,15 @@ class QualityTrackerCase:
             'Result 2 Date': self.result_2_date,
             'Top Issue(s) Change': self.top_issues_change,
             'Top Issue(s) Change Date': self.top_issues_change_date,
-            'Case Status': self.case_status
+            'Case Status': self.case_status,
+            'Financial Impact': self.financial_impact,
+            'Total Defective Inventory': self.total_defective_inventory,
+            'Estimated Completion date': self.estimated_completion_date,
+            'Completion Date (Actual)': self.completion_date_actual
         }
 
     def to_dict_company_wide(self) -> Dict[str, Any]:
-        """Convert to dict with 25 columns (Company Wide version - excludes 6 sensitive columns)"""
+        """Convert to dict with 28 columns (Company Wide version - excludes 7 sensitive columns)"""
         full_dict = self.to_dict_leadership()
         # Remove leadership-only columns
         return {k: v for k, v in full_dict.items() if k not in LEADERSHIP_ONLY_COLUMNS}
@@ -373,6 +388,11 @@ Provide a pithy, executive-level summary focusing on the issue severity, busines
                 case.top_issues_change = str(row.get('Top Issue(s) Change', '')).strip()
                 case.top_issues_change_date = self._safe_date(row.get('Top Issue(s) Change Date'))
                 case.case_status = str(row.get('Case Status', '')).strip()
+                # New fields (columns 32-35)
+                case.financial_impact = str(row.get('Financial Impact', '')).strip()
+                case.total_defective_inventory = self._safe_int(row.get('Total Defective Inventory'))
+                case.estimated_completion_date = self._safe_date(row.get('Estimated Completion date'))
+                case.completion_date_actual = self._safe_date(row.get('Completion Date (Actual)'))
 
                 # Only add if has required fields
                 if case.product_name and case.sku and case.top_issues:
@@ -507,6 +527,11 @@ def generate_demo_cases() -> List[QualityTrackerCase]:
     case1.top_issues_change = "Reduced handle complaints by 38%"
     case1.top_issues_change_date = datetime(2025, 1, 10).date()
     case1.case_status = "Monitoring"
+    # New fields
+    case1.financial_impact = "High - $25k+ annualized refund costs"
+    case1.total_defective_inventory = 45
+    case1.estimated_completion_date = datetime(2025, 2, 28).date()
+    case1.completion_date_actual = None  # Still monitoring
     cases.append(case1)
 
     # Demo Case 2: Safety concern
@@ -536,6 +561,11 @@ def generate_demo_cases() -> List[QualityTrackerCase]:
     case2.flag_source = "Customer Service"
     case2.follow_up_date = datetime(2025, 2, 5).date()
     case2.case_status = "Active Investigation"
+    # New fields
+    case2.financial_impact = "Medium - Safety priority over cost"
+    case2.total_defective_inventory = 12
+    case2.estimated_completion_date = datetime(2025, 3, 15).date()
+    case2.completion_date_actual = None  # Active investigation
     cases.append(case2)
 
     # Demo Case 3: B2B issue
@@ -565,6 +595,11 @@ def generate_demo_cases() -> List[QualityTrackerCase]:
     case3.flag_source = "B2B Reports"
     case3.follow_up_date = datetime(2025, 2, 15).date()
     case3.case_status = "Action Taken - Monitoring"
+    # New fields
+    case3.financial_impact = "Low - Packaging cost increase offset by reduced returns"
+    case3.total_defective_inventory = 0  # Cosmetic only, no defects
+    case3.estimated_completion_date = datetime(2025, 2, 15).date()
+    case3.completion_date_actual = datetime(2025, 1, 12).date()  # Packaging fix implemented
     cases.append(case3)
 
     return cases
