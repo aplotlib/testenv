@@ -74,9 +74,24 @@ try:
         LEADERSHIP_ONLY_COLUMNS, generate_demo_cases as generate_demo_tracker_cases
     )
     from quality_resources import QUALITY_RESOURCES, get_total_link_count
+    # Import new modular components
+    from advanced_analytics import (
+        render_root_cause_analysis as rca_render,
+        render_capa_management as capa_render,
+        render_risk_analysis_fmea as fmea_render,
+        render_predictive_analytics as predictive_render
+    )
+    from ai_screening_wizard import (
+        render_ai_screening_wizard as wizard_render,
+        PRODUCT_CATEGORIES, SCREENING_THRESHOLDS, PRIORITY_WEIGHTS,
+        get_category_options, get_subcategory_options,
+        get_threshold_for_product, get_all_thresholds_flat
+    )
     AI_AVAILABLE = True
+    MODULAR_IMPORTS = True
 except ImportError as e:
     AI_AVAILABLE = False
+    MODULAR_IMPORTS = False
     print(f"Module Missing: {e}")
 
 # Check optional imports
@@ -3718,7 +3733,10 @@ def render_quality_cases_dashboard():
         # =====================================================
         # AI-ASSISTED QUALITY CASE SCREENING WIZARD
         # =====================================================
-        render_ai_screening_wizard(tracker)
+        if MODULAR_IMPORTS:
+            wizard_render(tracker, QualityTrackerCase)
+        else:
+            render_ai_screening_wizard(tracker)
 
         st.markdown("---")
 
@@ -3883,20 +3901,25 @@ def render_quality_cases_dashboard():
         st.markdown("---")
 
         # Advanced Mode Section for World-Class Quality Teams
-        if tracker.cases:
-            st.markdown("""
-            <div style="background: linear-gradient(135deg, #8e44ad 0%, #3498db 100%);
-                        padding: 1.5rem; border-radius: 10px; margin: 1.5rem 0;
-                        box-shadow: 0 4px 8px rgba(0,0,0,0.15);">
-                <h3 style="color: white; font-family: 'Poppins', sans-serif; margin-bottom: 0.5rem; font-weight: 600;">
-                    🎯 Advanced Quality Analytics
-                </h3>
-                <p style="color: rgba(255,255,255,0.9); font-family: 'Poppins', sans-serif; font-size: 0.95em; margin: 0;">
-                    Enterprise-grade tools for world-class quality management teams
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
+        # Always show the Advanced Analytics section - available regardless of cases loaded
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #8e44ad 0%, #3498db 100%);
+                    padding: 1.5rem; border-radius: 10px; margin: 1.5rem 0;
+                    box-shadow: 0 4px 8px rgba(0,0,0,0.15);">
+            <h3 style="color: white; font-family: 'Poppins', sans-serif; margin-bottom: 0.5rem; font-weight: 600;">
+                🎯 Advanced Quality Analytics (Enterprise)
+            </h3>
+            <p style="color: rgba(255,255,255,0.9); font-family: 'Poppins', sans-serif; font-size: 0.95em; margin: 0;">
+                Enterprise-grade tools for world-class quality management teams - Root Cause Analysis, CAPA, FMEA, and Predictive Analytics
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
 
+        # Show info if no cases loaded
+        if not tracker.cases:
+            st.info("💡 **Tip:** Load cases (Demo or Import) to unlock full analytics capabilities. Some features work with sample data.")
+
+        with st.expander("🔬 Advanced Quality Analytics Tools", expanded=bool(tracker.cases)):
             adv_tab1, adv_tab2, adv_tab3, adv_tab4 = st.tabs([
                 "🔍 Root Cause Analysis",
                 "📋 CAPA Management",
@@ -3905,16 +3928,28 @@ def render_quality_cases_dashboard():
             ])
 
             with adv_tab1:
-                render_root_cause_analysis(tracker)
+                if MODULAR_IMPORTS:
+                    rca_render(tracker)
+                else:
+                    render_root_cause_analysis(tracker)
 
             with adv_tab2:
-                render_capa_management(tracker)
+                if MODULAR_IMPORTS:
+                    capa_render(tracker)
+                else:
+                    render_capa_management(tracker)
 
             with adv_tab3:
-                render_risk_analysis_fmea(tracker)
+                if MODULAR_IMPORTS:
+                    fmea_render(tracker)
+                else:
+                    render_risk_analysis_fmea(tracker)
 
             with adv_tab4:
-                render_predictive_analytics(tracker)
+                if MODULAR_IMPORTS:
+                    predictive_render(tracker)
+                else:
+                    render_predictive_analytics(tracker)
 
         st.markdown("---")
 
