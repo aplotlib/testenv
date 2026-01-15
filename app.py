@@ -9355,15 +9355,45 @@ def render_global_recall_surveillance():
     </div>
     """, unsafe_allow_html=True)
 
+    # --- QUICK SEARCH PRESETS ---
+    st.markdown("**⚡ Quick Search Presets:**")
+    preset_cols = st.columns(8)
+    preset_categories = [
+        ("🩺 BP Monitors", "blood pressure monitor"),
+        ("🦽 Mobility", "wheelchair scooter walker"),
+        ("💉 Infusion", "infusion pump syringe"),
+        ("🫀 Cardiac", "pacemaker defibrillator"),
+        ("🩹 Wound Care", "bandage dressing wound"),
+        ("🧪 Diagnostic", "glucometer thermometer oximeter"),
+        ("🛏️ Patient Care", "hospital bed mattress"),
+        ("🔧 Ortho", "brace splint support"),
+    ]
+
+    # Initialize search query from session state or empty
+    if 'recall_search_query' not in st.session_state:
+        st.session_state.recall_search_query = ""
+
+    for i, (label, query) in enumerate(preset_categories):
+        with preset_cols[i]:
+            if st.button(label, key=f"preset_{i}", use_container_width=True):
+                st.session_state.recall_search_query = query
+                st.rerun()
+
+    st.markdown("---")
+
     # --- SEARCH CONFIGURATION ---
     with st.expander("🔍 Search Configuration", expanded=True):
         col1, col2 = st.columns(2)
         with col1:
             search_query = st.text_input(
                 "Product Search",
+                value=st.session_state.recall_search_query,
                 placeholder="e.g., blood pressure monitor, wheelchair, infusion pump",
                 help="Enter product name, category, or keywords. Synonyms are auto-expanded."
             )
+            # Update session state
+            st.session_state.recall_search_query = search_query
+
             manufacturer = st.text_input(
                 "Manufacturer (Optional)",
                 placeholder="e.g., MedTech Inc, Generic Corp",
@@ -9604,9 +9634,80 @@ def render_global_recall_surveillance():
 
     elif logs:
         st.info("No records found matching your criteria. Try broadening your search or extending the date range.")
-    else:
-        # Initial state - show guidance
-        st.markdown("---")
+
+    # --- BATCH SCANNING SECTION ---
+    st.markdown("---")
+    with st.expander("📂 Batch Product Scan (Upload CSV)", expanded=False):
+        st.markdown("""
+        **Bulk Recall Check:** Upload a CSV with your product list to check all products against recall databases at once.
+        """)
+
+        batch_file = st.file_uploader(
+            "Upload CSV (columns: SKU, Product Name)",
+            type=['csv'],
+            key="batch_recall_file"
+        )
+
+        if batch_file:
+            try:
+                batch_df = pd.read_csv(batch_file)
+                st.dataframe(batch_df.head(10), use_container_width=True)
+
+                # Find product name column
+                name_cols = [c for c in batch_df.columns if 'product' in c.lower() or 'name' in c.lower() or 'description' in c.lower()]
+                if name_cols:
+                    product_col = st.selectbox("Select Product Name Column", name_cols)
+                else:
+                    product_col = st.selectbox("Select Product Name Column", batch_df.columns.tolist())
+
+                batch_lookback = st.slider("Batch Lookback (days)", 30, 730, 365, key="batch_lookback")
+
+                if st.button("🚀 Run Batch Scan", type="primary", key="run_batch_scan"):
+                    products = batch_df[product_col].dropna().unique().tolist()[:50]  # Limit to 50 products
+                    all_results = []
+                    progress = st.progress(0, text="Starting batch scan...")
+
+                    for i, product in enumerate(products):
+                        progress.progress((i + 1) / len(products), text=f"Scanning: {product[:40]}...")
+                        try:
+                            end_dt = date.today()
+                            start_dt = end_dt - timedelta(days=batch_lookback)
+                            df_result, _ = RegulatoryService.search_all_sources(
+                                query_term=str(product),
+                                regions=["US", "EU", "UK", "CA"],
+                                start_date=start_dt,
+                                end_date=end_dt,
+                                limit=20,
+                                mode="fast"
+                            )
+                            if not df_result.empty:
+                                df_result['Searched_Product'] = product
+                                all_results.append(df_result)
+                        except Exception:
+                            pass
+
+                    progress.empty()
+
+                    if all_results:
+                        batch_results = pd.concat(all_results, ignore_index=True)
+                        st.success(f"✅ Found {len(batch_results)} potential matches across {len(all_results)} products")
+                        st.dataframe(batch_results, use_container_width=True)
+
+                        csv_batch = batch_results.to_csv(index=False).encode('utf-8')
+                        st.download_button(
+                            "💾 Download Batch Results",
+                            csv_batch,
+                            f"batch_recall_scan_{date.today().isoformat()}.csv",
+                            "text/csv"
+                        )
+                    else:
+                        st.info("No recalls found for any products in your list.")
+
+            except Exception as e:
+                st.error(f"Error reading file: {str(e)}")
+
+    # Initial state - show guidance
+    if df is None or df.empty:
         with st.expander("💡 How to Use This Tool", expanded=True):
             st.markdown("""
             **Purpose:** Search global regulatory databases to find:
@@ -9626,11 +9727,21 @@ def render_global_recall_surveillance():
             | 🌎 LATAM | ANVISA (Brazil), COFEPRIS (Mexico) |
             | 🌏 APAC | TGA (Australia), PMDA (Japan), HSA (Singapore) |
 
+            **Synonym Auto-Expansion:**
+            | You Type | Also Searches |
+            |----------|---------------|
+            | bpm | blood pressure monitor, bp monitor, sphygmomanometer |
+            | scooter | mobility scooter, powered scooter, electric scooter |
+            | defibrillator | AED, ICD, implantable cardioverter |
+            | glucometer | glucose meter, blood glucose monitor |
+            | infusion pump | IV pump, syringe pump |
+
             **Pro Tips:**
             - Use product categories like "blood pressure monitor" for broad coverage
             - Add manufacturer name to find vendor-specific issues
             - Enable "Comprehensive" mode for media and web coverage
             - Check "Sanctions/Watchlists" when evaluating new suppliers
+            - Use **Batch Scan** to check your entire product catalog at once
             """)
 
 
