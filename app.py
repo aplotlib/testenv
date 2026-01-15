@@ -2233,17 +2233,238 @@ Be specific with numbers and timelines."""
 # AI-ASSISTED QUALITY CASE SCREENING WIZARD
 # =====================================================
 
-# Default screening thresholds based on SOPs
+# =====================================================
+# PRODUCT CATEGORY HIERARCHY WITH RETURN RATE THRESHOLDS
+# Based on Trailing 12 Month Amazon Returns Analysis
+# =====================================================
+
+PRODUCT_CATEGORIES = {
+    'MOB': {
+        'name': 'Mobility',
+        'description': 'Mobility aids and equipment',
+        'default_threshold': 0.096,  # 9.6% category average
+        'subcategories': {
+            'Scooter': {'name': 'Knee Scooters', 'threshold': 0.10, 'description': 'Knee scooters and rolling mobility aids'},
+            'Knee Walker': {'name': 'Knee Walkers', 'threshold': 0.11, 'description': 'Knee walkers and rollators'},
+            'Electric Wheelchair': {'name': 'Electric Wheelchairs', 'threshold': 0.15, 'description': 'Powered wheelchairs and mobility chairs'},
+            'Canes': {'name': 'Canes & Walking Sticks', 'threshold': 0.075, 'description': 'Walking canes, quad canes, folding canes'},
+            'Walker Accessories': {'name': 'Walker Accessories', 'threshold': 0.055, 'description': 'Walker ski glides, cups, bags'},
+            'Cupholder': {'name': 'Cupholders', 'threshold': 0.11, 'description': 'Wheelchair and walker cupholders'},
+            'Other MOB': {'name': 'Other Mobility', 'threshold': 0.10, 'description': 'Other mobility products'}
+        }
+    },
+    'LVA': {
+        'name': 'Living Aids',
+        'description': 'Daily living assistance products',
+        'default_threshold': 0.138,  # 13.8% category average
+        'subcategories': {
+            'Stand Assist': {'name': 'Stand Assist Devices', 'threshold': 0.185, 'description': 'Stand assist rails, poles, handles'},
+            'Commode': {'name': 'Commodes', 'threshold': 0.16, 'description': 'Bedside commodes, portable toilets'},
+            'Commode Rail': {'name': 'Commode Rails', 'threshold': 0.17, 'description': 'Toilet safety rails and frames'},
+            'Commode Riser': {'name': 'Toilet Risers', 'threshold': 0.168, 'description': 'Raised toilet seats and risers'},
+            'Commode Cushion': {'name': 'Commode Cushions', 'threshold': 0.16, 'description': 'Toilet seat cushions and pads'},
+            'Shower Mat': {'name': 'Shower Safety', 'threshold': 0.09, 'description': 'Shower mats, bath safety'},
+            'Walker Bag': {'name': 'Walker Bags', 'threshold': 0.07, 'description': 'Walker and rollator bags'},
+            'Sling': {'name': 'Transfer Slings', 'threshold': 0.13, 'description': 'Patient transfer slings'},
+            'APM': {'name': 'Alternating Pressure', 'threshold': 0.18, 'description': 'Alternating pressure mattresses'},
+            'Other LVA': {'name': 'Other Living Aids', 'threshold': 0.14, 'description': 'Other daily living aids'}
+        }
+    },
+    'SUP': {
+        'name': 'Support Products',
+        'description': 'Braces, wraps, and support devices',
+        'default_threshold': 0.11,  # 11% category average
+        'subcategories': {
+            'Splint': {'name': 'Splints', 'threshold': 0.14, 'description': 'Wrist, finger, thumb splints'},
+            'Shoulder Brace': {'name': 'Shoulder Braces', 'threshold': 0.14, 'description': 'Shoulder immobilizers and supports'},
+            'Groin': {'name': 'Groin Supports', 'threshold': 0.20, 'description': 'Groin wraps, thigh compression'},
+            'Thigh': {'name': 'Thigh Supports', 'threshold': 0.13, 'description': 'Thigh sleeves and compression'},
+            'Shin Support': {'name': 'Shin Guards', 'threshold': 0.12, 'description': 'Shin splint sleeves and guards'},
+            'Ankle Wrap': {'name': 'Ankle Supports', 'threshold': 0.11, 'description': 'Ankle wraps and braces'},
+            'Wrist': {'name': 'Wrist Supports', 'threshold': 0.11, 'description': 'Wrist braces and wraps'},
+            'Wraps': {'name': 'General Wraps', 'threshold': 0.11, 'description': 'Elastic bandages and compression wraps'},
+            'Strap': {'name': 'Support Straps', 'threshold': 0.11, 'description': 'Knee straps, patella bands'},
+            'Sling': {'name': 'Arm Slings', 'threshold': 0.13, 'description': 'Arm and shoulder slings'},
+            'Gloves': {'name': 'Support Gloves', 'threshold': 0.075, 'description': 'Compression and arthritis gloves'},
+            'Post Op Shoes': {'name': 'Post-Op Shoes', 'threshold': 0.24, 'description': 'Post-surgical walking shoes'},
+            'Other SUP': {'name': 'Other Support', 'threshold': 0.11, 'description': 'Other support products'}
+        }
+    },
+    'RHB': {
+        'name': 'Rehabilitation',
+        'description': 'Rehabilitation and therapy products',
+        'default_threshold': 0.086,  # 8.6% category average
+        'subcategories': {
+            'Post Op Shoes': {'name': 'Post-Op Shoes', 'threshold': 0.24, 'description': 'Post-surgical walking boots'},
+            'Transfer Belts': {'name': 'Transfer Belts', 'threshold': 0.105, 'description': 'Gait belts and transfer aids'},
+            'Shoulder Pulley': {'name': 'Shoulder Pulleys', 'threshold': 0.04, 'description': 'Shoulder exercise pulleys'},
+            'Ice/Bracing': {'name': 'Ice & Bracing', 'threshold': 0.06, 'description': 'Ice packs, hot/cold therapy'},
+            'Massage Ball': {'name': 'Massage Therapy', 'threshold': 0.05, 'description': 'Massage balls, foam rollers'},
+            'Gauze': {'name': 'Wound Care', 'threshold': 0.025, 'description': 'Gauze, bandages, wound care'},
+            'Wrist': {'name': 'Wrist Rehab', 'threshold': 0.072, 'description': 'Wrist rehab and braces'},
+            'Splint': {'name': 'Rehab Splints', 'threshold': 0.14, 'description': 'Rehabilitation splints'},
+            'Other RHB': {'name': 'Other Rehab', 'threshold': 0.09, 'description': 'Other rehabilitation products'}
+        }
+    },
+    'CSH': {
+        'name': 'Cushions',
+        'description': 'Seat cushions and padding',
+        'default_threshold': 0.122,  # 12.2% category average
+        'subcategories': {
+            'Chair Cushion': {'name': 'Chair Cushions', 'threshold': 0.085, 'description': 'Seat and chair cushions'},
+            'Wheelchair Cushion': {'name': 'Wheelchair Cushions', 'threshold': 0.085, 'description': 'Wheelchair seat cushions'},
+            'Commode Cushion': {'name': 'Commode Cushions', 'threshold': 0.16, 'description': 'Toilet seat cushions'},
+            'Crutch Pads': {'name': 'Crutch Pads', 'threshold': 0.13, 'description': 'Crutch padding and grips'},
+            'Other CSH': {'name': 'Other Cushions', 'threshold': 0.12, 'description': 'Other cushion products'}
+        }
+    },
+    'INS': {
+        'name': 'Insoles & Foot Care',
+        'description': 'Foot care, insoles, and orthotics',
+        'default_threshold': 0.106,  # 10.6% category average
+        'subcategories': {
+            'Toe Separators': {'name': 'Toe Separators', 'threshold': 0.05, 'description': 'Toe spacers and separators'},
+            'Bunion': {'name': 'Bunion Care', 'threshold': 0.14, 'description': 'Bunion pads and correctors'},
+            'Splint': {'name': 'Foot Splints', 'threshold': 0.14, 'description': 'Toe and foot splints'},
+            'Wraps': {'name': 'Foot Wraps', 'threshold': 0.11, 'description': 'Foot and ankle wraps'},
+            'Other INS': {'name': 'Other Foot Care', 'threshold': 0.11, 'description': 'Other insoles and foot care'}
+        }
+    },
+    'CAN': {
+        'name': 'Canes',
+        'description': 'Walking canes and accessories',
+        'default_threshold': 0.075,  # 7.5% category average
+        'subcategories': {
+            'Standard Canes': {'name': 'Standard Canes', 'threshold': 0.075, 'description': 'Single-point canes'},
+            'Quad Canes': {'name': 'Quad Canes', 'threshold': 0.075, 'description': 'Four-point base canes'},
+            'Folding Canes': {'name': 'Folding Canes', 'threshold': 0.075, 'description': 'Collapsible travel canes'},
+            'Other CAN': {'name': 'Other Canes', 'threshold': 0.075, 'description': 'Other cane types'}
+        }
+    },
+    'B2B': {
+        'name': 'B2B Products',
+        'description': 'Business-to-business and wholesale products',
+        'default_threshold': 0.025,  # 2.5% B2B threshold
+        'subcategories': {
+            'B2B General': {'name': 'B2B General', 'threshold': 0.025, 'description': 'General B2B products'}
+        }
+    },
+    'Other': {
+        'name': 'Other Products',
+        'description': 'Uncategorized products',
+        'default_threshold': 0.10,  # 10% default
+        'subcategories': {
+            'Uncategorized': {'name': 'Uncategorized', 'threshold': 0.10, 'description': 'Products pending categorization'}
+        }
+    }
+}
+
+
+def get_category_options():
+    """Get list of category options for UI dropdowns"""
+    options = []
+    for cat_code, cat_data in PRODUCT_CATEGORIES.items():
+        options.append(f"{cat_code} - {cat_data['name']}")
+    return options
+
+
+def get_subcategory_options(category_code: str):
+    """Get list of subcategory options for a given category"""
+    if category_code not in PRODUCT_CATEGORIES:
+        return ["Other"]
+
+    subcats = PRODUCT_CATEGORIES[category_code].get('subcategories', {})
+    return [f"{subcat_data['name']}" for subcat_data in subcats.values()]
+
+
+def get_threshold_for_product(category_code: str, subcategory_name: str = None) -> float:
+    """
+    Get the return rate threshold for a product based on category and subcategory.
+
+    Args:
+        category_code: Main category code (MOB, LVA, SUP, etc.)
+        subcategory_name: Optional subcategory name
+
+    Returns:
+        Threshold as decimal (e.g., 0.10 for 10%)
+    """
+    if category_code not in PRODUCT_CATEGORIES:
+        return 0.10  # Default 10%
+
+    cat_data = PRODUCT_CATEGORIES[category_code]
+
+    # If no subcategory specified, return category default
+    if not subcategory_name:
+        return cat_data['default_threshold']
+
+    # Look for matching subcategory
+    for subcat_key, subcat_data in cat_data.get('subcategories', {}).items():
+        if subcat_data['name'] == subcategory_name or subcat_key.lower() == subcategory_name.lower():
+            return subcat_data['threshold']
+
+    # Fall back to category default
+    return cat_data['default_threshold']
+
+
+def get_all_thresholds_flat():
+    """Get a flat dictionary of all thresholds for quick lookup"""
+    thresholds = {}
+    for cat_code, cat_data in PRODUCT_CATEGORIES.items():
+        thresholds[cat_code] = cat_data['default_threshold']
+        for subcat_key, subcat_data in cat_data.get('subcategories', {}).items():
+            # Key by both the key and the name
+            thresholds[f"{cat_code}_{subcat_key}"] = subcat_data['threshold']
+            thresholds[subcat_data['name']] = subcat_data['threshold']
+    return thresholds
+
+
+# Legacy compatibility - flat threshold dict
 SCREENING_THRESHOLDS = {
     'return_rate': {
         'B2B': 0.025,
-        'INS': 0.07,
-        'RHB': 0.075,
-        'LVA': 0.095,
-        'MOB': 0.10,
-        'CSH': 0.105,
+        'INS': 0.106,
+        'RHB': 0.086,
+        'LVA': 0.138,
+        'MOB': 0.096,
+        'CSH': 0.122,
         'SUP': 0.11,
-        'Other': 0.10
+        'CAN': 0.075,
+        'Other': 0.10,
+        # Product-type specific thresholds
+        'Post Op Shoes': 0.24,
+        'Electric Wheelchair': 0.15,
+        'Scooter': 0.10,
+        'Knee Walker': 0.11,
+        'Canes': 0.075,
+        'Stand Assist': 0.185,
+        'Commode Rail': 0.17,
+        'Splint': 0.14,
+        'Shoulder Brace': 0.14,
+        'Groin': 0.20,
+        'Transfer Belts': 0.105,
+        'Ice/Bracing': 0.06,
+        'Gauze': 0.025,
+        'APM': 0.18,
+        'Thigh': 0.13,
+        'Sling': 0.13,
+        'Crutch Pads': 0.13,
+        'Shin Support': 0.12,
+        'Wraps': 0.11,
+        'Ankle Wrap': 0.11,
+        'Wrist': 0.11,
+        'Strap': 0.11,
+        'Gloves': 0.075,
+        'Toe Separators': 0.05,
+        'Bunion': 0.14,
+        'Massage Ball': 0.05,
+        'Shoulder Pulley': 0.04,
+        'Walker Accessories': 0.055,
+        'Shower Mat': 0.09,
+        'Chair Cushion': 0.085,
+        'Wheelchair Cushion': 0.085,
+        'Commode Cushion': 0.16,
+        'Commode Riser': 0.168,
+        'Walker Bag': 0.07
     },
     'ncx_rate': 0.02,  # 2% NCX rate threshold
     'star_rating': 3.8,  # Below this triggers review
@@ -2410,62 +2631,94 @@ Keep response under 150 words."""
             with col3:
                 asin = st.text_input("ASIN", placeholder="e.g., B07XXXXXXX", key="wiz_asin")
 
-            col4, col5, col6 = st.columns(3)
+            st.markdown("##### Product Classification")
+            st.caption("Select category and product type - thresholds are automatically applied based on your selection")
+
+            col4, col5 = st.columns(2)
             with col4:
+                # Main category selection
+                category_options = [f"{code} - {data['name']}" for code, data in PRODUCT_CATEGORIES.items()]
                 category = st.selectbox(
-                    "Product Category",
-                    ["MOB (Mobility)", "SUP (Support)", "RHB (Rehabilitation)", "LVA (Living Aids)",
-                     "CSH (Cushions)", "INS (Insoles)", "B2B", "Other"],
-                    key="wiz_category"
+                    "Main Category*",
+                    category_options,
+                    key="wiz_category",
+                    help="Select the main product category (MOB, LVA, SUP, etc.)"
                 )
+                cat_code = category.split(" - ")[0] if " - " in category else category
+
             with col5:
-                sales_channel = st.selectbox("Main Sales Channel", ["Amazon", "B2B", "Direct", "Multi-Channel"], key="wiz_channel")
+                # Subcategory/Product Type based on main category
+                if cat_code in PRODUCT_CATEGORIES:
+                    subcat_options = [data['name'] for data in PRODUCT_CATEGORIES[cat_code]['subcategories'].values()]
+                    subcategory = st.selectbox(
+                        "Product Type*",
+                        subcat_options,
+                        key="wiz_subcategory",
+                        help="Select the specific product type for accurate threshold"
+                    )
+                else:
+                    subcategory = st.selectbox("Product Type", ["Other"], key="wiz_subcategory")
+
+            # Get threshold for selected category/subcategory
+            selected_threshold = get_threshold_for_product(cat_code, subcategory)
+
+            # Show threshold info
+            st.markdown(f"""
+            <div style="background: rgba(35,178,190,0.1); border: 2px solid #23b2be; padding: 0.8rem;
+                        border-radius: 8px; margin: 0.5rem 0;">
+                <span style="font-weight: 600; color: #004366;">📊 Return Rate Threshold for {subcategory}:</span>
+                <span style="font-size: 1.2em; font-weight: 700; color: #23b2be;"> {selected_threshold*100:.1f}%</span>
+            </div>
+            """, unsafe_allow_html=True)
+
+            col6, col7 = st.columns(2)
             with col6:
+                sales_channel = st.selectbox("Main Sales Channel", ["Amazon", "B2B", "Direct", "Multi-Channel"], key="wiz_channel")
+            with col7:
                 fulfilled_by = st.selectbox("Fulfilled By", ["FBA", "FBM", "Direct Ship", "Hybrid"], key="wiz_fulfilled")
 
             st.markdown("##### Quality Metrics")
-            st.caption("Enter current metrics - these will be compared against SOP thresholds")
+            st.caption("Enter current metrics - these will be compared against the threshold above")
 
-            col7, col8, col9, col10 = st.columns(4)
-            with col7:
+            col8, col9, col10, col11 = st.columns(4)
+            with col8:
                 return_rate = st.number_input(
                     "Return Rate Amazon (%)",
                     min_value=0.0, max_value=100.0, value=0.0, step=0.1,
                     key="wiz_return_rate",
                     help="Current Amazon return rate as percentage"
                 )
-            with col8:
+            with col9:
                 return_rate_b2b = st.number_input(
                     "Return Rate B2B (%)",
                     min_value=0.0, max_value=100.0, value=0.0, step=0.1,
                     key="wiz_return_rate_b2b"
                 )
-            with col9:
+            with col10:
                 ncx_rate = st.number_input(
                     "NCX Rate (%)",
                     min_value=0.0, max_value=100.0, value=0.0, step=0.1,
                     key="wiz_ncx_rate",
                     help="Negative Customer Experience rate"
                 )
-            with col10:
+            with col11:
                 star_rating = st.number_input(
                     "Star Rating",
                     min_value=1.0, max_value=5.0, value=4.5, step=0.1,
                     key="wiz_star_rating"
                 )
 
-            col11, col12, col13 = st.columns(3)
-            with col11:
-                ncx_orders = st.number_input("NCX Orders (count)", min_value=0, value=0, key="wiz_ncx_orders")
+            col12, col13, col14 = st.columns(3)
             with col12:
-                total_orders = st.number_input("Total Orders (t30)", min_value=0, value=0, key="wiz_total_orders")
+                ncx_orders = st.number_input("NCX Orders (count)", min_value=0, value=0, key="wiz_ncx_orders")
             with col13:
+                total_orders = st.number_input("Total Orders (t30)", min_value=0, value=0, key="wiz_total_orders")
+            with col14:
                 badge_displayed = st.selectbox("Return Badge Displayed?", ["No", "Yes", "Unknown"], key="wiz_badge")
 
-            # Real-time threshold check
+            # Real-time threshold check using selected threshold
             st.markdown("##### 🎯 Real-Time Threshold Analysis")
-            cat_code = category.split(" ")[0] if " " in category else category
-            threshold = wizard['thresholds']['return_rate'].get(cat_code, wizard['thresholds']['return_rate']['Other'])
+            threshold = selected_threshold
 
             col_thresh1, col_thresh2, col_thresh3 = st.columns(3)
             with col_thresh1:
@@ -2500,6 +2753,9 @@ Keep response under 150 words."""
                         wizard['case_data']['sku'] = sku
                         wizard['case_data']['asin'] = asin
                         wizard['case_data']['category'] = category
+                        wizard['case_data']['category_code'] = cat_code
+                        wizard['case_data']['subcategory'] = subcategory
+                        wizard['case_data']['threshold'] = selected_threshold
                         wizard['case_data']['sales_channel'] = sales_channel
                         wizard['case_data']['fulfilled_by'] = fulfilled_by
                         wizard['case_data']['return_rate'] = return_rate / 100
@@ -2775,20 +3031,21 @@ Be specific and actionable."""
                 priority_factors.append(("🟠 Potential Safety Concern", 25))
 
             # Return rate severity (20 points max)
-            cat_code = data.get('category', 'Other').split(" ")[0]
-            threshold = wizard['thresholds']['return_rate'].get(cat_code, 0.10)
+            # Use saved threshold from product selection, or fall back to category default
+            threshold = data.get('threshold', 0.10)
+            subcategory = data.get('subcategory', 'Unknown')
             return_rate = data.get('return_rate', 0)
             if return_rate > 0:
                 exceedance = (return_rate - threshold) / threshold if threshold > 0 else 0
                 if exceedance > 0.5:  # 50%+ over threshold
                     priority_score += 20
-                    priority_factors.append((f"Return Rate {exceedance*100:.0f}% over threshold", 20))
+                    priority_factors.append((f"Return Rate {exceedance*100:.0f}% over {subcategory} threshold ({threshold*100:.1f}%)", 20))
                 elif exceedance > 0.25:
                     priority_score += 15
-                    priority_factors.append((f"Return Rate {exceedance*100:.0f}% over threshold", 15))
+                    priority_factors.append((f"Return Rate {exceedance*100:.0f}% over {subcategory} threshold", 15))
                 elif exceedance > 0:
                     priority_score += 10
-                    priority_factors.append((f"Return Rate above threshold", 10))
+                    priority_factors.append((f"Return Rate above {subcategory} threshold", 10))
 
             # Financial impact (25 points max)
             cost = data.get('cost_of_refunds', 0)
@@ -2866,7 +3123,8 @@ Be specific and actionable."""
             with col1:
                 st.markdown(f"""
                 **Product:** {data.get('product_name')} ({data.get('sku')})
-                **Category:** {data.get('category')}
+                **Category:** {data.get('category_code', 'N/A')} → {data.get('subcategory', 'N/A')}
+                **Threshold:** {data.get('threshold', 0)*100:.1f}%
                 **Flag Source:** {data.get('flag_source')}
                 **Return Rate:** {data.get('return_rate', 0)*100:.1f}%
                 **Star Rating:** {data.get('star_rating', 'N/A')}
