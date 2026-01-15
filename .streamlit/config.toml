@@ -1,0 +1,22 @@
+# .streamlit/config.toml
+
+[server]
+maxUploadSize = 500
+maxMessageSize = 500
+enableXsrfProtection = false
+fileWatcherType = "none"
+
+[runner]
+fastReruns = true
+enforceSerializableSessionState = false
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+base = "dark"
+primaryColor = "#00F3FF" # Neon Cyan for high visibility
+backgroundColor = "#0B0E14" # Deep Space
+secondaryBackgroundColor = "#151922" # Panel Background
+textColor = "#E0E6ED" # High contrast text
+font = "sans serif"

@@ -1,16 +1,17 @@
 """
-Vive Health Quality Suite - Version 21.0
+Vive Health Quality Suite - Version 22.0
 Enterprise-Grade Quality Management System
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-TASK-BASED WORKFLOW (6 Tools):
+TASK-BASED WORKFLOW (7 Tools):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 Return Categorizer     - AI categorizes customer complaints
-📑 B2B Report Generator   - Odoo export → B2B compliant report
-📋 Quality Case Tracker   - Track cases, dual exports (Leadership/Company)
-🧪 Quality Screening      - AI screening with TQM methodology
-📦 Inventory Integration  - DOI & reorder point analysis
-📚 Resources              - Regulatory links & quality guides
+📊 Return Categorizer      - AI categorizes customer complaints
+📑 B2B Report Generator    - Odoo export → B2B compliant report
+📋 Quality Case Tracker    - Track cases, dual exports (Leadership/Company)
+🧪 Quality Screening       - AI screening with TQM methodology
+📦 Inventory Integration   - DOI & reorder point analysis
+📚 Resources               - Regulatory links & quality guides
+🌐 Global Recall Survey    - FDA/EMA/MHRA/Health Canada/CPSC/Media surveillance
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 COMPLIANCE: ISO 13485 | FDA 21 CFR 820 | EU MDR | UK MDR
@@ -18,6 +19,10 @@ COMPLIANCE: ISO 13485 | FDA 21 CFR 820 | EU MDR | UK MDR
 
 Features:
 - Task-based landing page with intuitive tool selection
+- 🆕 Global Recall Surveillance: FDA, EU EMA, UK MHRA, Health Canada, ANVISA, CPSC
+- 🆕 FDA MAUDE adverse event search integration
+- 🆕 Google News RSS media monitoring for safety signals
+- 🆕 OFAC sanctions and watchlist checking
 - Quick Case Evaluation Mode: 1-3 product SOP comparison with AI qualification
 - ANOVA/MANOVA statistical analysis with p-values and post-hoc testing
 - SPC Control Charting (CUSUM, Shewhart)
@@ -126,7 +131,7 @@ st.set_page_config(
 
 APP_CONFIG = {
     'title': 'Vive Health Quality Suite',
-    'version': '21.0',
+    'version': '22.0',
     'chunk_sizes': [100, 250, 500, 1000],
     'default_chunk': 500,
 }
@@ -9171,6 +9176,13 @@ TASK_DEFINITIONS = {
         'description': 'Access FDA, EU MDR, UK MDR, and international regulatory resources and quality guides.',
         'keywords': ['resources', 'fda', 'regulatory', 'links', 'mdr', 'iso'],
     },
+    'recalls': {
+        'icon': '🌐',
+        'title': 'Global Recall Surveillance',
+        'subtitle': 'Worldwide Regulatory Intelligence',
+        'description': 'Scan FDA, EU EMA, UK MHRA, Health Canada, ANVISA, CPSC, and global media for recalls, alerts, and safety signals affecting your products.',
+        'keywords': ['recall', 'recalls', 'surveillance', 'fda', 'mhra', 'ema', 'health canada', 'anvisa', 'cpsc', 'maude', 'adverse', 'alert', 'safety', 'global', 'worldwide'],
+    },
 }
 
 def match_task_from_input(user_input: str) -> str:
@@ -9208,33 +9220,46 @@ def render_task_selector():
     </div>
     """, unsafe_allow_html=True)
 
-    # Task cards - 3x2 grid with styled containers
+    # Task cards - 3x2 grid + Featured surveillance tool
     row1 = st.columns(3)
     row2 = st.columns(3)
 
     tasks_row1 = ['categorize', 'b2b', 'tracker']
     tasks_row2 = ['screening', 'inventory', 'resources']
 
-    def render_task_card(col, task_id):
+    def render_task_card(col, task_id, featured=False):
         """Render a single task card"""
         task = TASK_DEFINITIONS[task_id]
         with col:
-            # Card container
-            st.markdown(f"""
-            <div style="background: linear-gradient(135deg, rgba(35,178,190,0.05) 0%, rgba(0,67,102,0.08) 100%);
-                        border: 1px solid rgba(35,178,190,0.3); border-radius: 12px; padding: 1rem;
-                        margin-bottom: 0.5rem; min-height: 120px;">
-                <div style="font-size: 2rem; text-align: center; margin-bottom: 0.3rem;">{task['icon']}</div>
-                <div style="font-weight: 600; color: #004366; text-align: center; font-size: 0.95rem;">{task['title']}</div>
-                <div style="color: #23b2be; text-align: center; font-size: 0.8rem; margin-bottom: 0.3rem;">{task['subtitle']}</div>
-            </div>
-            """, unsafe_allow_html=True)
+            # Card container - featured cards have special styling
+            if featured:
+                st.markdown(f"""
+                <div style="background: linear-gradient(135deg, rgba(0,67,102,0.15) 0%, rgba(35,178,190,0.2) 100%);
+                            border: 2px solid rgba(0,67,102,0.5); border-radius: 12px; padding: 1rem;
+                            margin-bottom: 0.5rem; min-height: 120px; box-shadow: 0 4px 12px rgba(0,67,102,0.15);">
+                    <div style="font-size: 2rem; text-align: center; margin-bottom: 0.3rem;">{task['icon']}</div>
+                    <div style="font-weight: 700; color: #004366; text-align: center; font-size: 1rem;">{task['title']}</div>
+                    <div style="color: #23b2be; text-align: center; font-size: 0.8rem; margin-bottom: 0.3rem; font-weight: 500;">{task['subtitle']}</div>
+                    <div style="color: #666; text-align: center; font-size: 0.7rem; margin-top: 0.3rem;">FDA • EMA • MHRA • Health Canada • CPSC • Media</div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div style="background: linear-gradient(135deg, rgba(35,178,190,0.05) 0%, rgba(0,67,102,0.08) 100%);
+                            border: 1px solid rgba(35,178,190,0.3); border-radius: 12px; padding: 1rem;
+                            margin-bottom: 0.5rem; min-height: 120px;">
+                    <div style="font-size: 2rem; text-align: center; margin-bottom: 0.3rem;">{task['icon']}</div>
+                    <div style="font-weight: 600; color: #004366; text-align: center; font-size: 0.95rem;">{task['title']}</div>
+                    <div style="color: #23b2be; text-align: center; font-size: 0.8rem; margin-bottom: 0.3rem;">{task['subtitle']}</div>
+                </div>
+                """, unsafe_allow_html=True)
 
+            btn_type = "primary" if featured else "secondary"
             if st.button(
                 f"Open {task['title']}",
                 key=f"task_{task_id}",
                 use_container_width=True,
-                type="secondary"
+                type=btn_type
             ):
                 st.session_state.selected_task = task_id
                 st.rerun()
@@ -9246,6 +9271,17 @@ def render_task_selector():
     # Row 2
     for i, task_id in enumerate(tasks_row2):
         render_task_card(row2[i], task_id)
+
+    # Featured Row - Global Recall Surveillance (full width)
+    st.markdown("---")
+    st.markdown("""
+    <div style="text-align: center; margin: 0.5rem 0;">
+        <span style="color: #004366; font-weight: 600;">🔍 Regulatory Intelligence</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    recall_col1, recall_col2, recall_col3 = st.columns([1, 2, 1])
+    render_task_card(recall_col2, 'recalls', featured=True)
 
     st.markdown("---")
 
@@ -9282,11 +9318,320 @@ def render_task_selector():
         - **Weekly Returns Analysis:** Categorize Returns → B2B Report
         - **Quality Investigation:** Screen Products → Quality Case Tracker
         - **Inventory Planning:** Screen Products → Inventory Analysis
+        - **🆕 Proactive Surveillance:** Global Recall Surveillance → Screen similar products
 
         **Keyboard Shortcuts:**
         - Type `all` to see all tools in tab view
-        - Type tool keywords like `b2b`, `screen`, `tracker` for quick access
+        - Type tool keywords like `b2b`, `screen`, `tracker`, `recalls` for quick access
+        - Type `recall`, `fda`, `mhra`, or `maude` for Global Recall Surveillance
         """)
+
+
+# --- GLOBAL RECALL SURVEILLANCE TOOL ---
+
+def render_global_recall_surveillance():
+    """
+    Render the Global Recall Surveillance tool.
+    Integrates FDA, EU EMA, UK MHRA, Health Canada, ANVISA, CPSC, MAUDE adverse events,
+    Google Custom Search, and Google News RSS for comprehensive regulatory intelligence.
+    """
+    from datetime import date, timedelta
+    from src.services.regulatory_service import RegulatoryService
+    from src.services.adverse_event_service import AdverseEventService
+    from src.services.media_service import MediaMonitoringService
+
+    # Initialize session state for recall surveillance
+    if 'recall_surveillance_results' not in st.session_state:
+        st.session_state.recall_surveillance_results = pd.DataFrame()
+    if 'recall_surveillance_log' not in st.session_state:
+        st.session_state.recall_surveillance_log = {}
+
+    st.markdown("""
+    <div style="background: linear-gradient(135deg, #004366 0%, #23b2be 100%); padding: 1rem; border-radius: 10px; margin-bottom: 1rem;">
+        <h4 style="color: white; margin: 0;">🌐 Global Regulatory Intelligence</h4>
+        <p style="color: rgba(255,255,255,0.85); margin: 0.3rem 0 0 0; font-size: 0.9rem;">
+            Scan FDA, EU EMA, UK MHRA, Health Canada, ANVISA, CPSC, MAUDE adverse events, and global media for recalls and safety signals.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # --- SEARCH CONFIGURATION ---
+    with st.expander("🔍 Search Configuration", expanded=True):
+        col1, col2 = st.columns(2)
+        with col1:
+            search_query = st.text_input(
+                "Product Search",
+                placeholder="e.g., blood pressure monitor, wheelchair, infusion pump",
+                help="Enter product name, category, or keywords. Synonyms are auto-expanded."
+            )
+            manufacturer = st.text_input(
+                "Manufacturer (Optional)",
+                placeholder="e.g., MedTech Inc, Generic Corp",
+                help="Filter by manufacturer/recalling firm name"
+            )
+
+        with col2:
+            lookback_days = st.slider(
+                "Lookback Period",
+                min_value=30,
+                max_value=1825,  # 5 years
+                value=365,
+                step=30,
+                help="How far back to search (in days)"
+            )
+            result_limit = st.slider(
+                "Max Results",
+                min_value=50,
+                max_value=500,
+                value=200,
+                step=50,
+                help="Maximum results per data source"
+            )
+
+        # Region selection
+        st.markdown("**Coverage Regions:**")
+        region_cols = st.columns(6)
+        regions = []
+        with region_cols[0]:
+            if st.checkbox("🇺🇸 US", value=True, key="reg_us"):
+                regions.append("US")
+        with region_cols[1]:
+            if st.checkbox("🇪🇺 EU", value=True, key="reg_eu"):
+                regions.append("EU")
+        with region_cols[2]:
+            if st.checkbox("🇬🇧 UK", value=True, key="reg_uk"):
+                regions.append("UK")
+        with region_cols[3]:
+            if st.checkbox("🇨🇦 Canada", value=True, key="reg_ca"):
+                regions.append("CA")
+        with region_cols[4]:
+            if st.checkbox("🌎 LATAM", value=False, key="reg_latam"):
+                regions.append("LATAM")
+        with region_cols[5]:
+            if st.checkbox("🌏 APAC", value=False, key="reg_apac"):
+                regions.append("APAC")
+
+        # Search mode
+        col_mode1, col_mode2, col_mode3 = st.columns(3)
+        with col_mode1:
+            search_mode = st.radio(
+                "Search Mode",
+                ["🎯 Comprehensive (APIs + Web + Media)", "⚡ Fast (APIs Only)"],
+                index=0,
+                help="Comprehensive includes web search and media monitoring"
+            )
+        with col_mode2:
+            include_sanctions = st.checkbox(
+                "Include Sanctions/Watchlists",
+                value=True,
+                help="Check OFAC and other sanctions lists for manufacturer"
+            )
+        with col_mode3:
+            vendor_only = st.checkbox(
+                "Vendor Enforcement Only",
+                value=False,
+                help="Only show enforcement actions, not general recalls"
+            )
+
+    # --- RUN SURVEILLANCE ---
+    btn_col1, btn_col2, _ = st.columns([1, 1, 2])
+    with btn_col1:
+        run_search = st.button(
+            "🚀 Launch Surveillance",
+            type="primary",
+            use_container_width=True
+        )
+    with btn_col2:
+        clear_results = st.button(
+            "🗑️ Clear Results",
+            use_container_width=True
+        )
+
+    if clear_results:
+        st.session_state.recall_surveillance_results = pd.DataFrame()
+        st.session_state.recall_surveillance_log = {}
+        st.rerun()
+
+    if run_search:
+        if not search_query and not manufacturer:
+            st.error("Please enter a product search term or manufacturer name.")
+        else:
+            # Calculate date range
+            end_date = date.today()
+            start_date = end_date - timedelta(days=lookback_days)
+            mode = "powerful" if "Comprehensive" in search_mode else "fast"
+
+            with st.status("🔍 Scanning global regulatory sources...", expanded=True) as status:
+                st.write("📡 Connecting to regulatory databases...")
+
+                try:
+                    df, logs = RegulatoryService.search_all_sources(
+                        query_term=search_query.strip(),
+                        manufacturer=manufacturer.strip(),
+                        regions=regions if regions else ["US", "EU", "UK", "CA"],
+                        start_date=start_date,
+                        end_date=end_date,
+                        limit=result_limit,
+                        mode=mode,
+                        vendor_only=vendor_only,
+                        include_sanctions=include_sanctions
+                    )
+
+                    st.session_state.recall_surveillance_results = df
+                    st.session_state.recall_surveillance_log = logs
+
+                    total_found = len(df)
+                    status.update(label=f"✅ Surveillance Complete - {total_found} records found", state="complete", expanded=False)
+
+                except Exception as e:
+                    st.error(f"Search error: {str(e)}")
+                    status.update(label="❌ Search failed", state="error")
+
+    # --- DISPLAY RESULTS ---
+    df = st.session_state.recall_surveillance_results
+    logs = st.session_state.recall_surveillance_log
+
+    if df is not None and not df.empty:
+        st.markdown("---")
+
+        # Summary metrics
+        st.subheader(f"🚨 {len(df)} Global Alerts Found")
+
+        metric_cols = st.columns(5)
+        with metric_cols[0]:
+            high_risk = len(df[df.get('Risk_Level', 'Medium') == 'High']) if 'Risk_Level' in df.columns else 0
+            st.metric("🔴 High Risk", high_risk)
+        with metric_cols[1]:
+            medium_risk = len(df[df.get('Risk_Level', 'Medium') == 'Medium']) if 'Risk_Level' in df.columns else 0
+            st.metric("🟠 Medium Risk", medium_risk)
+        with metric_cols[2]:
+            low_risk = len(df[df.get('Risk_Level', 'Medium') == 'Low']) if 'Risk_Level' in df.columns else 0
+            st.metric("🟢 Low Risk", low_risk)
+        with metric_cols[3]:
+            sources = len(logs) if logs else 0
+            st.metric("📊 Sources Queried", sources)
+        with metric_cols[4]:
+            unique_firms = df['Firm'].nunique() if 'Firm' in df.columns else 0
+            st.metric("🏢 Unique Firms", unique_firms)
+
+        # Source breakdown
+        with st.expander("📈 Source Coverage Details", expanded=False):
+            if logs:
+                source_df = pd.DataFrame([
+                    {"Source": source, "Records": count}
+                    for source, count in logs.items()
+                ])
+                st.dataframe(source_df, use_container_width=True, hide_index=True)
+
+        # Results tabs
+        tab_smart, tab_table = st.tabs(["🧠 Smart View", "📊 Full Table"])
+
+        with tab_smart:
+            # Sort by risk level
+            risk_order = {"High": 0, "Medium": 1, "Low": 2}
+            if 'Risk_Level' in df.columns:
+                df_sorted = df.copy()
+                df_sorted['risk_sort'] = df_sorted['Risk_Level'].map(risk_order).fillna(3)
+                df_sorted = df_sorted.sort_values(['risk_sort', 'Date'], ascending=[True, False])
+            else:
+                df_sorted = df
+
+            for idx, row in df_sorted.iterrows():
+                risk = row.get('Risk_Level', 'Medium')
+                risk_icon = "🔴" if risk == "High" else "🟠" if risk == "Medium" else "🟢"
+                source = row.get('Source', 'Unknown')
+                product = str(row.get('Product', 'Unknown'))[:60]
+                date_str = row.get('Date', 'N/A')
+
+                with st.expander(f"{risk_icon} {source} | {product}... | {date_str}"):
+                    col_left, col_right = st.columns([3, 1])
+                    with col_left:
+                        st.markdown(f"**Product:** {row.get('Product', 'N/A')}")
+                        st.markdown(f"**Firm:** {row.get('Firm', 'N/A')}")
+                        st.markdown(f"**Model Info:** {row.get('Model Info', 'N/A')}")
+                        if row.get('Reason'):
+                            st.info(f"**Reason/Context:** {row.get('Reason', 'N/A')}")
+                        if row.get('Matched_Term'):
+                            st.caption(f"Matched term: {row.get('Matched_Term')}")
+                    with col_right:
+                        st.markdown(f"**Date:** {date_str}")
+                        st.markdown(f"**Risk:** {risk}")
+                        st.markdown(f"**Status:** {row.get('Status', 'N/A')}")
+                        link = row.get('Link')
+                        if link and link != 'N/A':
+                            st.markdown(f"[🔗 Open Source Record]({link})")
+
+        with tab_table:
+            # Configure columns for display
+            display_cols = ['Source', 'Date', 'Product', 'Firm', 'Risk_Level', 'Reason', 'Link']
+            available_cols = [c for c in display_cols if c in df.columns]
+
+            st.dataframe(
+                df[available_cols] if available_cols else df,
+                column_config={
+                    "Link": st.column_config.LinkColumn("Source Link"),
+                    "Risk_Level": st.column_config.TextColumn("Risk"),
+                },
+                use_container_width=True,
+                hide_index=True
+            )
+
+            # Export options
+            st.markdown("---")
+            col_exp1, col_exp2, _ = st.columns([1, 1, 2])
+            with col_exp1:
+                csv_data = df.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    "💾 Download CSV",
+                    csv_data,
+                    f"regulatory_surveillance_{date.today().isoformat()}.csv",
+                    "text/csv",
+                    use_container_width=True
+                )
+            with col_exp2:
+                # High-risk only export
+                if 'Risk_Level' in df.columns:
+                    high_risk_df = df[df['Risk_Level'] == 'High']
+                    if not high_risk_df.empty:
+                        csv_high = high_risk_df.to_csv(index=False).encode('utf-8')
+                        st.download_button(
+                            "🔴 Download High-Risk Only",
+                            csv_high,
+                            f"high_risk_alerts_{date.today().isoformat()}.csv",
+                            "text/csv",
+                            use_container_width=True
+                        )
+
+    elif logs:
+        st.info("No records found matching your criteria. Try broadening your search or extending the date range.")
+    else:
+        # Initial state - show guidance
+        st.markdown("---")
+        with st.expander("💡 How to Use This Tool", expanded=True):
+            st.markdown("""
+            **Purpose:** Search global regulatory databases to find:
+            - **Product Recalls** affecting your products or similar devices
+            - **Safety Alerts** from health authorities worldwide
+            - **Adverse Events** (FDA MAUDE) reports
+            - **Enforcement Actions** and sanctions
+            - **Media Coverage** of safety issues
+
+            **Data Sources:**
+            | Region | Sources |
+            |--------|---------|
+            | 🇺🇸 US | FDA Device Recalls, FDA Enforcement, FDA MAUDE, CPSC |
+            | 🇪🇺 EU | EMA Alerts, EU Safety Communications |
+            | 🇬🇧 UK | MHRA Device Alerts |
+            | 🇨🇦 Canada | Health Canada Recalls |
+            | 🌎 LATAM | ANVISA (Brazil), COFEPRIS (Mexico) |
+            | 🌏 APAC | TGA (Australia), PMDA (Japan), HSA (Singapore) |
+
+            **Pro Tips:**
+            - Use product categories like "blood pressure monitor" for broad coverage
+            - Add manufacturer name to find vendor-specific issues
+            - Enable "Comprehensive" mode for media and web coverage
+            - Check "Sanctions/Watchlists" when evaluating new suppliers
+            """)
 
 
 # --- MAIN APP ---
@@ -9319,6 +9664,8 @@ def render_single_tool(task_id: str, provider_map: dict, provider_selection: str
         render_inventory_integration_tab()
     elif task_id == 'resources':
         render_quality_resources()
+    elif task_id == 'recalls':
+        render_global_recall_surveillance()
 
 
 def render_all_tabs(provider_map: dict, provider_selection: str):
@@ -9331,13 +9678,14 @@ def render_all_tabs(provider_map: dict, provider_selection: str):
     st.markdown("---")
 
     # Tabs - All tools
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         "📊 Return Categorizer",
         "📑 B2B Report Generator",
         "📋 Quality Case Tracker",
         "🧪 Quality Screening",
         "📦 Inventory Integration",
-        "📚 Resources"
+        "📚 Resources",
+        "🌐 Global Recalls"
     ])
 
     with tab1:
@@ -9358,6 +9706,9 @@ def render_all_tabs(provider_map: dict, provider_selection: str):
     with tab6:
         render_quality_resources()
 
+    with tab7:
+        render_global_recall_surveillance()
+
 
 def main():
     initialize_session_state()
@@ -9368,10 +9719,11 @@ def main():
     <div class="main-header">
         <h1 class="main-title">🏥 VIVE HEALTH QUALITY SUITE</h1>
         <p style="color: white; margin: 0.5rem 0; font-size: 1.1rem;">
-            <strong>Enterprise Quality Management System v21.0</strong>
+            <strong>Enterprise Quality Management System v22.0</strong>
         </p>
         <p style="color: rgba(255,255,255,0.9); margin: 0; font-size: 0.9rem;">
             🤖 <strong>AI-Powered:</strong> OpenAI/Claude LLMs | TQM Methodology | Dual Export (Leadership/Company-Wide)<br/>
+            🌐 <strong>Global Intelligence:</strong> FDA | EU EMA | UK MHRA | Health Canada | CPSC | Media Monitoring<br/>
             📊 <strong>Compliance:</strong> ISO 13485 | FDA 21 CFR 820 | EU MDR | UK MDR
         </p>
     </div>
