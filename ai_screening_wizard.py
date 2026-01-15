@@ -732,9 +732,44 @@ def render_step_action_planning(wizard, tracker):
                 min_value=0.0, value=0.0, step=100.0,
                 key="wiz_savings"
             )
+
+        col7, col8 = st.columns(2)
+        with col7:
+            financial_impact = st.text_input(
+                "Financial Impact Description",
+                placeholder="e.g., High impact - lost sales, refund costs",
+                key="wiz_financial_impact",
+                help="Text description of the overall financial impact"
+            )
+        with col8:
+            defective_inventory = st.number_input(
+                "Total Defective Inventory (units)",
+                min_value=0, value=0, step=1,
+                key="wiz_defective_inventory",
+                help="Count of defective units in inventory"
+            )
     else:
         cost_of_refunds = 0.0
         savings_captured = 0.0
+        financial_impact = ""
+        defective_inventory = 0
+
+    st.markdown("##### Completion Timeline")
+    col_dates1, col_dates2 = st.columns(2)
+    with col_dates1:
+        estimated_completion = st.date_input(
+            "Estimated Completion Date",
+            value=None,
+            key="wiz_est_completion",
+            help="Target date for resolving this case"
+        )
+    with col_dates2:
+        actual_completion = st.date_input(
+            "Actual Completion Date",
+            value=None,
+            key="wiz_actual_completion",
+            help="Leave blank if case is not yet completed"
+        )
 
     # AI Action Recommendation
     if st.button("🤖 Get AI Action Recommendations", key="ai_action_rec"):
@@ -779,6 +814,11 @@ Be specific and actionable."""
             wizard['case_data']['notification_notes'] = notification_notes
             wizard['case_data']['cost_of_refunds'] = cost_of_refunds
             wizard['case_data']['savings_captured'] = savings_captured
+            # New fields
+            wizard['case_data']['financial_impact'] = financial_impact
+            wizard['case_data']['defective_inventory'] = defective_inventory
+            wizard['case_data']['estimated_completion'] = estimated_completion
+            wizard['case_data']['actual_completion'] = actual_completion
             wizard['step'] = 4
             st.rerun()
 
@@ -973,6 +1013,11 @@ def render_step_priority_review(wizard, tracker, QualityTrackerCase):
             new_case.flag_source = data.get('flag_source', '')
             new_case.follow_up_date = data.get('follow_up_date')
             new_case.case_status = data.get('case_status', 'Open - New')
+            # New fields (columns 32-35)
+            new_case.financial_impact = data.get('financial_impact', '')
+            new_case.total_defective_inventory = data.get('defective_inventory')
+            new_case.estimated_completion_date = data.get('estimated_completion')
+            new_case.completion_date_actual = data.get('actual_completion')
 
             # Add to tracker
             tracker.add_case(new_case)
