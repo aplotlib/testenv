@@ -1,22 +1,23 @@
 """
-Vive Health Quality Suite - Version 21.0 (Leadership Demo)
+Vive Health Quality Suite - Version 21.0
 Enterprise-Grade Quality Management System
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-STREAMLINED WORKFLOW (6 Tabs):
+TASK-BASED WORKFLOW (6 Tools):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Tab 1: 📊 Return Categorizer     - AI categorizes customer complaints
-Tab 2: 📑 B2B Report Generator   - Odoo export → B2B compliant report
-Tab 3: 📋 Quality Case Tracker   - Track cases, dual exports (Leadership/Company)
-Tab 4: 🧪 Quality Screening      - AI screening with TQM methodology
-Tab 5: 📦 Inventory Integration  - DOI & reorder point analysis
-Tab 6: 📚 Resources              - Regulatory links & quality guides
+📊 Return Categorizer     - AI categorizes customer complaints
+📑 B2B Report Generator   - Odoo export → B2B compliant report
+📋 Quality Case Tracker   - Track cases, dual exports (Leadership/Company)
+🧪 Quality Screening      - AI screening with TQM methodology
+📦 Inventory Integration  - DOI & reorder point analysis
+📚 Resources              - Regulatory links & quality guides
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 COMPLIANCE: ISO 13485 | FDA 21 CFR 820 | EU MDR | UK MDR
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Features:
+- Task-based landing page with intuitive tool selection
 - Quick Case Evaluation Mode: 1-3 product SOP comparison with AI qualification
 - ANOVA/MANOVA statistical analysis with p-values and post-hoc testing
 - SPC Control Charting (CUSUM, Shewhart)
@@ -125,7 +126,7 @@ st.set_page_config(
 
 APP_CONFIG = {
     'title': 'Vive Health Quality Suite',
-    'version': '21.0 (Leadership Demo)',
+    'version': '21.0',
     'chunk_sizes': [100, 250, 500, 1000],
     'default_chunk': 500,
 }
@@ -4851,7 +4852,7 @@ def render_threshold_manager(selected_profile):
                 st.dataframe(
                     pd.DataFrame(threshold_data),
                     hide_index=True,
-                    width="stretch"
+                    use_container_width=True
                 )
             
             with col2:
@@ -4940,21 +4941,21 @@ def render_ai_chat_panel():
     col1, col2 = st.columns(2)
     
     with col1:
-        if st.button("❓ How to set thresholds?", key="q1", width="stretch"):
+        if st.button("❓ How to set thresholds?", key="q1", use_container_width=True):
             _add_ai_response("threshold_help")
     
     with col2:
-        if st.button("📊 Explain my results", key="q2", width="stretch"):
+        if st.button("📊 Explain my results", key="q2", use_container_width=True):
             _add_ai_response("results_help")
     
     col3, col4 = st.columns(2)
     
     with col3:
-        if st.button("🎯 What should I screen?", key="q3", width="stretch"):
+        if st.button("🎯 What should I screen?", key="q3", use_container_width=True):
             _add_ai_response("screening_help")
     
     with col4:
-        if st.button("⚠️ Risk score meaning?", key="q4", width="stretch"):
+        if st.button("⚠️ Risk score meaning?", key="q4", use_container_width=True):
             _add_ai_response("risk_help")
     
     # Free text input
@@ -4966,7 +4967,7 @@ def render_ai_chat_panel():
         label_visibility="collapsed"
     )
     
-    if st.button("Send", key="send_chat", width="stretch"):
+    if st.button("Send", key="send_chat", use_container_width=True):
         if user_question.strip():
             _process_ai_chat(user_question)
 
@@ -5987,7 +5988,7 @@ def render_lite_mode():
     # Process button
     col_btn, col_clear = st.columns([3, 1])
     with col_btn:
-        if st.button("🔍 Run AI Screening", type="primary", width="stretch", disabled=valid_count == 0):
+        if st.button("🔍 Run AI Screening", type="primary", use_container_width=True, disabled=valid_count == 0):
             # Filter to valid entries only
             valid_entries = [e for e in all_entries if e.get('_valid', False)]
             
@@ -6000,7 +6001,7 @@ def render_lite_mode():
             process_screening(df_input)
     
     with col_clear:
-        if st.button("🗑️ Clear All", width="stretch"):
+        if st.button("🗑️ Clear All", use_container_width=True):
             st.session_state.lite_entries = [{'id': 0}]
             st.rerun()
 
@@ -6191,7 +6192,7 @@ def render_pro_mode():
             
             # Preview data
             st.markdown("#### Data Preview")
-            st.dataframe(df_input.head(10), width="stretch")
+            st.dataframe(df_input.head(10), use_container_width=True)
             
             # Statistical analysis suggestion
             st.markdown("#### 📊 Statistical Analysis Options")
@@ -6264,7 +6265,7 @@ def render_pro_mode():
             st.markdown("---")
             
             # Run analysis button
-            if st.button("🚀 Run Full Screening Analysis", type="primary", width="stretch"):
+            if st.button("🚀 Run Full Screening Analysis", type="primary", use_container_width=True):
                 # Rename columns to standard names
                 df_renamed = df_input.rename(columns={v: k for k, v in validation['column_mapping'].items()})
                 
@@ -6629,7 +6630,7 @@ def render_screening_results():
                 tooltip=['SKU', 'Category', 'Return_Rate_Pct', 'Landed Cost', 'Risk_Score', 'Action']
             ).interactive().properties(height=400)
             
-            st.altair_chart(chart, width="stretch")
+            st.altair_chart(chart, use_container_width=True)
     
     # Claude Review (if available)
     claude_reviews = [c for c in st.session_state.ai_chat_history if c.get('role') == 'claude_review']
@@ -6705,7 +6706,7 @@ def render_screening_results():
                 st.markdown("##### 📊 Benchmark Comparison Results")
                 st.dataframe(
                     benchmark_df.style.apply(color_performance, axis=1),
-                    width="stretch",
+                    use_container_width=True,
                     height=400
                 )
 
@@ -6747,7 +6748,7 @@ def render_screening_results():
 
     st.dataframe(
         display_df.style.apply(highlight_action, axis=1),
-        width="stretch",
+        use_container_width=True,
         height=400
     )
     
@@ -7701,7 +7702,7 @@ def render_screening_results():
                             preview_df = capa_plan.to_dataframe()
                             with st.expander("📋 Preview Plan", expanded=True):
                                 st.dataframe(preview_df[['Task ID', 'Task Name', 'Assigned To', 'Duration (Days)', 'Status', 'Priority']],
-                                           width="stretch", height=400)
+                                           use_container_width=True, height=400)
 
                             # Download options
                             col1, col2 = st.columns(2)
@@ -7823,7 +7824,7 @@ def render_screening_results():
                             preview_df = crit_plan.to_dataframe()
                             with st.expander("📋 Preview Plan", expanded=True):
                                 st.dataframe(preview_df[['Task ID', 'Task Name', 'Assigned To', 'Duration (Days)', 'Status', 'Priority']],
-                                           width="stretch", height=400)
+                                           use_container_width=True, height=400)
 
                             # Download options
                             col1, col2 = st.columns(2)
@@ -7984,7 +7985,7 @@ def render_screening_results():
                             preview_df = rework_plan.to_dataframe()
                             with st.expander("📋 Preview Plan", expanded=True):
                                 st.dataframe(preview_df[['Task ID', 'Task Name', 'Assigned To', 'Duration (Days)', 'Status', 'Priority']],
-                                           width="stretch", height=400)
+                                           use_container_width=True, height=400)
 
                             # AI-customized info
                             st.info(f"🤖 **AI-Customized Plan:** Based on {complexity} complexity, {batch_size} units, {team_size} team members")
@@ -8086,7 +8087,7 @@ def render_screening_results():
             file_name=f"quality_screening_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
             mime="text/csv",
             help="Best for copy/paste into Google Sheets tracker",
-            width="stretch"
+            use_container_width=True
         )
     
     with col2:
@@ -8134,12 +8135,12 @@ def render_screening_results():
             file_name=f"quality_screening_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             help="Full report with metadata sheet",
-            width="stretch"
+            use_container_width=True
         )
     
     with col3:
         # Clear results
-        if st.button("🗑️ Clear Results", width="stretch"):
+        if st.button("🗑️ Clear Results", use_container_width=True):
             st.session_state.qc_results_df = None
             st.session_state.anova_result = None
             st.session_state.manova_result = None
@@ -8480,7 +8481,7 @@ def render_inventory_integration_tab():
                     'LeadTimeDays': [45, 30, 60],
                     'SafetyStockDays': [14, 7, 21]
                 })
-                st.dataframe(template_df, width="stretch")
+                st.dataframe(template_df, use_container_width=True)
 
                 csv_buffer = io.StringIO()
                 template_df.to_csv(csv_buffer, index=False)
@@ -8604,7 +8605,7 @@ def render_inventory_integration_tab():
             lambda x: f"${x:,.0f}"
         )
 
-        st.dataframe(display_df, width="stretch", height=600)
+        st.dataframe(display_df, use_container_width=True, height=600)
 
         # Export options
         st.markdown("---")
@@ -9199,58 +9200,62 @@ def render_task_selector():
     """Render the task selector landing page"""
 
     st.markdown("""
-    <div style="text-align: center; margin: 2rem 0;">
+    <div style="text-align: center; margin: 1.5rem 0 2rem 0;">
         <h2 style="color: #004366; font-family: 'Poppins', sans-serif; margin-bottom: 0.5rem;">
             📋 What are you trying to do?
         </h2>
-        <p style="color: #666; font-size: 1.1rem;">Select a tool below or type what you need</p>
+        <p style="color: #666; font-size: 1rem;">Select a tool below or type what you need</p>
     </div>
     """, unsafe_allow_html=True)
 
-    # Task cards - 3x2 grid
+    # Task cards - 3x2 grid with styled containers
     row1 = st.columns(3)
     row2 = st.columns(3)
 
     tasks_row1 = ['categorize', 'b2b', 'tracker']
     tasks_row2 = ['screening', 'inventory', 'resources']
 
-    # Row 1
-    for i, task_id in enumerate(tasks_row1):
+    def render_task_card(col, task_id):
+        """Render a single task card"""
         task = TASK_DEFINITIONS[task_id]
-        with row1[i]:
+        with col:
+            # Card container
+            st.markdown(f"""
+            <div style="background: linear-gradient(135deg, rgba(35,178,190,0.05) 0%, rgba(0,67,102,0.08) 100%);
+                        border: 1px solid rgba(35,178,190,0.3); border-radius: 12px; padding: 1rem;
+                        margin-bottom: 0.5rem; min-height: 120px;">
+                <div style="font-size: 2rem; text-align: center; margin-bottom: 0.3rem;">{task['icon']}</div>
+                <div style="font-weight: 600; color: #004366; text-align: center; font-size: 0.95rem;">{task['title']}</div>
+                <div style="color: #23b2be; text-align: center; font-size: 0.8rem; margin-bottom: 0.3rem;">{task['subtitle']}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
             if st.button(
-                f"{task['icon']} **{task['title']}**\n\n{task['subtitle']}",
+                f"Open {task['title']}",
                 key=f"task_{task_id}",
                 use_container_width=True,
-                help=task['description']
+                type="secondary"
             ):
                 st.session_state.selected_task = task_id
                 st.rerun()
-            st.caption(task['description'][:60] + "...")
+
+    # Row 1
+    for i, task_id in enumerate(tasks_row1):
+        render_task_card(row1[i], task_id)
 
     # Row 2
     for i, task_id in enumerate(tasks_row2):
-        task = TASK_DEFINITIONS[task_id]
-        with row2[i]:
-            if st.button(
-                f"{task['icon']} **{task['title']}**\n\n{task['subtitle']}",
-                key=f"task_{task_id}",
-                use_container_width=True,
-                help=task['description']
-            ):
-                st.session_state.selected_task = task_id
-                st.rerun()
-            st.caption(task['description'][:60] + "...")
+        render_task_card(row2[i], task_id)
 
     st.markdown("---")
 
-    # Text input for keyword search
+    # Quick search and Show All
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.markdown("**Or type what you need:**")
+        st.markdown("**🔍 Quick Search:**")
         user_input = st.text_input(
             "Type keywords",
-            placeholder="e.g., 'b2b report', 'screen products', 'all'",
+            placeholder="e.g., 'b2b', 'screen', 'tracker', 'inventory', or 'all'",
             label_visibility="collapsed",
             key="task_search_input"
         )
@@ -9264,11 +9269,24 @@ def render_task_selector():
                         st.session_state.selected_task = matched
                         st.rerun()
                     else:
-                        st.warning("No matching tool found. Try different keywords or select from above.")
+                        st.warning("No matching tool found. Try: b2b, screen, tracker, inventory, categorize, resources")
         with col_all:
             if st.button("📂 Show All Tools", use_container_width=True):
                 st.session_state.selected_task = 'all'
                 st.rerun()
+
+    # Quick tips section
+    with st.expander("💡 Quick Tips", expanded=False):
+        st.markdown("""
+        **Common Workflows:**
+        - **Weekly Returns Analysis:** Categorize Returns → B2B Report
+        - **Quality Investigation:** Screen Products → Quality Case Tracker
+        - **Inventory Planning:** Screen Products → Inventory Analysis
+
+        **Keyboard Shortcuts:**
+        - Type `all` to see all tools in tab view
+        - Type tool keywords like `b2b`, `screen`, `tracker` for quick access
+        """)
 
 
 # --- MAIN APP ---
@@ -9345,13 +9363,12 @@ def main():
     initialize_session_state()
     inject_custom_css()
 
-    # Header - Leadership Demo Version
+    # Header
     st.markdown("""
     <div class="main-header">
         <h1 class="main-title">🏥 VIVE HEALTH QUALITY SUITE</h1>
         <p style="color: white; margin: 0.5rem 0; font-size: 1.1rem;">
-            <strong>Enterprise Quality Management System v21.0</strong> &nbsp;|&nbsp;
-            <span style="background: rgba(255,183,0,0.3); padding: 2px 8px; border-radius: 4px;">Leadership Demo</span>
+            <strong>Enterprise Quality Management System v21.0</strong>
         </p>
         <p style="color: rgba(255,255,255,0.9); margin: 0; font-size: 0.9rem;">
             🤖 <strong>AI-Powered:</strong> OpenAI/Claude LLMs | TQM Methodology | Dual Export (Leadership/Company-Wide)<br/>
