@@ -66,13 +66,14 @@ try:
     from regulatory_compliance import RegulatoryComplianceAnalyzer, REGULATORY_MARKETS
     from quality_cases_dashboard import (
         QualityCase, QualityCasesDashboard, REPORT_CRITERIA,
-        PRODUCT_DEVELOPMENT_FOCUS, generate_demo_cases
+        generate_demo_cases
     )
     from quality_tracker_manager import (
         QualityTrackerManager, QualityTrackerCase,
         ALL_COLUMNS_LEADERSHIP, ALL_COLUMNS_COMPANY_WIDE,
         LEADERSHIP_ONLY_COLUMNS, generate_demo_cases as generate_demo_tracker_cases
     )
+    from quality_resources import QUALITY_RESOURCES, get_total_link_count
     AI_AVAILABLE = True
 except ImportError as e:
     AI_AVAILABLE = False
@@ -1305,12 +1306,93 @@ def generate_b2b_report(df, analyzer, batch_size):
 def render_quality_cases_dashboard():
     """Render the Quality Tracker Dashboard - Manual Entry with Leadership/Company Wide Exports"""
 
-    with st.expander("📊 **QUALITY TRACKER DASHBOARD** - Top Cases Tracking", expanded=True):
+    # Hero header
+    st.markdown("""
+    <div style="background: linear-gradient(135deg, #23b2be 0%, #004366 100%);
+                padding: 2rem; border-radius: 12px; margin-bottom: 2rem;
+                box-shadow: 0 6px 12px rgba(0,0,0,0.15);">
+        <h1 style="color: white; font-family: 'Poppins', sans-serif; margin-bottom: 0.5rem; font-weight: 700; font-size: 2.2em;">
+            📊 Quality Tracker Dashboard
+        </h1>
+        <p style="color: rgba(255,255,255,0.95); font-family: 'Poppins', sans-serif; font-size: 1.1em; margin-bottom: 0; line-height: 1.6;">
+            <strong>🔄 Smartsheet Workflow:</strong> Import cases from Smartsheet → Screen & analyze with AI → Export confirmed cases back to Smartsheet
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    with st.expander("💡 How This Tool Works", expanded=False):
         st.markdown("""
-        <div style="background: linear-gradient(90deg, rgba(35,178,190,0.15) 0%, rgba(35,178,190,0.03) 100%);
-                    border-left: 4px solid #004366; padding: 1.2rem; margin-bottom: 1.2rem; border-radius: 6px;">
-            <strong style="color: #23b2be; font-size: 1.2em; font-family: 'Poppins', sans-serif;">Quality Cases Management</strong><br>
-            <span style="font-family: 'Poppins', sans-serif;">Track quality issues with manual entry, AI summaries, and dual exports (Leadership with financials / Company Wide sanitized)</span>
+        <div style="background: linear-gradient(135deg, rgba(35,178,190,0.1) 0%, rgba(0,67,102,0.1) 100%);
+                    border-left: 5px solid #23b2be; padding: 1.5rem; border-radius: 8px; font-family: 'Poppins', sans-serif;">
+            <h3 style="color: #004366; font-weight: 600; margin-bottom: 1rem;">Purpose & Workflow</h3>
+
+            <p style="color: #333; line-height: 1.7; margin-bottom: 1rem;">
+                <strong style="color: #23b2be;">🎯 Purpose:</strong> This tool is for <em>screening</em> quality cases, generating AI summaries,
+                and preparing exports. Think of it as a smart workspace for case analysis before committing to Smartsheet.
+            </p>
+
+            <!-- Visual Workflow Diagram -->
+            <div style="background: white; padding: 1.5rem; border-radius: 8px; margin: 1.5rem 0; border: 2px solid #23b2be;">
+                <h4 style="color: #004366; text-align: center; margin-bottom: 1rem; font-weight: 600;">🔄 4-Step Workflow</h4>
+                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;">
+
+                    <!-- Step 1 -->
+                    <div style="flex: 1; min-width: 120px; text-align: center; margin: 0.5rem;">
+                        <div style="background: linear-gradient(135deg, #23b2be 0%, #1a8a94 100%);
+                                    color: white; padding: 1rem; border-radius: 8px; font-weight: 600; margin-bottom: 0.5rem;
+                                    box-shadow: 0 3px 6px rgba(0,0,0,0.1);">
+                            📥 IMPORT
+                        </div>
+                        <p style="font-size: 0.75em; color: #666; margin: 0; line-height: 1.3;">From Smartsheet<br>(Excel/CSV)</p>
+                    </div>
+
+                    <!-- Arrow -->
+                    <div style="flex: 0; margin: 0 0.3rem; color: #23b2be; font-size: 1.5em; font-weight: bold;">→</div>
+
+                    <!-- Step 2 -->
+                    <div style="flex: 1; min-width: 120px; text-align: center; margin: 0.5rem;">
+                        <div style="background: linear-gradient(135deg, #004366 0%, #003152 100%);
+                                    color: white; padding: 1rem; border-radius: 8px; font-weight: 600; margin-bottom: 0.5rem;
+                                    box-shadow: 0 3px 6px rgba(0,0,0,0.1);">
+                            🔍 SCREEN
+                        </div>
+                        <p style="font-size: 0.75em; color: #666; margin: 0; line-height: 1.3;">Duplicates &<br>AI Review</p>
+                    </div>
+
+                    <!-- Arrow -->
+                    <div style="flex: 0; margin: 0 0.3rem; color: #23b2be; font-size: 1.5em; font-weight: bold;">→</div>
+
+                    <!-- Step 3 -->
+                    <div style="flex: 1; min-width: 120px; text-align: center; margin: 0.5rem;">
+                        <div style="background: linear-gradient(135deg, #23b2be 0%, #1a8a94 100%);
+                                    color: white; padding: 1rem; border-radius: 8px; font-weight: 600; margin-bottom: 0.5rem;
+                                    box-shadow: 0 3px 6px rgba(0,0,0,0.1);">
+                            ➕ ADD
+                        </div>
+                        <p style="font-size: 0.75em; color: #666; margin: 0; line-height: 1.3;">New Cases<br>Manually</p>
+                    </div>
+
+                    <!-- Arrow -->
+                    <div style="flex: 0; margin: 0 0.3rem; color: #23b2be; font-size: 1.5em; font-weight: bold;">→</div>
+
+                    <!-- Step 4 -->
+                    <div style="flex: 1; min-width: 120px; text-align: center; margin: 0.5rem;">
+                        <div style="background: linear-gradient(135deg, #004366 0%, #003152 100%);
+                                    color: white; padding: 1rem; border-radius: 8px; font-weight: 600; margin-bottom: 0.5rem;
+                                    box-shadow: 0 3px 6px rgba(0,0,0,0.1);">
+                            📤 EXPORT
+                        </div>
+                        <p style="font-size: 0.75em; color: #666; margin: 0; line-height: 1.3;">To Smartsheet<br>(Permanent DB)</p>
+                    </div>
+
+                </div>
+            </div>
+
+            <p style="color: #333; line-height: 1.7; margin-bottom: 0;">
+                <strong style="color: #e74c3c;">⚠️ Important:</strong> This tool has <strong>no memory between sessions</strong>.
+                Smartsheet is your permanent database. Use this tool to screen cases, take screenshots for emails,
+                and export confirmed cases back to Smartsheet for tracking.
+            </p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -1322,10 +1404,26 @@ def render_quality_cases_dashboard():
 
         tracker = st.session_state.quality_tracker
 
-        # Demo button, leadership toggle, and clear button
-        col1, col2, col3 = st.columns([2, 2, 2])
+        # Action buttons section with enhanced styling
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, rgba(35,178,190,0.08) 0%, rgba(0,67,102,0.08) 100%);
+                    padding: 1.2rem; border-radius: 10px; margin: 1rem 0;">
+            <h4 style="color: #004366; font-family: 'Poppins', sans-serif; margin-bottom: 0.8rem; font-weight: 600;">
+                ⚡ Quick Actions
+            </h4>
+        </div>
+        """, unsafe_allow_html=True)
+
+        col1, col2, col3, col4, col5 = st.columns([2, 2, 2, 2, 2])
+
         with col1:
-            if st.button("📥 Load Demo Cases (3 samples)", key="load_demo_tracker"):
+            if st.button(
+                "📥 Load Demo",
+                key="load_demo_tracker",
+                help="Load 3 sample cases for testing",
+                type="secondary",
+                use_container_width=True
+            ):
                 demo_cases = generate_demo_tracker_cases()
                 st.session_state.tracker_cases = demo_cases
                 tracker.cases = demo_cases
@@ -1333,41 +1431,205 @@ def render_quality_cases_dashboard():
                 st.rerun()
 
         with col2:
-            st.session_state.show_leadership_fields = st.checkbox(
-                "🔒 Show Leadership Fields (Financials)",
-                value=st.session_state.show_leadership_fields,
-                help="Enable to see and enter Priority, Total orders, Financials, Case Status"
+            # Import from file
+            uploaded_file = st.file_uploader(
+                "📂 Import",
+                type=['xlsx', 'csv'],
+                key="import_cases_file",
+                help="Import cases from Smartsheet export (Excel or CSV)",
+                label_visibility="visible"
             )
+            if uploaded_file is not None:
+                try:
+                    file_type = 'excel' if uploaded_file.name.endswith('.xlsx') else 'csv'
+                    imported_count, duplicates = tracker.import_from_file(uploaded_file, file_type)
+
+                    if imported_count > 0:
+                        st.success(f"✅ Imported {imported_count} cases")
+                        if duplicates:
+                            st.warning(f"⚠️ Skipped {len(duplicates)} duplicate SKUs: {', '.join(duplicates[:5])}")
+                        st.session_state.tracker_cases = tracker.cases
+                        st.rerun()
+                    else:
+                        st.info("No new cases imported (all duplicates or invalid data)")
+                except Exception as e:
+                    st.error(f"❌ Import failed: {str(e)}")
 
         with col3:
+            st.markdown("<div style='margin-bottom: 0.5rem;'></div>", unsafe_allow_html=True)
+            st.session_state.show_leadership_fields = st.checkbox(
+                "🔒 Leadership",
+                value=st.session_state.show_leadership_fields,
+                help="Show Priority, Total orders, Financials, Case Status"
+            )
+
+        with col4:
             if tracker.cases:
-                if st.button("🗑️ Clear All Cases", key="clear_all_cases"):
+                if st.button(
+                    "🗑️ Clear All",
+                    key="clear_all_cases",
+                    help="Remove all cases from current session",
+                    type="secondary",
+                    use_container_width=True
+                ):
                     st.session_state.tracker_cases = []
                     tracker.cases = []
                     st.success("✅ Cleared all cases")
                     st.rerun()
 
+        with col5:
+            if tracker.cases and tracker.ai_analyzer:
+                if st.button(
+                    "🤖 AI Review",
+                    key="ai_review_all",
+                    help="Generate AI analysis of all current cases",
+                    type="primary",
+                    use_container_width=True
+                ):
+                    with st.spinner("🤖 Analyzing cases..."):
+                        review = tracker.generate_ai_review()
+
+                        # Display AI review with enhanced formatting
+                        st.markdown("""
+                        <div style="background: linear-gradient(135deg, rgba(35,178,190,0.15) 0%, rgba(0,67,102,0.15) 100%);
+                                    border-left: 5px solid #23b2be; padding: 1.5rem; margin: 1rem 0;
+                                    border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                            <h4 style="color: #004366; font-family: 'Poppins', sans-serif; margin-bottom: 1rem; font-weight: 600;">
+                                🤖 AI Quality Expert Analysis
+                            </h4>
+                            <p style="color: #333; font-family: 'Poppins', sans-serif; font-size: 0.9em; margin-bottom: 0.5rem;">
+                                <strong>What this analysis provides:</strong> AI has reviewed all loaded cases and identified the top priorities,
+                                common patterns, and recommended actions based on severity, return rates, and business impact.
+                            </p>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                        st.markdown(f"""
+                        <div style="background: white; border: 2px solid #23b2be; padding: 1.5rem;
+                                    border-radius: 8px; font-family: 'Poppins', sans-serif; line-height: 1.7;">
+                            {review}
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                        st.caption("💡 Use this analysis to prioritize cases for corrective action. Export these cases to Smartsheet to track progress.")
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Session Status Badge
+        session_case_count = len(tracker.cases)
+        if session_case_count > 0:
+            st.markdown(f"""
+            <div style="background: linear-gradient(90deg, #27ae60 0%, #229954 100%);
+                        color: white; padding: 0.6rem 1.2rem; border-radius: 20px;
+                        display: inline-block; font-family: 'Poppins', sans-serif; font-weight: 600;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 1rem;">
+                ✓ Session Active: {session_case_count} case{'s' if session_case_count != 1 else ''} loaded
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div style="background: linear-gradient(90deg, #95a5a6 0%, #7f8c8d 100%);
+                        color: white; padding: 0.6rem 1.2rem; border-radius: 20px;
+                        display: inline-block; font-family: 'Poppins', sans-serif; font-weight: 600;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 1rem;">
+                ○ No cases loaded - Import or load demo data to begin
+            </div>
+            """, unsafe_allow_html=True)
+
         st.markdown("---")
 
         # Cases Summary (if cases exist)
         if tracker.cases:
+            st.markdown("""
+            <div style="background: linear-gradient(135deg, #23b2be 0%, #004366 100%);
+                        padding: 1.5rem; border-radius: 10px; margin-bottom: 1.5rem;
+                        box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                <h3 style="color: white; font-family: 'Poppins', sans-serif; margin-bottom: 1rem; font-weight: 600;">
+                    📊 Quality Case Summary
+                </h3>
+                <p style="color: rgba(255,255,255,0.9); font-family: 'Poppins', sans-serif; font-size: 0.95em; margin-bottom: 0;">
+                    💡 <strong>About these metrics:</strong> This summary shows live data from cases currently loaded in this session.
+                    These cases were either imported from Smartsheet or manually entered. Use AI Review to get intelligent analysis,
+                    then export confirmed cases back to Smartsheet for permanent storage.
+                    <em>Remember: This tool has no memory between sessions - Smartsheet is your permanent database.</em>
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("Total Cases", len(tracker.cases))
+                st.metric(
+                    "Total Cases",
+                    len(tracker.cases),
+                    help="Total number of quality cases currently loaded in this session (imported or manually added)"
+                )
             with col2:
                 total_refund_cost = sum(c.cost_of_refunds_annualized or 0 for c in tracker.cases)
-                st.metric("Total Refund Cost (Annual)", f"${total_refund_cost:,.0f}" if st.session_state.show_leadership_fields else "---")
+                st.metric(
+                    "Total Refund Cost (Annual)",
+                    f"${total_refund_cost:,.0f}" if st.session_state.show_leadership_fields else "---",
+                    help="Sum of annualized refund costs across all cases (Leadership view only). Based on return rate × order volume × average product cost."
+                )
             with col3:
                 total_savings = sum(c.savings_captured_12m or 0 for c in tracker.cases)
-                st.metric("Total Savings (12m)", f"${total_savings:,.0f}" if st.session_state.show_leadership_fields else "---")
+                st.metric(
+                    "Total Savings (12m)",
+                    f"${total_savings:,.0f}" if st.session_state.show_leadership_fields else "---",
+                    help="Total savings captured over last 12 months from corrective actions (Leadership view only). Calculated from return rate reduction × volume."
+                )
             with col4:
                 avg_return_rate = sum(c.return_rate_amazon or 0 for c in tracker.cases) / len(tracker.cases) if tracker.cases else 0
-                st.metric("Avg Return Rate", f"{avg_return_rate:.2%}")
+                st.metric(
+                    "Avg Return Rate",
+                    f"{avg_return_rate:.2%}",
+                    help="Average return rate across all loaded cases. Industry benchmark for medical supplies: 5-8%. Above 10% requires immediate action."
+                )
 
             st.markdown("---")
 
-            # Display cases table
-            st.markdown("#### 📋 Current Cases")
+            # Check for duplicate SKUs
+            duplicates = tracker.find_duplicate_skus()
+            if duplicates:
+                st.markdown(f"""
+                <div style="background: linear-gradient(135deg, rgba(231,76,60,0.15) 0%, rgba(231,76,60,0.05) 100%);
+                            border-left: 5px solid #e74c3c; padding: 1.2rem; margin: 1rem 0;
+                            border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                    <h4 style="color: #c0392b; font-family: 'Poppins', sans-serif; margin-bottom: 0.5rem; font-weight: 600;">
+                        ⚠️ Duplicate SKUs Detected
+                    </h4>
+                    <p style="color: #333; font-family: 'Poppins', sans-serif; font-size: 0.95em; margin: 0;">
+                        Found <strong>{len(duplicates)} SKUs</strong> appearing multiple times across different sources.
+                        Review these carefully - they may be legitimate cases from different channels or data entry errors.
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
+
+                with st.expander("🔍 View Duplicate Details", expanded=True):
+                    for sku, cases in duplicates.items():
+                        st.markdown(f"""
+                        <div style="background: rgba(35,178,190,0.05); border-left: 3px solid #23b2be;
+                                    padding: 0.8rem; margin-bottom: 0.5rem; border-radius: 4px;">
+                            <p style="font-family: 'Poppins', sans-serif; color: #004366; font-weight: 600; margin: 0 0 0.5rem 0;">
+                                SKU: <strong>{sku}</strong> - appears in {len(cases)} cases:
+                            </p>
+                        """, unsafe_allow_html=True)
+                        for case in cases:
+                            st.markdown(f"  → {case.product_name} ({case.flag_source})")
+                        st.markdown("</div>", unsafe_allow_html=True)
+
+            # Display cases table with enhanced header
+            st.markdown("""
+            <div style="background: linear-gradient(90deg, rgba(35,178,190,0.1) 0%, rgba(0,67,102,0.1) 100%);
+                        border-left: 4px solid #23b2be; padding: 1rem; margin: 1rem 0;
+                        border-radius: 6px;">
+                <h4 style="color: #004366; font-family: 'Poppins', sans-serif; margin: 0 0 0.3rem 0; font-weight: 600;">
+                    📋 Current Cases in Session
+                </h4>
+                <p style="color: #666; font-family: 'Poppins', sans-serif; font-size: 0.85em; margin: 0;">
+                    💡 Cases displayed here for screening review. Export confirmed cases to Smartsheet for permanent tracking.
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
 
             cases_df = tracker.get_cases_dataframe(leadership_version=st.session_state.show_leadership_fields)
 
@@ -1379,6 +1641,13 @@ def render_quality_cases_dashboard():
                 if display_cols:
                     display_df = cases_df[display_cols].copy()
 
+                    # Highlight duplicate SKUs
+                    if duplicates:
+                        duplicate_sku_list = list(duplicates.keys())
+                        display_df['SKU'] = display_df['SKU'].apply(
+                            lambda x: f"⚠️ {x}" if x in duplicate_sku_list else x
+                        )
+
                     # Format return rate
                     if 'Return rate Amazon' in display_df.columns:
                         display_df['Return rate Amazon'] = display_df['Return rate Amazon'].apply(
@@ -1389,57 +1658,98 @@ def render_quality_cases_dashboard():
 
             st.markdown("---")
 
-            # Export Section
-            st.markdown("#### 📤 Export Options")
+            # Export Section with enhanced styling
+            st.markdown("""
+            <div style="background: linear-gradient(135deg, #23b2be 0%, #004366 100%);
+                        padding: 1.5rem; border-radius: 10px; margin: 1.5rem 0;
+                        box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
+                <h3 style="color: white; font-family: 'Poppins', sans-serif; margin-bottom: 0.5rem; font-weight: 600;">
+                    📤 Export to Smartsheet
+                </h3>
+                <p style="color: rgba(255,255,255,0.9); font-family: 'Poppins', sans-serif; font-size: 0.95em; margin: 0;">
+                    Export confirmed cases back to Smartsheet for permanent tracking. Choose Leadership (full data) or Company Wide (sanitized).
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
 
             col1, col2 = st.columns(2)
 
             with col1:
-                st.markdown("**🔒 Leadership Export** (31 columns with financials)")
-                st.caption("Includes: Priority, Total orders, Cost of Refunds, Savings, Case Status")
+                st.markdown("""
+                <div style="background: linear-gradient(135deg, rgba(0,67,102,0.1) 0%, rgba(0,67,102,0.02) 100%);
+                            border: 2px solid #004366; padding: 1.2rem; border-radius: 8px; margin-bottom: 1rem;">
+                    <h4 style="color: #004366; font-family: 'Poppins', sans-serif; margin: 0 0 0.5rem 0; font-weight: 600;">
+                        🔒 Leadership Export
+                    </h4>
+                    <p style="color: #555; font-family: 'Poppins', sans-serif; font-size: 0.85em; margin: 0 0 0.3rem 0;">
+                        31 columns with full financial data
+                    </p>
+                    <p style="color: #666; font-family: 'Poppins', sans-serif; font-size: 0.8em; margin: 0; line-height: 1.4;">
+                        <strong>Includes:</strong> Priority, Total orders, Cost of Refunds, Savings, Case Status
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
 
                 col1a, col1b = st.columns(2)
                 with col1a:
                     leadership_excel = tracker.export_leadership_excel()
                     st.download_button(
-                        "📥 Excel (Leadership)",
+                        "📥 Excel",
                         data=leadership_excel,
                         file_name="Tracker_ Priority List (Leadership).xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        key="dl_leadership_excel"
+                        key="dl_leadership_excel",
+                        type="primary",
+                        use_container_width=True
                     )
                 with col1b:
                     leadership_csv = tracker.export_leadership_csv()
                     st.download_button(
-                        "📥 CSV (Leadership)",
+                        "📥 CSV",
                         data=leadership_csv,
                         file_name="Tracker_ Priority List (Leadership).csv",
                         mime="text/csv",
-                        key="dl_leadership_csv"
+                        key="dl_leadership_csv",
+                        use_container_width=True
                     )
 
             with col2:
-                st.markdown("**🌐 Company Wide Export** (25 columns, no financials)")
-                st.caption("Excludes: Priority, Total orders, Flag Source 1, Financials, Case Status")
+                st.markdown("""
+                <div style="background: linear-gradient(135deg, rgba(35,178,190,0.1) 0%, rgba(35,178,190,0.02) 100%);
+                            border: 2px solid #23b2be; padding: 1.2rem; border-radius: 8px; margin-bottom: 1rem;">
+                    <h4 style="color: #23b2be; font-family: 'Poppins', sans-serif; margin: 0 0 0.5rem 0; font-weight: 600;">
+                        🌐 Company Wide Export
+                    </h4>
+                    <p style="color: #555; font-family: 'Poppins', sans-serif; font-size: 0.85em; margin: 0 0 0.3rem 0;">
+                        25 columns, sanitized (no financials)
+                    </p>
+                    <p style="color: #666; font-family: 'Poppins', sans-serif; font-size: 0.8em; margin: 0; line-height: 1.4;">
+                        <strong>Excludes:</strong> Priority, Total orders, Flag Source 1, Financials, Case Status
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
 
                 col2a, col2b = st.columns(2)
                 with col2a:
                     company_excel = tracker.export_company_wide_excel()
                     st.download_button(
-                        "📥 Excel (Company Wide)",
+                        "📥 Excel",
                         data=company_excel,
                         file_name="Company Wide Quality Tracker.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        key="dl_company_excel"
+                        key="dl_company_excel",
+                        type="primary",
+                        use_container_width=True
                     )
                 with col2b:
                     company_csv = tracker.export_company_wide_csv()
                     st.download_button(
-                        "📥 CSV (Company Wide)",
+                        "📥 CSV",
                         data=company_csv,
                         file_name="Company Wide Quality Tracker.csv",
                         mime="text/csv",
-                        key="dl_company_csv"
+                        key="dl_company_csv",
+                        use_container_width=True
                     )
 
             st.markdown("---")
@@ -1644,73 +1954,126 @@ def render_quality_cases_dashboard():
             for criterion in REPORT_CRITERIA['Reviews Analysis']['criteria']:
                 st.markdown(f"**{criterion['name']}:** {criterion['logic']}")
 
-        st.markdown("---")
 
-        # Product Development Focus Areas
-        st.markdown("#### 🎯 Product Development Focus Areas")
-        st.caption("Critical categories requiring heightened upfront quality attention")
 
-        focus_tab1, focus_tab2, focus_tab3 = st.tabs(["😷 CPAP Masks", "🔌 CPAP Machines", "💨 POC (Portable Oxygen)"])
+def render_quality_resources():
+    """Render Quality Resources tab with categorized regulatory and tool links"""
 
-        with focus_tab1:
-            focus = PRODUCT_DEVELOPMENT_FOCUS['CPAP Masks']
-            st.markdown(f"**Why Focus:** {focus['why_focus']}")
+    # Hero header with gradient
+    st.markdown("""
+    <div style="background: linear-gradient(135deg, #23b2be 0%, #004366 100%);
+                padding: 2rem; border-radius: 12px; margin-bottom: 2rem;
+                box-shadow: 0 6px 12px rgba(0,0,0,0.15);">
+        <h1 style="color: white; font-family: 'Poppins', sans-serif; margin-bottom: 0.5rem; font-weight: 700; font-size: 2.2em;">
+            📚 Quality Resources Hub
+        </h1>
+        <p style="color: rgba(255,255,255,0.95); font-family: 'Poppins', sans-serif; font-size: 1.1em; margin-bottom: 0; line-height: 1.6;">
+            Comprehensive collection of regulatory databases, quality management tools, and global documentation.
+            <br>Access Vive internal tools, FDA databases, EU/UK/LATAM regulatory resources, and international standards - all in one place.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
-            col1, col2 = st.columns(2)
+    # Summary metrics with Vive colors
+    total_links = get_total_link_count()
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, rgba(35,178,190,0.2) 0%, rgba(35,178,190,0.05) 100%);
+                    padding: 1.5rem; border-radius: 10px; border: 2px solid #23b2be; text-align: center;">
+            <h2 style="color: #23b2be; font-family: 'Poppins', sans-serif; font-size: 2.5em; margin: 0; font-weight: 700;">""" + str(total_links) + """</h2>
+            <p style="color: #004366; font-family: 'Poppins', sans-serif; font-size: 1em; margin: 0.5rem 0 0 0; font-weight: 600;">Total Resources</p>
+        </div>
+        """, unsafe_allow_html=True)
+    with col2:
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, rgba(0,67,102,0.2) 0%, rgba(0,67,102,0.05) 100%);
+                    padding: 1.5rem; border-radius: 10px; border: 2px solid #004366; text-align: center;">
+            <h2 style="color: #004366; font-family: 'Poppins', sans-serif; font-size: 2.5em; margin: 0; font-weight: 700;">""" + str(len(QUALITY_RESOURCES)) + """</h2>
+            <p style="color: #004366; font-family: 'Poppins', sans-serif; font-size: 1em; margin: 0.5rem 0 0 0; font-weight: 600;">Categories</p>
+        </div>
+        """, unsafe_allow_html=True)
+    with col3:
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, rgba(35,178,190,0.2) 0%, rgba(35,178,190,0.05) 100%);
+                    padding: 1.5rem; border-radius: 10px; border: 2px solid #23b2be; text-align: center;">
+            <h2 style="color: #23b2be; font-family: 'Poppins', sans-serif; font-size: 2.5em; margin: 0; font-weight: 700;">15+</h2>
+            <p style="color: #004366; font-family: 'Poppins', sans-serif; font-size: 1em; margin: 0.5rem 0 0 0; font-weight: 600;">Countries Covered</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-            with col1:
-                st.markdown("**Key Quality Areas:**")
-                for area in focus['key_quality_areas']:
-                    st.markdown(f"- {area}")
+    st.markdown("<br>", unsafe_allow_html=True)
 
-            with col2:
-                st.markdown("**Upfront Quality Actions:**")
-                for action in focus['upfront_quality_actions']:
-                    st.markdown(f"- {action}")
+    # Render each category with improved styling
+    for category_name, category_data in QUALITY_RESOURCES.items():
+        icon = category_data.get("icon", "📁")
+        description = category_data.get("description", "")
+        links = category_data.get("links", [])
 
-            st.markdown("**Success Metrics:**")
-            for metric, value in focus['success_metrics'].items():
-                st.markdown(f"- **{metric.replace('_', ' ').title()}:** {value}")
+        with st.expander(f"{icon} **{category_name}** ({len(links)} resources)", expanded=(category_name == "Vive Quality Tools")):
+            st.markdown(f"""
+            <p style="font-family: 'Poppins', sans-serif; color: #666; font-size: 0.95em; margin-bottom: 1rem;">
+                {description}
+            </p>
+            """, unsafe_allow_html=True)
 
-        with focus_tab2:
-            focus = PRODUCT_DEVELOPMENT_FOCUS['CPAP Machines']
-            st.markdown(f"**Why Focus:** {focus['why_focus']}")
+            # Display links in enhanced card format
+            for link in links:
+                st.markdown(f"""
+                <div style="background: linear-gradient(135deg, rgba(35,178,190,0.05) 0%, rgba(255,255,255,1) 100%);
+                            border-left: 4px solid #23b2be; padding: 1rem; margin-bottom: 0.8rem;
+                            border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                    <a href="{link['url']}" target="_blank" style="text-decoration: none;">
+                        <h4 style="color: #004366; font-family: 'Poppins', sans-serif; margin: 0 0 0.3rem 0; font-weight: 600;">
+                            🔗 {link['name']}
+                        </h4>
+                    </a>
+                    <p style="color: #555; font-family: 'Poppins', sans-serif; font-size: 0.9em; margin: 0; line-height: 1.5;">
+                        {link['description']}
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
 
-            col1, col2 = st.columns(2)
+    st.markdown("<br>", unsafe_allow_html=True)
 
-            with col1:
-                st.markdown("**Key Quality Areas:**")
-                for area in focus['key_quality_areas']:
-                    st.markdown(f"- {area}")
+    # Quick reference guide
+    with st.expander("📖 **Quick Reference Guide** - When to use which resource"):
+        st.markdown("""
+        ### 🔍 Use Case Guide
 
-            with col2:
-                st.markdown("**Upfront Quality Actions:**")
-                for action in focus['upfront_quality_actions']:
-                    st.markdown(f"- {action}")
+        **Need to check if a device is registered in a country?**
+        - US: FDA 510(k) Database or Registration & Listing
+        - EU: EUDAMED
+        - UK: MHRA Device Registration
+        - Canada: Health Canada MDALL
+        - Brazil: ANVISA Medical Device Database
+        - Mexico: COFEPRIS Medical Device Registry
 
-            st.markdown("**Success Metrics:**")
-            for metric, value in focus['success_metrics'].items():
-                st.markdown(f"- **{metric.replace('_', ' ').title()}:** {value}")
+        **Need to check for recalls or safety alerts?**
+        - US: FDA Recall Database, MAUDE Database
+        - EU: EU Safety Gate (RAPEX)
+        - UK: UK Medical Device Alerts
+        - Canada: Canada Recalls & Safety Alerts
+        - Global: Autocapa Tool (Vive internal)
 
-        with focus_tab3:
-            focus = PRODUCT_DEVELOPMENT_FOCUS['POC (Portable Oxygen Concentrators)']
-            st.markdown(f"**Why Focus:** {focus['why_focus']}")
+        **Need to find a notified body or approved body?**
+        - EU: NANDO Database
+        - UK: UK Approved Bodies
 
-            col1, col2 = st.columns(2)
+        **Need to understand regulatory requirements?**
+        - US: FDA 21 CFR Part 820 (QSR)
+        - EU: EU MDR/IVDR Regulations
+        - International: IMDRF Documents, ISO Standards
 
-            with col1:
-                st.markdown("**Key Quality Areas:**")
-                for area in focus['key_quality_areas']:
-                    st.markdown(f"- {area}")
+        **Need to calculate sampling plans?**
+        - AQL Calculator (ISO 2859-1 based)
 
-            with col2:
-                st.markdown("**Upfront Quality Actions:**")
-                for action in focus['upfront_quality_actions']:
-                    st.markdown(f"- {action}")
-
-            st.markdown("**Success Metrics:**")
-            for metric, value in focus['success_metrics'].items():
-                st.markdown(f"- **{metric.replace('_', ' ').title()}:** {value}")
+        **Need Vive-specific quality information?**
+        - Quality Goals 2026 (annual objectives)
+        - Quality Impact Tracker ($) (financial tracking)
+        - Quality Intranet Site (central hub)
+        - Quality Manual & SOPs (procedures)
+        """)
 
 
 def render_comprehensive_user_guide():
@@ -6657,7 +7020,7 @@ def main():
         render_help_guide()
 
     # Tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Return Categorizer", "📑 B2B Report Generator", "🧪 Quality Screening", "📦 Inventory Integration"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Return Categorizer", "📑 B2B Report Generator", "🧪 Quality Screening", "📦 Inventory Integration", "📚 Resources"])
     
     # --- TAB 1: Categorizer (PRESERVED) ---
     with tab1:
@@ -6850,6 +7213,9 @@ def main():
     # --- TAB 4: Inventory Integration ---
     with tab4:
         render_inventory_integration_tab()
+
+    with tab5:
+        render_quality_resources()
 
 
 if __name__ == "__main__":
