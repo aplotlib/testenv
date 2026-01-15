@@ -10,7 +10,7 @@ Based on actual tracker templates from Vive Health.
 
 import pandas as pd
 from datetime import datetime, date
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 import logging
 import io
 
@@ -310,6 +310,163 @@ Provide a pithy, executive-level summary focusing on the issue severity, busines
         else:
             data = [case.to_dict_company_wide() for case in self.cases]
             return pd.DataFrame(data, columns=ALL_COLUMNS_COMPANY_WIDE)
+
+    def import_from_file(self, file_content, file_type: str = 'excel') -> Tuple[int, List[str]]:
+        """
+        Import cases from Excel or CSV file
+
+        Returns:
+            tuple: (number of cases imported, list of duplicate SKUs)
+        """
+        duplicates = []
+        imported_count = 0
+
+        try:
+            # Read file based on type
+            if file_type == 'excel':
+                df = pd.read_excel(file_content, sheet_name=0)
+            else:  # csv
+                df = pd.read_csv(file_content)
+
+            # Get existing SKUs for duplicate detection
+            existing_skus = {case.sku for case in self.cases if case.sku}
+
+            # Process each row
+            for _, row in df.iterrows():
+                case = QualityTrackerCase()
+
+                # Check for duplicate SKU
+                sku = str(row.get('SKU', '')).strip()
+                if sku and sku in existing_skus:
+                    duplicates.append(sku)
+                    continue  # Skip duplicate
+
+                # Map DataFrame columns to case attributes
+                case.priority = self._safe_int(row.get('Priority'))
+                case.product_name = str(row.get('Product name', '')).strip()
+                case.main_sales_channel = str(row.get('Main Sales Channel (by Volume)', '')).strip()
+                case.asin = str(row.get('ASIN', '')).strip()
+                case.sku = sku
+                case.fulfilled_by = str(row.get('Fulfilled by', '')).strip()
+                case.ncx_rate = self._safe_float(row.get('NCX rate'))
+                case.ncx_orders = self._safe_int(row.get('NCX orders'))
+                case.total_orders_t30 = self._safe_int(row.get('Total orders (t30)'))
+                case.star_rating_amazon = self._safe_float(row.get('Star Rating Amazon'))
+                case.return_rate_amazon = self._safe_float(row.get('Return rate Amazon'))
+                case.return_rate_b2b = self._safe_float(row.get('Return Rate B2B'))
+                case.flag_source_1 = str(row.get('Flag Source 1', '')).strip()
+                case.return_badge_displayed = str(row.get('Return Badge Displayed Amazon', '')).strip()
+                case.notification_notes = str(row.get('Notification/Notes', '')).strip()
+                case.top_issues = str(row.get('Top Issue(s)', '')).strip()
+                case.cost_of_refunds_annualized = self._safe_float(row.get('Cost of Refunds (Annualized)'))
+                case.savings_captured_12m = self._safe_float(row.get('12m Savings Captured (based on rr% reduction)'))
+                case.action_taken = str(row.get('Action Taken', '')).strip()
+                case.date_action_taken = self._safe_date(row.get('Date Action Taken'))
+                case.listing_manager_notified = str(row.get('Listing Manager Notified?', '')).strip()
+                case.product_dev_notified = str(row.get('Product Dev Notified?', '')).strip()
+                case.flag_source = str(row.get('Flag Source', '')).strip()
+                case.follow_up_date = self._safe_date(row.get('Follow Up Date'))
+                case.result_1_rr = self._safe_float(row.get('Result 1 (rr%)'))
+                case.result_check_date_1 = self._safe_date(row.get('Result Check Date 1'))
+                case.result_2_rr = self._safe_float(row.get('Result 2 (rr%)'))
+                case.result_2_date = self._safe_date(row.get('Result 2 Date'))
+                case.top_issues_change = str(row.get('Top Issue(s) Change', '')).strip()
+                case.top_issues_change_date = self._safe_date(row.get('Top Issue(s) Change Date'))
+                case.case_status = str(row.get('Case Status', '')).strip()
+
+                # Only add if has required fields
+                if case.product_name and case.sku and case.top_issues:
+                    self.add_case(case)
+                    existing_skus.add(case.sku)
+                    imported_count += 1
+
+            return imported_count, duplicates
+
+        except Exception as e:
+            logger.error(f"Import failed: {e}")
+            raise Exception(f"Import failed: {str(e)}")
+
+    def _safe_int(self, value) -> Optional[int]:
+        """Safely convert value to int"""
+        try:
+            if pd.isna(value) or value == '' or value is None:
+                return None
+            return int(float(value))
+        except:
+            return None
+
+    def _safe_float(self, value) -> Optional[float]:
+        """Safely convert value to float"""
+        try:
+            if pd.isna(value) or value == '' or value is None:
+                return None
+            return float(value)
+        except:
+            return None
+
+    def _safe_date(self, value) -> Optional[date]:
+        """Safely convert value to date"""
+        try:
+            if pd.isna(value) or value == '' or value is None:
+                return None
+            if isinstance(value, date):
+                return value
+            if isinstance(value, datetime):
+                return value.date()
+            # Try parsing string
+            return pd.to_datetime(value).date()
+        except:
+            return None
+
+    def find_duplicate_skus(self) -> Dict[str, List[QualityTrackerCase]]:
+        """Find cases with duplicate SKUs"""
+        sku_map = {}
+        for case in self.cases:
+            if case.sku:
+                if case.sku not in sku_map:
+                    sku_map[case.sku] = []
+                sku_map[case.sku].append(case)
+
+        # Return only SKUs with more than one case
+        return {sku: cases for sku, cases in sku_map.items() if len(cases) > 1}
+
+    def generate_ai_review(self, cases: List[QualityTrackerCase] = None) -> str:
+        """Generate AI review of multiple cases"""
+        if not self.ai_analyzer:
+            return "AI analyzer not available"
+
+        if cases is None:
+            cases = self.cases
+
+        if not cases:
+            return "No cases to review"
+
+        # Build summary of all cases
+        case_summaries = []
+        for i, case in enumerate(cases[:10], 1):  # Limit to 10 cases
+            summary = f"{i}. {case.product_name} ({case.sku}): "
+            summary += f"RR {case.return_rate_amazon*100:.1f}% " if case.return_rate_amazon else "RR N/A "
+            summary += f"- {case.top_issues[:100]}"
+            case_summaries.append(summary)
+
+        prompt = f"""Review these {len(cases)} quality cases and provide:
+1. Top 3 priority items requiring immediate attention
+2. Common patterns or themes across cases
+3. Recommended next actions
+
+Cases:
+{chr(10).join(case_summaries)}
+
+Provide a concise executive summary (3-4 sentences)."""
+
+        system_prompt = "You are a quality management expert analyzing product quality cases."
+
+        try:
+            review = self.ai_analyzer.generate_text(prompt, system_prompt, mode='chat')
+            return review if review else "Review generation failed"
+        except Exception as e:
+            logger.error(f"AI review generation failed: {e}")
+            return f"Error generating review: {str(e)}"
 
 
 # Demo data generator
