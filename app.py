@@ -641,6 +641,9 @@ def initialize_session_state():
         'screening_date': datetime.now().strftime('%Y-%m-%d'),
         'source_of_flag': 'Routine Screening',
         'source_of_flag_other': '',
+
+        # Task-based navigation (Landing Page)
+        'selected_task': None,  # None = show landing, string = show specific tool
     }
     
     for key, value in defaults.items():
@@ -8949,12 +8952,399 @@ def render_inventory_integration_tab():
             logger.error(f"Integration view error: {str(e)}", exc_info=True)
 
 
+# --- EXTRACTED TOOL FUNCTIONS (For Task-Based Navigation) ---
+
+def render_categorizer_tool(provider_map=None, provider_selection=None):
+    """Render the Return Categorizer tool (Tab 1 content)"""
+    # Set AI provider if provided
+    if provider_map and provider_selection:
+        st.session_state.ai_provider = provider_map[provider_selection]
+
+    st.markdown("### 📁 AI-Powered Return Categorization (Column I → K)")
+    st.markdown("""
+    <div style="background: rgba(255, 183, 0, 0.1); border: 1px solid var(--accent);
+                border-radius: 8px; padding: 0.8rem; margin-bottom: 1rem;">
+        <strong>🤖 AI-Powered:</strong> Uses OpenAI/Claude LLMs to automatically categorize customer complaints<br/>
+        <strong>📌 Goal:</strong> Convert unstructured complaint text into standardized Quality Categories<br/>
+        <strong>⚡ Speed:</strong> Processes thousands of complaints in minutes (vs hours manually)
+    </div>
+    """, unsafe_allow_html=True)
+
+    uploaded_file = st.file_uploader("Upload Return Data (Excel/CSV)", type=['csv', 'xlsx', 'xls', 'txt'], key="tab1_uploader")
+
+    if uploaded_file:
+        with st.spinner(f"Reading {uploaded_file.name}..."):
+            file_content = uploaded_file.read()
+            df, column_mapping = process_file_preserve_structure(file_content, uploaded_file.name)
+
+        if df is not None and column_mapping:
+            st.session_state.column_mapping = column_mapping
+
+            complaint_col = column_mapping.get('complaint')
+            if complaint_col:
+                valid_complaints = df[df[complaint_col].notna() & (df[complaint_col].str.strip() != '')].shape[0]
+                st.info(f"Found {valid_complaints:,} complaints to categorize in Column I.")
+            else:
+                st.warning("Complaint column not found in expected position.")
+
+            if st.button("🚀 Start Categorization", type="primary"):
+                analyzer = get_ai_analyzer()
+                with st.spinner("Categorizing..."):
+                    categorized_df = process_in_chunks(df, analyzer, column_mapping)
+                    st.session_state.categorized_data = categorized_df
+                    st.session_state.processing_complete = True
+                    generate_statistics(categorized_df, column_mapping)
+
+                    st.session_state.export_data = export_with_column_k(categorized_df)
+                    st.session_state.export_filename = f"categorized_{datetime.now().strftime('%Y%m%d')}.xlsx"
+                    st.rerun()
+
+    if st.session_state.processing_complete and st.session_state.categorized_data is not None:
+        display_results_dashboard(st.session_state.categorized_data, st.session_state.column_mapping)
+
+        if st.session_state.export_data:
+            st.download_button(
+                label="⬇️ Download Categorized File",
+                data=st.session_state.export_data,
+                file_name=st.session_state.export_filename,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary",
+                use_container_width=True
+            )
+
+
+def render_b2b_tool(provider_map=None, provider_selection=None):
+    """Render the B2B Report Generator tool (Tab 2 content)"""
+    # Set AI provider if provided
+    if provider_map and provider_selection:
+        st.session_state.ai_provider = provider_map[provider_selection]
+
+    st.markdown("### 📑 B2B Report Automation")
+    st.markdown("""
+    <div style="background: rgba(0, 217, 255, 0.1); border: 1px solid var(--primary);
+                border-radius: 8px; padding: 0.8rem; margin-bottom: 1rem;">
+        <strong>📌 Goal:</strong> Convert raw Odoo Helpdesk export into a compliant B2B Report.
+        <ul style="margin-bottom:0;">
+            <li><strong>Format:</strong> Matches standard B2B Report columns (Display Name, Description, SKU, Reason)</li>
+            <li><strong>SKU Logic:</strong> Auto-extracts Main SKU (e.g., <code>MOB1027</code>)</li>
+            <li><strong>AI Summary:</strong> Generates detailed Reason summaries for every ticket.</li>
+        </ul>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("#### ⚙️ Data Volume / Processing Speed")
+    perf_mode = st.select_slider(
+        "Select Dataset Size to optimize API performance:",
+        options=['Small (< 500 rows)', 'Medium (500-2,000 rows)', 'Large (2,000+ rows)'],
+        value=st.session_state.b2b_perf_mode,
+        key='perf_selector'
+    )
+    st.session_state.b2b_perf_mode = perf_mode
+
+    if perf_mode == 'Small (< 500 rows)':
+        batch_size = 10
+        max_workers = 3
+        st.caption("Settings: Conservative batching for max reliability.")
+    elif perf_mode == 'Medium (500-2,000 rows)':
+        batch_size = 25
+        max_workers = 6
+        st.caption("Settings: Balanced speed and concurrency.")
+    else:
+        batch_size = 50
+        max_workers = 10
+        st.caption("Settings: Aggressive parallel processing for high volume.")
+
+    st.divider()
+
+    b2b_file = st.file_uploader("Upload Odoo Export (CSV/Excel)", type=['csv', 'xlsx'], key="b2b_uploader")
+
+    if b2b_file:
+        b2b_df = process_b2b_file(b2b_file.read(), b2b_file.name)
+
+        if b2b_df is not None:
+            st.markdown(f"**Total Tickets Found:** {len(b2b_df):,}")
+
+            if st.button("⚡ Generate B2B Report", type="primary"):
+                analyzer = get_ai_analyzer(max_workers=max_workers)
+
+                with st.spinner("Running AI Analysis & SKU Extraction..."):
+                    final_b2b = generate_b2b_report(b2b_df, analyzer, batch_size)
+
+                    st.session_state.b2b_processed_data = final_b2b
+                    st.session_state.b2b_processing_complete = True
+
+                    output = io.BytesIO()
+                    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                        final_b2b.to_excel(writer, index=False, sheet_name='B2B Report')
+
+                        workbook = writer.book
+                        worksheet = writer.sheets['B2B Report']
+
+                        header_fmt = workbook.add_format({'bold': True, 'bg_color': '#00D9FF', 'font_color': 'white'})
+                        for col_num, value in enumerate(final_b2b.columns.values):
+                            worksheet.write(0, col_num, value, header_fmt)
+                            worksheet.set_column(col_num, col_num, 30)
+
+                    st.session_state.b2b_export_data = output.getvalue()
+                    st.session_state.b2b_export_filename = f"B2B_Report_{datetime.now().strftime('%Y-%m-%d')}.xlsx"
+
+                    st.rerun()
+
+    if st.session_state.b2b_processing_complete and st.session_state.b2b_processed_data is not None:
+        df_res = st.session_state.b2b_processed_data
+
+        st.markdown("### 🏁 Report Dashboard")
+
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.metric("Total Processed", len(df_res))
+        with c2:
+            sku_found_count = len(df_res[df_res['SKU'] != 'Unknown'])
+            st.metric("SKUs Identified", f"{sku_found_count}", delta=f"{sku_found_count/len(df_res)*100:.1f}% coverage")
+        with c3:
+            unique_skus = df_res[df_res['SKU'] != 'Unknown']['SKU'].nunique()
+            st.metric("Unique Products", unique_skus)
+
+        st.markdown("#### Preview (Top 10)")
+        st.dataframe(df_res.head(10), use_container_width=True)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.download_button(
+                label="⬇️ Download B2B Report (.xlsx)",
+                data=st.session_state.b2b_export_data,
+                file_name=st.session_state.b2b_export_filename,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary",
+                use_container_width=True
+            )
+        with col2:
+            if st.button("🔄 Clear / Start Over", use_container_width=True):
+                st.session_state.b2b_processed_data = None
+                st.session_state.b2b_processing_complete = False
+                st.rerun()
+
+
+# --- TASK SELECTOR (Landing Page) ---
+
+TASK_DEFINITIONS = {
+    'categorize': {
+        'icon': '📊',
+        'title': 'Categorize Returns',
+        'subtitle': 'AI-Powered Complaint Analysis',
+        'description': 'Upload Amazon/customer return data and let AI categorize complaints into quality categories.',
+        'keywords': ['categorize', 'complaints', 'returns', 'amazon', 'categories', 'column k'],
+    },
+    'b2b': {
+        'icon': '📑',
+        'title': 'Generate B2B Report',
+        'subtitle': 'Odoo → B2B Format',
+        'description': 'Convert Odoo Helpdesk exports into compliant B2B reports with AI-generated summaries.',
+        'keywords': ['b2b', 'report', 'odoo', 'helpdesk', 'sku'],
+    },
+    'tracker': {
+        'icon': '📋',
+        'title': 'Quality Case Tracker',
+        'subtitle': 'Manage & Export Cases',
+        'description': 'Track quality cases, import from Smartsheet, and export with Leadership or Company-Wide formats.',
+        'keywords': ['tracker', 'cases', 'smartsheet', 'export', 'leadership', 'track'],
+    },
+    'screening': {
+        'icon': '🧪',
+        'title': 'Screen Products',
+        'subtitle': 'Flag Quality Issues',
+        'description': 'Screen products for quality issues using AI analysis, statistical methods, and SOP thresholds.',
+        'keywords': ['screen', 'screening', 'quality', 'flag', 'sop', 'threshold', 'anova'],
+    },
+    'inventory': {
+        'icon': '📦',
+        'title': 'Inventory Analysis',
+        'subtitle': 'DOI & Reorder Planning',
+        'description': 'Analyze Days of Inventory, reorder points, and integrate quality data with inventory planning.',
+        'keywords': ['inventory', 'doi', 'reorder', 'days of inventory', 'stock'],
+    },
+    'resources': {
+        'icon': '📚',
+        'title': 'Resources',
+        'subtitle': 'Regulatory Links & Guides',
+        'description': 'Access FDA, EU MDR, UK MDR, and international regulatory resources and quality guides.',
+        'keywords': ['resources', 'fda', 'regulatory', 'links', 'mdr', 'iso'],
+    },
+}
+
+def match_task_from_input(user_input: str) -> str:
+    """Match user text input to a task ID using keywords"""
+    user_input = user_input.lower().strip()
+
+    # Check for "all" first
+    if user_input in ['all', 'show all', 'everything']:
+        return 'all'
+
+    # Score each task by keyword matches
+    scores = {}
+    for task_id, task_info in TASK_DEFINITIONS.items():
+        score = 0
+        for keyword in task_info['keywords']:
+            if keyword in user_input:
+                score += 1
+        if score > 0:
+            scores[task_id] = score
+
+    # Return highest scoring task, or None if no match
+    if scores:
+        return max(scores, key=scores.get)
+    return None
+
+def render_task_selector():
+    """Render the task selector landing page"""
+
+    st.markdown("""
+    <div style="text-align: center; margin: 2rem 0;">
+        <h2 style="color: #004366; font-family: 'Poppins', sans-serif; margin-bottom: 0.5rem;">
+            📋 What are you trying to do?
+        </h2>
+        <p style="color: #666; font-size: 1.1rem;">Select a tool below or type what you need</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Task cards - 3x2 grid
+    row1 = st.columns(3)
+    row2 = st.columns(3)
+
+    tasks_row1 = ['categorize', 'b2b', 'tracker']
+    tasks_row2 = ['screening', 'inventory', 'resources']
+
+    # Row 1
+    for i, task_id in enumerate(tasks_row1):
+        task = TASK_DEFINITIONS[task_id]
+        with row1[i]:
+            if st.button(
+                f"{task['icon']} **{task['title']}**\n\n{task['subtitle']}",
+                key=f"task_{task_id}",
+                use_container_width=True,
+                help=task['description']
+            ):
+                st.session_state.selected_task = task_id
+                st.rerun()
+            st.caption(task['description'][:60] + "...")
+
+    # Row 2
+    for i, task_id in enumerate(tasks_row2):
+        task = TASK_DEFINITIONS[task_id]
+        with row2[i]:
+            if st.button(
+                f"{task['icon']} **{task['title']}**\n\n{task['subtitle']}",
+                key=f"task_{task_id}",
+                use_container_width=True,
+                help=task['description']
+            ):
+                st.session_state.selected_task = task_id
+                st.rerun()
+            st.caption(task['description'][:60] + "...")
+
+    st.markdown("---")
+
+    # Text input for keyword search
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown("**Or type what you need:**")
+        user_input = st.text_input(
+            "Type keywords",
+            placeholder="e.g., 'b2b report', 'screen products', 'all'",
+            label_visibility="collapsed",
+            key="task_search_input"
+        )
+
+        col_go, col_all = st.columns(2)
+        with col_go:
+            if st.button("🔍 Go", use_container_width=True, type="primary"):
+                if user_input:
+                    matched = match_task_from_input(user_input)
+                    if matched:
+                        st.session_state.selected_task = matched
+                        st.rerun()
+                    else:
+                        st.warning("No matching tool found. Try different keywords or select from above.")
+        with col_all:
+            if st.button("📂 Show All Tools", use_container_width=True):
+                st.session_state.selected_task = 'all'
+                st.rerun()
+
+
 # --- MAIN APP ---
+
+def render_single_tool(task_id: str, provider_map: dict, provider_selection: str):
+    """Render a single tool with back button"""
+    task = TASK_DEFINITIONS.get(task_id, {})
+
+    # Back button at top
+    col_back, col_title = st.columns([1, 10])
+    with col_back:
+        if st.button("← Back", key="back_to_menu", help="Return to tool selector"):
+            st.session_state.selected_task = None
+            st.rerun()
+    with col_title:
+        st.markdown(f"### {task.get('icon', '')} {task.get('title', task_id)}")
+
+    st.markdown("---")
+
+    # Render the appropriate tool
+    if task_id == 'categorize':
+        render_categorizer_tool(provider_map, provider_selection)
+    elif task_id == 'b2b':
+        render_b2b_tool(provider_map, provider_selection)
+    elif task_id == 'tracker':
+        render_quality_cases_dashboard()
+    elif task_id == 'screening':
+        render_quality_screening_tab()
+    elif task_id == 'inventory':
+        render_inventory_integration_tab()
+    elif task_id == 'resources':
+        render_quality_resources()
+
+
+def render_all_tabs(provider_map: dict, provider_selection: str):
+    """Render all tools in tab view (legacy mode)"""
+    # Back button to return to selector
+    if st.button("← Back to Tool Selector", key="back_from_tabs"):
+        st.session_state.selected_task = None
+        st.rerun()
+
+    st.markdown("---")
+
+    # Tabs - All tools
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "📊 Return Categorizer",
+        "📑 B2B Report Generator",
+        "📋 Quality Case Tracker",
+        "🧪 Quality Screening",
+        "📦 Inventory Integration",
+        "📚 Resources"
+    ])
+
+    with tab1:
+        render_categorizer_tool(provider_map, provider_selection)
+
+    with tab2:
+        render_b2b_tool(provider_map, provider_selection)
+
+    with tab3:
+        render_quality_cases_dashboard()
+
+    with tab4:
+        render_quality_screening_tab()
+
+    with tab5:
+        render_inventory_integration_tab()
+
+    with tab6:
+        render_quality_resources()
+
 
 def main():
     initialize_session_state()
     inject_custom_css()
-    
+
     # Header - Leadership Demo Version
     st.markdown("""
     <div class="main-header">
@@ -8986,35 +9376,20 @@ def main():
         st.success(f"🤖 AI Status: {' | '.join(ai_status)}")
     else:
         st.warning("⚠️ No AI API keys configured. Some features will be limited.")
-    
-    # Sidebar
+
+    # Sidebar - Always visible
     with st.sidebar:
         st.markdown("### ⚙️ Global Configuration")
 
-        # Tab navigation guide
-        with st.expander("📍 Quick Navigation", expanded=False):
-            st.markdown("""
-            **Tab Overview:**
-            1. 📊 **Return Categorizer** - AI categorizes complaints
-            2. 📑 **B2B Report Generator** - Odoo export to B2B report
-            3. 📋 **Quality Case Tracker** - Manage & export cases
-            4. 🧪 **Quality Screening** - Screen products for issues
-            5. 📦 **Inventory Integration** - DOI & reorder analysis
-            6. 📚 **Resources** - Regulatory links & guides
-            """)
-
-        st.markdown("---")
-
-        # AI Provider for Tabs 1 & 2 (Return Categorizer & B2B)
-        provider_t12 = st.selectbox(
-            "🤖 AI Provider (Categorizer & B2B)",
+        # AI Provider selection
+        provider_selection = st.selectbox(
+            "🤖 AI Provider",
             options=['Fastest (Claude Haiku)', 'OpenAI GPT-3.5', 'Claude Sonnet', 'Both (Consensus)'],
             index=0,
-            help="Select AI model for Return Categorizer and B2B Report tools"
+            help="Select AI model for AI-powered tools"
         )
 
-        # Map to enum for tabs 1 & 2
-        provider_map_t12 = {
+        provider_map = {
             'Fastest (Claude Haiku)': AIProvider.FASTEST,
             'OpenAI GPT-3.5': AIProvider.OPENAI,
             'Claude Sonnet': AIProvider.CLAUDE,
@@ -9029,215 +9404,20 @@ def main():
         # Help guide
         render_help_guide()
 
-    # Tabs - Reorganized for optimal workflow
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "📊 Return Categorizer",
-        "📑 B2B Report Generator",
-        "📋 Quality Case Tracker",
-        "🧪 Quality Screening",
-        "📦 Inventory Integration",
-        "📚 Resources"
-    ])
-    
-    # --- TAB 1: Categorizer (PRESERVED) ---
-    with tab1:
-        # Use Tab 1/2 provider
-        st.session_state.ai_provider = provider_map_t12[provider_t12]
-        
-        st.markdown("### 📁 AI-Powered Return Categorization (Column I → K)")
-        st.markdown("""
-        <div style="background: rgba(255, 183, 0, 0.1); border: 1px solid var(--accent);
-                    border-radius: 8px; padding: 0.8rem; margin-bottom: 1rem;">
-            <strong>🤖 AI-Powered:</strong> Uses OpenAI/Claude LLMs to automatically categorize customer complaints<br/>
-            <strong>📌 Goal:</strong> Convert unstructured complaint text into standardized Quality Categories<br/>
-            <strong>⚡ Speed:</strong> Processes thousands of complaints in minutes (vs hours manually)
-        </div>
-        """, unsafe_allow_html=True)
-        
-        uploaded_file = st.file_uploader("Upload Return Data (Excel/CSV)", type=['csv', 'xlsx', 'xls', 'txt'], key="tab1_uploader")
-        
-        if uploaded_file:
-            with st.spinner(f"Reading {uploaded_file.name}..."):
-                file_content = uploaded_file.read()
-                df, column_mapping = process_file_preserve_structure(file_content, uploaded_file.name)
-            
-            if df is not None and column_mapping:
-                # Store mapping immediately
-                st.session_state.column_mapping = column_mapping
-                
-                # Show file info
-                complaint_col = column_mapping.get('complaint')
-                if complaint_col:
-                    valid_complaints = df[df[complaint_col].notna() & (df[complaint_col].str.strip() != '')].shape[0]
-                    st.info(f"Found {valid_complaints:,} complaints to categorize in Column I.")
-                else:
-                    st.warning("Complaint column not found in expected position.")
-                
-                if st.button("🚀 Start Categorization", type="primary"):
-                    analyzer = get_ai_analyzer()
-                    with st.spinner("Categorizing..."):
-                        categorized_df = process_in_chunks(df, analyzer, column_mapping)
-                        st.session_state.categorized_data = categorized_df
-                        st.session_state.processing_complete = True
-                        generate_statistics(categorized_df, column_mapping)
-                        
-                        # Export
-                        st.session_state.export_data = export_with_column_k(categorized_df)
-                        st.session_state.export_filename = f"categorized_{datetime.now().strftime('%Y%m%d')}.xlsx"
-                        st.rerun()
-        
-        # Results Display (Tab 1)
-        if st.session_state.processing_complete and st.session_state.categorized_data is not None:
-            display_results_dashboard(st.session_state.categorized_data, st.session_state.column_mapping)
-            
-            if st.session_state.export_data:
-                st.download_button(
-                    label="⬇️ Download Categorized File",
-                    data=st.session_state.export_data,
-                    file_name=st.session_state.export_filename,
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    type="primary",
-                    width="stretch"
-                )
+    # === TASK-BASED ROUTING ===
+    selected = st.session_state.selected_task
 
-    # --- TAB 2: B2B Reports (PRESERVED) ---
-    with tab2:
-        # Use Tab 1/2 provider
-        st.session_state.ai_provider = provider_map_t12[provider_t12]
-        
-        st.markdown("### 📑 B2B Report Automation")
-        st.markdown("""
-        <div style="background: rgba(0, 217, 255, 0.1); border: 1px solid var(--primary); 
-                    border-radius: 8px; padding: 0.8rem; margin-bottom: 1rem;">
-            <strong>📌 Goal:</strong> Convert raw Odoo Helpdesk export into a compliant B2B Report.
-            <ul style="margin-bottom:0;">
-                <li><strong>Format:</strong> Matches standard B2B Report columns (Display Name, Description, SKU, Reason)</li>
-                <li><strong>SKU Logic:</strong> Auto-extracts Main SKU (e.g., <code>MOB1027</code>)</li>
-                <li><strong>AI Summary:</strong> Generates detailed Reason summaries for every ticket.</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Performance / File Size Selection
-        st.markdown("#### ⚙️ Data Volume / Processing Speed")
-        perf_mode = st.select_slider(
-            "Select Dataset Size to optimize API performance:",
-            options=['Small (< 500 rows)', 'Medium (500-2,000 rows)', 'Large (2,000+ rows)'],
-            value=st.session_state.b2b_perf_mode,
-            key='perf_selector'
-        )
-        st.session_state.b2b_perf_mode = perf_mode
-        
-        # Map selection to performance settings
-        if perf_mode == 'Small (< 500 rows)':
-            batch_size = 10
-            max_workers = 3
-            st.caption("Settings: Conservative batching for max reliability.")
-        elif perf_mode == 'Medium (500-2,000 rows)':
-            batch_size = 25
-            max_workers = 6
-            st.caption("Settings: Balanced speed and concurrency.")
-        else:  # Large
-            batch_size = 50
-            max_workers = 10
-            st.caption("Settings: Aggressive parallel processing for high volume.")
+    if selected is None:
+        # Show landing page / task selector
+        render_task_selector()
 
-        st.divider()
-        
-        b2b_file = st.file_uploader("Upload Odoo Export (CSV/Excel)", type=['csv', 'xlsx'], key="b2b_uploader")
-        
-        if b2b_file:
-            # Read & Preview
-            b2b_df = process_b2b_file(b2b_file.read(), b2b_file.name)
-            
-            if b2b_df is not None:
-                st.markdown(f"**Total Tickets Found:** {len(b2b_df):,}")
-                
-                # Process Button
-                if st.button("⚡ Generate B2B Report", type="primary"):
-                    # Update analyzer with new worker settings based on user choice
-                    analyzer = get_ai_analyzer(max_workers=max_workers)
-                    
-                    with st.spinner("Running AI Analysis & SKU Extraction..."):
-                        # Run the B2B pipeline
-                        final_b2b = generate_b2b_report(b2b_df, analyzer, batch_size)
-                        
-                        # Save to session
-                        st.session_state.b2b_processed_data = final_b2b
-                        st.session_state.b2b_processing_complete = True
-                        
-                        # Prepare Download
-                        output = io.BytesIO()
-                        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                            final_b2b.to_excel(writer, index=False, sheet_name='B2B Report')
-                            
-                            # Formatting
-                            workbook = writer.book
-                            worksheet = writer.sheets['B2B Report']
-                            
-                            # Add simple formatting
-                            header_fmt = workbook.add_format({'bold': True, 'bg_color': '#00D9FF', 'font_color': 'white'})
-                            for col_num, value in enumerate(final_b2b.columns.values):
-                                worksheet.write(0, col_num, value, header_fmt)
-                                worksheet.set_column(col_num, col_num, 30)
+    elif selected == 'all':
+        # Show all tabs view
+        render_all_tabs(provider_map, provider_selection)
 
-                        st.session_state.b2b_export_data = output.getvalue()
-                        st.session_state.b2b_export_filename = f"B2B_Report_{datetime.now().strftime('%Y-%m-%d')}.xlsx"
-                        
-                        st.rerun()
-
-        # B2B Dashboard Results
-        if st.session_state.b2b_processing_complete and st.session_state.b2b_processed_data is not None:
-            df_res = st.session_state.b2b_processed_data
-            
-            st.markdown("### 🏁 Report Dashboard")
-            
-            # Dashboard Metrics
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.metric("Total Processed", len(df_res))
-            with c2:
-                sku_found_count = len(df_res[df_res['SKU'] != 'Unknown'])
-                st.metric("SKUs Identified", f"{sku_found_count}", delta=f"{sku_found_count/len(df_res)*100:.1f}% coverage")
-            with c3:
-                unique_skus = df_res[df_res['SKU'] != 'Unknown']['SKU'].nunique()
-                st.metric("Unique Products", unique_skus)
-            
-            # Preview Table
-            st.markdown("#### Preview (Top 10)")
-            st.dataframe(df_res.head(10), width="stretch")
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.download_button(
-                    label="⬇️ Download B2B Report (.xlsx)",
-                    data=st.session_state.b2b_export_data,
-                    file_name=st.session_state.b2b_export_filename,
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    type="primary",
-                    width="stretch"
-                )
-            with col2:
-                if st.button("🔄 Clear / Start Over", width="stretch"):
-                    st.session_state.b2b_processed_data = None
-                    st.session_state.b2b_processing_complete = False
-                    st.rerun()
-
-    # --- TAB 3: Quality Case Tracker (Separated for clarity) ---
-    with tab3:
-        render_quality_cases_dashboard()
-
-    # --- TAB 4: Quality Screening ---
-    with tab4:
-        render_quality_screening_tab()
-
-    # --- TAB 5: Inventory Integration ---
-    with tab5:
-        render_inventory_integration_tab()
-
-    # --- TAB 6: Resources ---
-    with tab6:
-        render_quality_resources()
+    else:
+        # Show single tool view
+        render_single_tool(selected, provider_map, provider_selection)
 
 
 if __name__ == "__main__":
