@@ -160,7 +160,7 @@ st.set_page_config(
 
 APP_CONFIG = {
     'title': 'Vive Health Quality Suite',
-    'version': '27.0',
+    'version': '28.0',
     'chunk_sizes': [100, 250, 500, 1000],
     'default_chunk': 500,
 }
@@ -6270,18 +6270,204 @@ def render_pro_mode():
                                     ])
                                     st.dataframe(category_df, use_container_width=True, hide_index=True)
 
-                                    # Visualization: Category breakdown pie chart
+                                    # Visualizations
                                     import plotly.graph_objects as go
-                                    fig = go.Figure(data=[go.Pie(
-                                        labels=list(latest.category_counts.keys()),
-                                        values=list(latest.category_counts.values()),
-                                        hole=0.3
-                                    )])
-                                    fig.update_layout(
-                                        title="Return Category Distribution",
-                                        height=400
-                                    )
-                                    st.plotly_chart(fig, use_container_width=True)
+                                    import plotly.express as px
+                                    from plotly.subplots import make_subplots
+
+                                    st.markdown("#### 📊 Visual Analysis")
+
+                                    # Create tabs for different visualizations
+                                    viz_tab1, viz_tab2, viz_tab3 = st.tabs([
+                                        "📊 Category Distribution",
+                                        "📈 Trends Over Time",
+                                        "🔍 Defect Analysis"
+                                    ])
+
+                                    with viz_tab1:
+                                        # Pie chart: Category breakdown
+                                        fig_pie = go.Figure(data=[go.Pie(
+                                            labels=list(latest.category_counts.keys()),
+                                            values=list(latest.category_counts.values()),
+                                            hole=0.3,
+                                            marker=dict(colors=px.colors.qualitative.Set3)
+                                        )])
+                                        fig_pie.update_layout(
+                                            title="Return Category Distribution",
+                                            height=400
+                                        )
+                                        st.plotly_chart(fig_pie, use_container_width=True)
+
+                                        # Bar chart: Top 10 categories
+                                        sorted_cats = sorted(latest.category_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+                                        fig_bar = go.Figure(data=[go.Bar(
+                                            x=[cat for cat, _ in sorted_cats],
+                                            y=[count for _, count in sorted_cats],
+                                            marker_color='indianred'
+                                        )])
+                                        fig_bar.update_layout(
+                                            title="Top 10 Return Reasons",
+                                            xaxis_title="Category",
+                                            yaxis_title="Count",
+                                            height=400,
+                                            xaxis={'tickangle': -45}
+                                        )
+                                        st.plotly_chart(fig_bar, use_container_width=True)
+
+                                    with viz_tab2:
+                                        # Trend visualization (if multiple periods exist)
+                                        if len(analysis.periods) > 1:
+                                            periods_sorted = sorted(analysis.periods, key=lambda p: p.date_start or datetime.min)
+
+                                            # Return rate trend
+                                            fig_trend = make_subplots(
+                                                rows=2, cols=1,
+                                                subplot_titles=("Return Rate Over Time", "Total Returns Over Time"),
+                                                vertical_spacing=0.12
+                                            )
+
+                                            fig_trend.add_trace(
+                                                go.Scatter(
+                                                    x=[p.period_name for p in periods_sorted],
+                                                    y=[p.return_rate * 100 for p in periods_sorted],
+                                                    mode='lines+markers',
+                                                    name='Return Rate %',
+                                                    line=dict(color='red', width=3),
+                                                    marker=dict(size=8)
+                                                ),
+                                                row=1, col=1
+                                            )
+
+                                            # Add Amazon threshold line
+                                            fig_trend.add_trace(
+                                                go.Scatter(
+                                                    x=[p.period_name for p in periods_sorted],
+                                                    y=[analysis.amazon_threshold * 100] * len(periods_sorted),
+                                                    mode='lines',
+                                                    name='Amazon Threshold',
+                                                    line=dict(color='orange', width=2, dash='dash')
+                                                ),
+                                                row=1, col=1
+                                            )
+
+                                            fig_trend.add_trace(
+                                                go.Bar(
+                                                    x=[p.period_name for p in periods_sorted],
+                                                    y=[p.total_orders for p in periods_sorted],
+                                                    name='Total Returns',
+                                                    marker_color='steelblue'
+                                                ),
+                                                row=2, col=1
+                                            )
+
+                                            fig_trend.update_xaxes(title_text="Period", row=2, col=1)
+                                            fig_trend.update_yaxes(title_text="Return Rate (%)", row=1, col=1)
+                                            fig_trend.update_yaxes(title_text="Count", row=2, col=1)
+                                            fig_trend.update_layout(height=600, showlegend=True)
+
+                                            st.plotly_chart(fig_trend, use_container_width=True)
+                                        else:
+                                            # Single period - show comparison to threshold
+                                            fig_gauge = go.Figure(go.Indicator(
+                                                mode="gauge+number+delta",
+                                                value=latest.return_rate * 100,
+                                                domain={'x': [0, 1], 'y': [0, 1]},
+                                                title={'text': "Return Rate vs Amazon Threshold"},
+                                                delta={'reference': analysis.amazon_threshold * 100},
+                                                gauge={
+                                                    'axis': {'range': [None, analysis.amazon_threshold * 100 * 2]},
+                                                    'bar': {'color': "darkred" if analysis.above_threshold else "green"},
+                                                    'steps': [
+                                                        {'range': [0, analysis.amazon_threshold * 100], 'color': "lightgreen"},
+                                                        {'range': [analysis.amazon_threshold * 100, analysis.amazon_threshold * 100 * 2], 'color': "lightcoral"}
+                                                    ],
+                                                    'threshold': {
+                                                        'line': {'color': "red", 'width': 4},
+                                                        'thickness': 0.75,
+                                                        'value': analysis.amazon_threshold * 100
+                                                    }
+                                                }
+                                            ))
+                                            fig_gauge.update_layout(height=400)
+                                            st.plotly_chart(fig_gauge, use_container_width=True)
+
+                                            st.info(f"📊 Single period analysis. Upload multiple periods to see trends over time.")
+
+                                    with viz_tab3:
+                                        # Defect vs Non-Defect breakdown
+                                        defect_categories = [
+                                            "Product Defects/Quality",
+                                            "Performance/Effectiveness",
+                                            "Design/Material Issues",
+                                            "Stability/Positioning Issues",
+                                            "Comfort Issues",
+                                            "Size/Fit Issues"
+                                        ]
+
+                                        non_defect_categories = [
+                                            "Customer Error/Changed Mind",
+                                            "Shipping/Fulfillment Issues",
+                                            "Wrong Product/Misunderstanding",
+                                            "Medical/Health Concerns"
+                                        ]
+
+                                        defect_count = sum(latest.category_counts.get(cat, 0) for cat in defect_categories)
+                                        non_defect_count = sum(latest.category_counts.get(cat, 0) for cat in non_defect_categories)
+
+                                        # Defect vs Non-Defect pie
+                                        fig_defect = go.Figure(data=[go.Pie(
+                                            labels=['Quality Defects', 'Customer Error/Other'],
+                                            values=[defect_count, non_defect_count],
+                                            marker=dict(colors=['#ff6b6b', '#4ecdc4']),
+                                            hole=0.4
+                                        )])
+                                        fig_defect.update_layout(
+                                            title="Quality Defects vs Customer Error",
+                                            height=400
+                                        )
+                                        st.plotly_chart(fig_defect, use_container_width=True)
+
+                                        # Breakdown of defect categories
+                                        defect_breakdown = {cat: latest.category_counts.get(cat, 0)
+                                                          for cat in defect_categories
+                                                          if latest.category_counts.get(cat, 0) > 0}
+
+                                        if defect_breakdown:
+                                            fig_defect_detail = go.Figure(data=[go.Bar(
+                                                x=list(defect_breakdown.values()),
+                                                y=list(defect_breakdown.keys()),
+                                                orientation='h',
+                                                marker_color='crimson'
+                                            )])
+                                            fig_defect_detail.update_layout(
+                                                title="Quality Defect Breakdown",
+                                                xaxis_title="Count",
+                                                yaxis_title="Defect Type",
+                                                height=400
+                                            )
+                                            st.plotly_chart(fig_defect_detail, use_container_width=True)
+
+                                        # Key metrics
+                                        col1, col2, col3 = st.columns(3)
+                                        with col1:
+                                            st.metric(
+                                                "Quality Defect Rate",
+                                                f"{(defect_count/latest.total_orders*100):.1f}%",
+                                                help="Percentage of returns due to quality issues"
+                                            )
+                                        with col2:
+                                            st.metric(
+                                                "Customer Error Rate",
+                                                f"{(non_defect_count/latest.total_orders*100):.1f}%",
+                                                help="Percentage of returns due to customer error/changing mind"
+                                            )
+                                        with col3:
+                                            defect_ratio = defect_count / non_defect_count if non_defect_count > 0 else 0
+                                            st.metric(
+                                                "Defect:Error Ratio",
+                                                f"{defect_ratio:.2f}:1",
+                                                help="Ratio of quality defects to customer errors"
+                                            )
 
                                 # Root cause recommendations
                                 st.markdown("#### 🎯 Actionable Recommendations")
@@ -6449,37 +6635,158 @@ def render_pro_mode():
                     trend_analyses = st.session_state.voc_trend_analyses
                     analyses_list = list(trend_analyses.values())
 
-                    # Generate comparison report
-                    comparison_df = EnhancedVoCAnalysisService.generate_comparison_report(analyses_list)
+                    # Create tabs for comparison views
+                    comp_tab1, comp_tab2, comp_tab3 = st.tabs([
+                        "📊 Comparison Table",
+                        "📈 Visual Comparison",
+                        "🚨 Emerging Issues"
+                    ])
 
-                    st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+                    with comp_tab1:
+                        # Generate comparison report
+                        comparison_df = EnhancedVoCAnalysisService.generate_comparison_report(analyses_list)
 
-                    # Export comparison
-                    csv = comparison_df.to_csv(index=False)
-                    st.download_button(
-                        label="📥 Download Comparison Report",
-                        data=csv,
-                        file_name=f"voc_comparison_{datetime.now().strftime('%Y%m%d')}.csv",
-                        mime="text/csv"
-                    )
+                        st.dataframe(comparison_df, use_container_width=True, hide_index=True)
 
-                    # Emerging issues alerts
-                    st.markdown("#### 🚨 Emerging Issues Detection")
+                        # Export comparison
+                        csv = comparison_df.to_csv(index=False)
+                        st.download_button(
+                            label="📥 Download Comparison Report",
+                            data=csv,
+                            file_name=f"voc_comparison_{datetime.now().strftime('%Y%m%d')}.csv",
+                            mime="text/csv"
+                        )
 
-                    # For each product, check for emerging issues
-                    for sku, current_analysis in trend_analyses.items():
-                        # Get historical data (other products as proxy for now)
-                        historical = [a for s, a in trend_analyses.items() if s != sku]
+                    with comp_tab2:
+                        # Visual comparison charts
+                        import plotly.graph_objects as go
+                        import plotly.express as px
 
-                        if historical:
-                            alerts = EnhancedVoCAnalysisService.detect_emerging_issues(
-                                current_analysis, historical
+                        st.markdown("#### 📊 Cross-Product Visual Analysis")
+
+                        # Return rate comparison bar chart
+                        fig_compare = go.Figure()
+
+                        products = []
+                        return_rates = []
+                        priorities = []
+                        colors_map = {"Critical": "darkred", "High": "red", "Medium": "orange", "Low": "green"}
+
+                        for analysis in analyses_list:
+                            if analysis.periods:
+                                products.append(analysis.product_name[:30] + "..." if len(analysis.product_name) > 30 else analysis.product_name)
+                                return_rates.append(analysis.periods[0].return_rate * 100)
+                                priorities.append(analysis.priority_level)
+
+                        bar_colors = [colors_map.get(p, "gray") for p in priorities]
+
+                        fig_compare.add_trace(go.Bar(
+                            x=products,
+                            y=return_rates,
+                            marker_color=bar_colors,
+                            text=[f"{r:.1f}%" for r in return_rates],
+                            textposition='outside'
+                        ))
+
+                        # Add threshold line
+                        if analyses_list:
+                            threshold = analyses_list[0].amazon_threshold * 100
+                            fig_compare.add_hline(
+                                y=threshold,
+                                line_dash="dash",
+                                line_color="orange",
+                                annotation_text=f"Amazon Threshold ({threshold:.1f}%)"
                             )
 
-                            if alerts:
-                                with st.expander(f"⚠️ {current_analysis.product_name} ({sku})"):
-                                    for alert in alerts:
-                                        st.warning(alert)
+                        fig_compare.update_layout(
+                            title="Return Rate Comparison Across Products",
+                            xaxis_title="Product",
+                            yaxis_title="Return Rate (%)",
+                            height=500,
+                            xaxis={'tickangle': -45},
+                            showlegend=False
+                        )
+
+                        st.plotly_chart(fig_compare, use_container_width=True)
+
+                        # Category comparison heatmap
+                        st.markdown("#### 🔥 Return Category Heatmap")
+
+                        # Build category matrix
+                        all_categories = set()
+                        for analysis in analyses_list:
+                            if analysis.periods and analysis.periods[0].category_counts:
+                                all_categories.update(analysis.periods[0].category_counts.keys())
+
+                        if all_categories:
+                            category_matrix = []
+                            product_names = []
+
+                            for analysis in analyses_list:
+                                if analysis.periods:
+                                    product_names.append(analysis.product_name[:25] + "..." if len(analysis.product_name) > 25 else analysis.product_name)
+                                    row = []
+                                    total = analysis.periods[0].total_orders
+                                    for cat in sorted(all_categories):
+                                        count = analysis.periods[0].category_counts.get(cat, 0)
+                                        pct = (count / total * 100) if total > 0 else 0
+                                        row.append(pct)
+                                    category_matrix.append(row)
+
+                            fig_heatmap = go.Figure(data=go.Heatmap(
+                                z=category_matrix,
+                                x=sorted(all_categories),
+                                y=product_names,
+                                colorscale='Reds',
+                                text=[[f"{val:.1f}%" for val in row] for row in category_matrix],
+                                texttemplate="%{text}",
+                                textfont={"size": 10},
+                                colorbar=dict(title="% of Returns")
+                            ))
+
+                            fig_heatmap.update_layout(
+                                title="Return Category Distribution Across Products",
+                                height=max(400, len(product_names) * 40),
+                                xaxis={'tickangle': -45}
+                            )
+
+                            st.plotly_chart(fig_heatmap, use_container_width=True)
+
+                        # Priority distribution
+                        priority_counts = {}
+                        for analysis in analyses_list:
+                            priority_counts[analysis.priority_level] = priority_counts.get(analysis.priority_level, 0) + 1
+
+                        fig_priority = go.Figure(data=[go.Pie(
+                            labels=list(priority_counts.keys()),
+                            values=list(priority_counts.values()),
+                            marker=dict(colors=[colors_map.get(p, "gray") for p in priority_counts.keys()]),
+                            hole=0.4
+                        )])
+                        fig_priority.update_layout(
+                            title="Product Portfolio Risk Distribution",
+                            height=400
+                        )
+                        st.plotly_chart(fig_priority, use_container_width=True)
+
+                    with comp_tab3:
+                        # Emerging issues alerts
+                        st.markdown("#### 🚨 Emerging Issues Detection")
+
+                        # For each product, check for emerging issues
+                        for sku, current_analysis in trend_analyses.items():
+                            # Get historical data (other products as proxy for now)
+                            historical = [a for s, a in trend_analyses.items() if s != sku]
+
+                            if historical:
+                                alerts = EnhancedVoCAnalysisService.detect_emerging_issues(
+                                    current_analysis, historical
+                                )
+
+                                if alerts:
+                                    with st.expander(f"⚠️ {current_analysis.product_name} ({sku})"):
+                                        for alert in alerts:
+                                            st.warning(alert)
 
                     if st.button("❌ Close Comparison View"):
                         st.session_state.show_voc_comparison = False
