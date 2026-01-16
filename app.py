@@ -123,6 +123,9 @@ try:
     from src.services.voc_analysis_integration import (
         VoCAnalysisService, ProductTrendAnalysis, AMAZON_RETURN_RATE_THRESHOLDS
     )
+    from src.services.voc_analysis_integration_v2 import (
+        EnhancedVoCAnalysisService, MultiPeriodTrendAnalysis
+    )
     from src.ui.theme_manager import (
         inject_theme_css, render_theme_toggle, get_current_theme,
         get_color, get_status_color
@@ -157,7 +160,7 @@ st.set_page_config(
 
 APP_CONFIG = {
     'title': 'Vive Health Quality Suite',
-    'version': '25.0',
+    'version': '26.0',
     'chunk_sizes': [100, 250, 500, 1000],
     'default_chunk': 500,
 }
@@ -6176,131 +6179,175 @@ def render_pro_mode():
     st.markdown("---")
 
     # VoC Analysis Import Section
-    with st.expander("📊 VoC Analysis Import (Period-over-Period Comparison)", expanded=False):
+    with st.expander("📊 VoC Analysis Import (Auto-Detect Format)", expanded=False):
         st.markdown("""
-        **Import VoC Analysis data with automatic period-over-period trend analysis**
+        **Import VoC Analysis data with automatic format detection**
 
-        This feature analyzes your VoC Analysis workbook to identify:
-        - 📈 Sales trends (Increasing/Decreasing/Stable from previous period)
-        - 📉 Return rate changes (compared to L30D)
+        Supported formats:
+        - **VoC Analysis Workbook (.xlsx)** - Multi-sheet with dated tabs for period-over-period analysis
+        - **Analysis Totals Sheet (.csv)** - Return category breakdown with detailed comments
+        - **Standard CSV** - Simple return data export
+
+        This feature analyzes your data to identify:
+        - 📈 Sales trends across periods
+        - 📉 Return rate changes and patterns
         - 🚨 Amazon return rate fee threshold violations (2026 policy)
+        - 📊 Category breakdowns and top issues
         - ⚠️ Return badge visibility impact
         - 💰 Estimated fee risk from excess returns
         """)
 
         voc_file = st.file_uploader(
-            "Upload VoC Analysis.xlsx",
-            type=['xlsx', 'xls'],
-            help="Upload your VoC Analysis workbook with dated sheets",
+            "Upload VoC Data (xlsx or csv)",
+            type=['xlsx', 'xls', 'csv'],
+            help="Auto-detects format: VoC Analysis workbook, Totals CSV, or standard CSV",
             key="voc_upload"
         )
 
         if voc_file:
             try:
-                # Get available periods
-                available_periods = VoCAnalysisService.get_available_periods(voc_file)
+                # Save to temp file for format detection
+                import tempfile
+                import os
+                suffix = '.xlsx' if voc_file.name.endswith('.xlsx') else '.csv' if voc_file.name.endswith('.csv') else '.xls'
 
-                if not available_periods:
-                    st.error("No dated sheets found in workbook. Expected sheets like 'January_2026_01162026'")
-                else:
-                    st.success(f"Found {len(available_periods)} dated periods")
+                with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                    tmp.write(voc_file.getvalue())
+                    tmp_path = tmp.name
 
-                    col_current, col_previous = st.columns(2)
+                # Auto-detect format
+                file_format = EnhancedVoCAnalysisService.detect_file_format(tmp_path)
+                st.info(f"📋 Detected format: **{file_format.replace('_', ' ').title()}**")
 
-                    with col_current:
-                        period_names = [display for _, display in available_periods]
-                        current_period_idx = st.selectbox(
-                            "Current Period",
-                            range(len(available_periods)),
-                            format_func=lambda i: available_periods[i][1],
-                            index=0,
-                            help="Select the most recent period to analyze"
-                        )
-                        current_sheet = available_periods[current_period_idx][0]
+                if file_format == "totals_csv":
+                    # New totals CSV format with category breakdown
+                    if st.button("🔄 Import & Analyze Totals Data", type="primary"):
+                        with st.spinner("Analyzing totals data with category breakdown..."):
+                            # Parse totals CSV
+                            trend_analyses = EnhancedVoCAnalysisService.parse_totals_csv(tmp_path)
 
-                    with col_previous:
-                        previous_options = ["(No comparison)"] + period_names
-                        previous_idx = st.selectbox(
-                            "Compare to Period",
-                            range(len(previous_options)),
-                            format_func=lambda i: previous_options[i],
-                            index=1 if len(previous_options) > 1 else 0,
-                            help="Select previous period for trend analysis"
-                        )
+                            # Display product summary
+                            for sku, analysis in trend_analyses.items():
+                                st.markdown(f"#### 📊 {analysis.product_name}")
 
-                        if previous_idx == 0:
-                            previous_sheet = None
-                        else:
-                            previous_sheet = available_periods[previous_idx - 1][0]
+                                col1, col2, col3, col4 = st.columns(4)
 
-                    if st.button("🔄 Import & Analyze VoC Data", type="primary"):
-                        with st.spinner("Analyzing VoC data with period comparison..."):
-                            # Parse workbook with period comparison
-                            trend_analyses = VoCAnalysisService.parse_voc_workbook(
-                                voc_file,
-                                current_sheet,
-                                previous_sheet
-                            )
+                                latest = analysis.periods[0]
 
-                            # Generate summary
-                            summary = VoCAnalysisService.generate_period_comparison_summary(trend_analyses)
+                                with col1:
+                                    st.metric("Total Returns", latest.total_orders)
+                                    st.metric("Defect Rate", f"{latest.return_rate*100:.1f}%")
 
-                            # Display summary
-                            st.markdown("#### 📊 Period Comparison Summary")
-                            col1, col2, col3, col4 = st.columns(4)
+                                with col2:
+                                    st.metric("Period", latest.period_name)
+                                    st.metric("Priority", analysis.priority_level)
 
-                            with col1:
-                                st.metric("Products Analyzed", summary['total_products'])
-                                st.metric("Sales Increasing",
-                                         summary['sales_trends']['increasing'],
-                                         delta=f"{summary['sales_trends']['increasing']}")
-                                st.metric("Sales Decreasing",
-                                         summary['sales_trends']['decreasing'],
-                                         delta=f"-{summary['sales_trends']['decreasing']}",
-                                         delta_color="inverse")
+                                with col3:
+                                    st.metric("Risk Flags", len(analysis.risk_flags))
+                                    st.metric("Fee Risk", "Yes" if analysis.above_threshold else "No")
 
-                            with col2:
-                                st.metric("Returns Improving",
-                                         summary['return_trends']['improving'],
-                                         delta=f"{summary['return_trends']['improving']}")
-                                st.metric("Returns Worsening",
-                                         summary['return_trends']['worsening'],
-                                         delta=f"-{summary['return_trends']['worsening']}",
-                                         delta_color="inverse")
+                                with col4:
+                                    if analysis.estimated_fee_impact:
+                                        st.metric("Est. Fee Impact", f"${analysis.estimated_fee_impact:.2f}")
+                                    st.metric("Amazon Threshold", f"{analysis.amazon_threshold*100:.1f}%")
 
-                            with col3:
-                                st.metric("Above Amazon Threshold",
-                                         summary['amazon_thresholds']['above_threshold'])
-                                st.metric("Return Badge Displayed",
-                                         summary['badges']['with_badge'])
+                                # Show risk flags
+                                if analysis.risk_flags:
+                                    st.markdown("**Risk Flags:**")
+                                    for flag in analysis.risk_flags:
+                                        st.warning(flag)
 
-                            with col4:
-                                st.metric("Fee Risk Units",
-                                         summary['amazon_thresholds']['fee_risk_units'])
-                                st.metric("Est. Fee Impact",
-                                         f"${summary['amazon_thresholds']['estimated_fees']:.2f}",
-                                         delta_color="off")
-                                st.metric("Action Required",
-                                         summary['actions']['action_required'])
+                                # Show category breakdown
+                                if latest.category_counts:
+                                    st.markdown("**Return Category Breakdown:**")
+                                    category_df = pd.DataFrame([
+                                        {
+                                            'Category': cat,
+                                            'Count': count,
+                                            'Percentage': f"{latest.category_percentages.get(cat, 0)*100:.1f}%"
+                                        }
+                                        for cat, count in sorted(latest.category_counts.items(), key=lambda x: x[1], reverse=True)
+                                    ])
+                                    st.dataframe(category_df, use_container_width=True, hide_index=True)
 
                             # Convert to screening DataFrame
-                            df_voc = VoCAnalysisService.convert_to_screening_dataframe(trend_analyses)
-
-                            st.markdown("#### 🔍 VoC Data Preview (Top 10 by Risk)")
-                            st.dataframe(
-                                df_voc.head(10)[[
-                                    'SKU', 'Name', 'Sold', 'Return_Rate',
-                                    'Sales_Trend', 'Return_Trend',
-                                    'Above_Threshold', 'Risk_Flags'
-                                ]],
-                                use_container_width=True
-                            )
-
-                            # Store in session for screening
+                            df_voc = EnhancedVoCAnalysisService.convert_to_screening_dataframe(trend_analyses)
                             st.session_state.voc_import_data = df_voc
 
-                            st.success(f"✅ VoC data imported successfully! {len(df_voc)} products ready for screening.")
-                            st.info("👇 Click 'Run Screening' below to analyze this data with AI-powered quality screening")
+                            st.success(f"✅ Totals data imported! {len(df_voc)} products ready for screening.")
+                            st.info("👇 Use 'Run Screening' below to analyze with AI")
+
+                elif file_format == "voc_workbook":
+                    # Original multi-sheet workbook format
+                    available_periods = VoCAnalysisService.get_available_periods(tmp_path)
+
+                    if not available_periods:
+                        st.error("No dated sheets found in workbook")
+                    else:
+                        st.success(f"Found {len(available_periods)} dated periods")
+
+                        col_current, col_previous = st.columns(2)
+
+                        with col_current:
+                            period_names = [display for _, display in available_periods]
+                            current_period_idx = st.selectbox(
+                                "Current Period",
+                                range(len(available_periods)),
+                                format_func=lambda i: available_periods[i][1],
+                                index=0
+                            )
+                            current_sheet = available_periods[current_period_idx][0]
+
+                        with col_previous:
+                            previous_options = ["(No comparison)"] + period_names
+                            previous_idx = st.selectbox(
+                                "Compare to Period",
+                                range(len(previous_options)),
+                                format_func=lambda i: previous_options[i],
+                                index=1 if len(previous_options) > 1 else 0
+                            )
+
+                            if previous_idx == 0:
+                                previous_sheet = None
+                            else:
+                                previous_sheet = available_periods[previous_idx - 1][0]
+
+                        if st.button("🔄 Import & Analyze VoC Workbook", type="primary"):
+                            with st.spinner("Analyzing VoC workbook..."):
+                                trend_analyses = VoCAnalysisService.parse_voc_workbook(
+                                    tmp_path, current_sheet, previous_sheet
+                                )
+                                summary = VoCAnalysisService.generate_period_comparison_summary(trend_analyses)
+
+                                # Display summary (condensed)
+                                st.markdown("#### 📊 Period Comparison Summary")
+                                col1, col2, col3 = st.columns(3)
+
+                                with col1:
+                                    st.metric("Products", summary['total_products'])
+                                    st.metric("↗ Sales Up", summary['sales_trends']['increasing'])
+
+                                with col2:
+                                    st.metric("Above Threshold", summary['amazon_thresholds']['above_threshold'])
+                                    st.metric("Action Required", summary['actions']['action_required'])
+
+                                with col3:
+                                    st.metric("Fee Risk Units", summary['amazon_thresholds']['fee_risk_units'])
+                                    st.metric("Est. Fees", f"${summary['amazon_thresholds']['estimated_fees']:.2f}")
+
+                                df_voc = VoCAnalysisService.convert_to_screening_dataframe(trend_analyses)
+                                st.session_state.voc_import_data = df_voc
+
+                                st.success(f"✅ VoC workbook imported! {len(df_voc)} products ready.")
+
+                else:
+                    st.warning(f"Unsupported format: {file_format}. Please upload a VoC Analysis workbook or Totals CSV.")
+
+                # Clean up temp file
+                try:
+                    os.unlink(tmp_path)
+                except:
+                    pass
 
             except Exception as e:
                 st.error(f"Error processing VoC file: {str(e)}")
@@ -6549,7 +6596,10 @@ def process_screening(df: pd.DataFrame, analysis_type: str = "ANOVA", include_cl
         # Step 4: Calculate Risk Scores and Determine Actions
         status_text.text("Step 4/6: Calculating risk scores...")
         log_process("Calculating weighted risk scores...")
-        
+
+        # Pre-calculate category statistics (PERFORMANCE FIX)
+        category_stats = df.groupby('Category')['Return_Rate'].agg(['mean', 'std']).to_dict('index')
+
         results = []
         for idx, row in df.iterrows():
             # Risk score
@@ -6561,11 +6611,12 @@ def process_screening(df: pd.DataFrame, analysis_type: str = "ANOVA", include_cl
                 complaint_count=len(str(row.get('Complaint_Text', '')).split(',')) if row.get('Complaint_Text') else 0,
                 units_sold=row['Sold']
             )
-            
-            # SPC Signal
-            cat_std = df[df['Category'] == row['Category']]['Return_Rate'].std()
-            cat_mean = df[df['Category'] == row['Category']]['Return_Rate'].mean()
-            spc_result = SPCAnalysis.detect_signal(row['Return_Rate'], cat_mean, cat_std if cat_std > 0 else 0.01)
+
+            # SPC Signal (use pre-calculated stats)
+            cat_stats = category_stats.get(row['Category'], {'mean': row['Return_Rate'], 'std': 0.01})
+            cat_mean = cat_stats['mean']
+            cat_std = cat_stats['std'] if cat_stats['std'] > 0 else 0.01
+            spc_result = SPCAnalysis.detect_signal(row['Return_Rate'], cat_mean, cat_std)
             
             # Determine action
             action, triggers = ActionDetermination.determine_action(
