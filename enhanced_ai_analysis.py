@@ -51,34 +51,46 @@ TOKEN_LIMITS = {
     'summary': 300       # Increased for detailed reasons
 }
 
-# Model configurations
+# Model configurations - Latest and most powerful models (Jan 2026)
 MODELS = {
     'openai': {
-        'standard': 'gpt-3.5-turbo',
-        'enhanced': 'gpt-3.5-turbo',
-        'extreme': 'gpt-4',
-        'chat': 'gpt-3.5-turbo',
-        'summary': 'gpt-3.5-turbo'
+        'fast': 'gpt-4o-mini',          # Fast, efficient GPT-4 class model
+        'standard': 'gpt-4o',            # Latest GPT-4 Omni (multimodal)
+        'enhanced': 'gpt-4o',            # GPT-4 Omni for complex tasks
+        'extreme': 'o1-preview',         # Most powerful reasoning model
+        'powerful': 'o1-preview',        # o1-preview for maximum capability
+        'chat': 'gpt-4o',
+        'summary': 'gpt-4o'
     },
     'claude': {
-        'standard': 'claude-3-haiku-20240307',
-        'enhanced': 'claude-3-haiku-20240307',
-        'extreme': 'claude-3-sonnet-20240229',
-        'chat': 'claude-3-haiku-20240307',
-        'summary': 'claude-3-haiku-20240307'
+        'fast': 'claude-3-5-haiku-20241022',      # Latest Haiku - fastest
+        'standard': 'claude-3-5-sonnet-20241022', # Latest Sonnet 3.5
+        'enhanced': 'claude-3-5-sonnet-20241022', # Sonnet 3.5 for quality
+        'extreme': 'claude-3-opus-20240229',      # Opus for maximum power
+        'powerful': 'claude-3-opus-20240229',     # Most capable Claude
+        'chat': 'claude-3-5-sonnet-20241022',
+        'summary': 'claude-3-5-haiku-20241022'
     }
 }
 
-# Updated pricing per 1K tokens
+# Updated pricing per 1K tokens (January 2026)
 PRICING = {
-    # OpenAI
+    # OpenAI - Latest models
+    'gpt-4o-mini': {'input': 0.00015, 'output': 0.0006},           # Fast & cheap
+    'gpt-4o': {'input': 0.0025, 'output': 0.010},                  # GPT-4 Omni
+    'o1-preview': {'input': 0.015, 'output': 0.060},               # Most powerful
+    'o1-mini': {'input': 0.003, 'output': 0.012},                  # Fast reasoning
+    # Legacy OpenAI (for reference)
     'gpt-3.5-turbo': {'input': 0.0005, 'output': 0.0015},
     'gpt-4': {'input': 0.03, 'output': 0.06},
     'gpt-4-turbo': {'input': 0.01, 'output': 0.03},
-    # Claude (Anthropic)
+    # Claude - Latest models
+    'claude-3-5-haiku-20241022': {'input': 0.001, 'output': 0.005},     # Latest Haiku
+    'claude-3-5-sonnet-20241022': {'input': 0.003, 'output': 0.015},    # Latest Sonnet
+    'claude-3-opus-20240229': {'input': 0.015, 'output': 0.075},        # Opus (most powerful)
+    # Legacy Claude (for reference)
     'claude-3-haiku-20240307': {'input': 0.00025, 'output': 0.00125},
-    'claude-3-sonnet-20240229': {'input': 0.003, 'output': 0.015},
-    'claude-3-opus-20240229': {'input': 0.015, 'output': 0.075}
+    'claude-3-sonnet-20240229': {'input': 0.003, 'output': 0.015}
 }
 
 # Medical Device Return Categories
@@ -175,9 +187,13 @@ COMPILED_PATTERNS = {
 
 class AIProvider(Enum):
     OPENAI = "openai"
+    OPENAI_FAST = "openai_fast"       # GPT-4o-mini
+    OPENAI_POWERFUL = "openai_powerful"  # o1-preview
     CLAUDE = "claude"
+    CLAUDE_FAST = "claude_fast"       # Haiku 3.5
+    CLAUDE_POWERFUL = "claude_powerful"  # Opus
     BOTH = "both"
-    FASTEST = "fastest"
+    FASTEST = "fastest"               # Auto-select fastest available
 
 @dataclass
 class CostEstimate:
@@ -591,17 +607,44 @@ class EnhancedAIAnalyzer:
 
     def generate_text(self, prompt: str, system_prompt: str, mode: str = 'chat') -> Optional[str]:
         """Generate a single response for general analysis or chat use cases."""
+        # Handle new fast provider options
+        if self.provider == AIProvider.OPENAI_FAST:
+            if self.openai_configured:
+                response, _ = self._call_openai(prompt, system_prompt, 'fast')
+                return response
+            return None
+
+        if self.provider == AIProvider.OPENAI_POWERFUL:
+            if self.openai_configured:
+                response, _ = self._call_openai(prompt, system_prompt, 'powerful')
+                return response
+            return None
+
+        if self.provider == AIProvider.CLAUDE_FAST:
+            if self.claude_configured:
+                response, _ = self._call_claude(prompt, system_prompt, 'fast')
+                return response
+            return None
+
+        if self.provider == AIProvider.CLAUDE_POWERFUL:
+            if self.claude_configured:
+                response, _ = self._call_claude(prompt, system_prompt, 'powerful')
+                return response
+            return None
+
+        # Original FASTEST logic (auto-select fastest available)
         if self.provider == AIProvider.FASTEST:
             if self.claude_configured:
-                response, _ = self._call_claude(prompt, system_prompt, mode)
+                response, _ = self._call_claude(prompt, system_prompt, 'fast')
                 if response:
                     return response
             if self.openai_configured:
-                response, _ = self._call_openai(prompt, system_prompt, mode)
+                response, _ = self._call_openai(prompt, system_prompt, 'fast')
                 if response:
                     return response
             return None
 
+        # BOTH provider (consensus)
         if self.provider == AIProvider.BOTH:
             openai_future = None
             claude_future = None
@@ -638,6 +681,7 @@ class EnhancedAIAnalyzer:
                 return max([openai_result, claude_result], key=len)
             return openai_result or claude_result
 
+        # Standard providers
         if self.provider == AIProvider.OPENAI and self.openai_configured:
             response, _ = self._call_openai(prompt, system_prompt, mode)
             return response
