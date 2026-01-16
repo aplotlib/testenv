@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-"""Regulatory data aggregation and normalization."""
+"""Regulatory data aggregation and normalization with multilingual support."""
 
 from datetime import date, datetime
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import pandas as pd
 import requests
@@ -11,7 +11,12 @@ import requests
 from src.search.cpsc import cpsc_search
 from src.search.health_agency_feeds import fetch_agency_alerts
 from src.search.google_cse import google_search
-from src.search.openfda import search_device_enforcement, search_device_recall
+from src.search.openfda import (
+    search_device_enforcement,
+    search_device_recall,
+    search_by_product_code,
+    get_product_codes_for_term,
+)
 from src.services.adverse_event_service import AdverseEventService
 from src.services.media_service import MediaMonitoringService
 
@@ -29,6 +34,9 @@ def _safe_list(items: Optional[Iterable[str]]) -> List[str]:
 
 
 DEFAULT_LOOKBACK_YEARS = 3
+
+# Supported languages for multi-language search
+SUPPORTED_LANGUAGES = ["en", "es", "pt", "de", "fr", "it", "ja", "zh", "ko"]
 
 
 class RegulatoryService:
@@ -53,24 +61,81 @@ class RegulatoryService:
         "un.org/securitycouncil",
     ]
 
+    # Expanded synonym map with comprehensive medical device terminology
     SYNONYM_MAP = {
-        "bpm": ["blood pressure monitor", "bp monitor", "sphygmomanometer"],
-        "blood pressure monitor": ["bpm", "bp monitor", "blood pressure machine"],
-        "scooter": ["mobility scooter", "powered scooter", "electric scooter"],
-        "pacemaker": ["cardiac pacemaker", "implantable pacemaker"],
-        "defibrillator": [
-            "aed",
-            "automated external defibrillator",
-            "icd",
-            "implantable cardioverter defibrillator",
-        ],
-        "infusion pump": ["iv pump", "syringe pump", "intravenous pump"],
-        "insulin pump": ["diabetes pump", "csii pump"],
-        "ventilator": ["respirator", "mechanical ventilator"],
-        "catheter": ["urinary catheter", "central line", "iv catheter"],
-        "syringe": ["syringe", "pre-filled syringe", "prefilled syringe"],
-        "glucometer": ["glucose meter", "blood glucose monitor"],
-        "sterilizer": ["autoclave", "steam sterilizer"],
+        # Blood Pressure Monitors - comprehensive coverage
+        "bpm": ["blood pressure monitor", "bp monitor", "sphygmomanometer", "blood pressure machine", "blood pressure cuff"],
+        "blood pressure monitor": ["bpm", "bp monitor", "blood pressure machine", "sphygmomanometer", "blood pressure cuff", "digital bp monitor", "automatic blood pressure", "wrist blood pressure", "arm blood pressure"],
+        "blood pressure": ["blood pressure monitor", "bp monitor", "sphygmomanometer", "hypertension monitor"],
+        "bp monitor": ["blood pressure monitor", "sphygmomanometer", "blood pressure machine"],
+        "sphygmomanometer": ["blood pressure monitor", "bp monitor", "blood pressure cuff"],
+
+        # Mobility Devices
+        "scooter": ["mobility scooter", "powered scooter", "electric scooter", "power wheelchair"],
+        "wheelchair": ["power wheelchair", "electric wheelchair", "manual wheelchair", "mobility chair", "transport chair"],
+        "walker": ["rollator", "walking frame", "mobility walker", "rolling walker"],
+
+        # Cardiac Devices
+        "pacemaker": ["cardiac pacemaker", "implantable pacemaker", "heart pacemaker", "pulse generator"],
+        "defibrillator": ["aed", "automated external defibrillator", "icd", "implantable cardioverter defibrillator", "cardiac defibrillator"],
+        "aed": ["automated external defibrillator", "defibrillator", "heart defibrillator"],
+        "icd": ["implantable cardioverter defibrillator", "implantable defibrillator"],
+
+        # Infusion & Injection
+        "infusion pump": ["iv pump", "syringe pump", "intravenous pump", "volumetric pump", "ambulatory pump", "pca pump"],
+        "insulin pump": ["diabetes pump", "csii pump", "continuous insulin", "insulin delivery"],
+        "syringe": ["syringe", "pre-filled syringe", "prefilled syringe", "hypodermic syringe", "injection syringe"],
+        "syringe pump": ["infusion pump", "iv pump"],
+
+        # Respiratory Devices
+        "ventilator": ["respirator", "mechanical ventilator", "breathing machine", "life support ventilator"],
+        "cpap": ["continuous positive airway pressure", "sleep apnea device", "cpap machine", "pap device"],
+        "bipap": ["bilevel positive airway pressure", "bipap machine", "sleep therapy"],
+        "nebulizer": ["nebuliser", "aerosol therapy", "breathing treatment", "inhalation device"],
+        "oxygen concentrator": ["oxygen generator", "home oxygen", "portable oxygen", "o2 concentrator"],
+        "pulse oximeter": ["oximeter", "spo2 monitor", "oxygen saturation", "finger oximeter"],
+
+        # Monitoring Devices
+        "glucometer": ["glucose meter", "blood glucose monitor", "blood sugar meter", "diabetes monitor", "cgm"],
+        "glucose monitor": ["glucometer", "blood glucose meter", "continuous glucose monitor", "cgm"],
+        "thermometer": ["digital thermometer", "infrared thermometer", "forehead thermometer", "ear thermometer", "clinical thermometer"],
+        "ecg": ["electrocardiogram", "ekg", "heart monitor", "cardiac monitor"],
+        "holter": ["holter monitor", "ambulatory ecg", "heart rhythm monitor"],
+
+        # Catheters & Tubes
+        "catheter": ["urinary catheter", "central line", "iv catheter", "foley catheter", "picc line"],
+        "feeding tube": ["enteral feeding", "ng tube", "peg tube", "gastrostomy"],
+
+        # Surgical & Sterilization
+        "sterilizer": ["autoclave", "steam sterilizer", "sterilization equipment"],
+        "surgical instrument": ["surgical tool", "operating instrument", "surgical device"],
+
+        # Imaging
+        "ultrasound": ["sonography", "ultrasound machine", "diagnostic ultrasound"],
+        "x-ray": ["radiography", "x-ray machine", "radiographic"],
+        "mri": ["magnetic resonance", "mri scanner", "mr imaging"],
+        "ct scanner": ["computed tomography", "cat scan", "ct machine"],
+
+        # Patient Care
+        "hospital bed": ["medical bed", "patient bed", "adjustable bed", "electric bed"],
+        "patient monitor": ["vital signs monitor", "bedside monitor", "multiparameter monitor"],
+        "scale": ["medical scale", "patient scale", "weighing scale", "body weight scale"],
+
+        # Orthopedic
+        "brace": ["orthopedic brace", "support brace", "knee brace", "back brace", "ankle brace"],
+        "splint": ["orthopedic splint", "immobilizer", "finger splint", "wrist splint"],
+        "prosthetic": ["prosthesis", "artificial limb", "prosthetic device"],
+        "implant": ["medical implant", "orthopedic implant", "surgical implant"],
+
+        # Hearing
+        "hearing aid": ["hearing device", "hearing amplifier", "cochlear implant"],
+
+        # Dental
+        "dental": ["dental device", "dental equipment", "dental instrument"],
+
+        # Lab Equipment
+        "analyzer": ["laboratory analyzer", "diagnostic analyzer", "blood analyzer"],
+        "centrifuge": ["laboratory centrifuge", "blood centrifuge"],
     }
 
     @classmethod
@@ -87,10 +152,26 @@ class RegulatoryService:
         vendor_only: bool = False,
         include_sanctions: bool = True,
         extra_terms: Optional[Sequence[str]] = None,
+        multilingual: bool = True,
+        translate_results: bool = True,
     ) -> tuple[pd.DataFrame, dict]:
         """
-        Main entry point.
-        mode: 'fast' (APIs + Structured) or 'powerful' (adds web/media coverage)
+        Main entry point for regulatory intelligence search.
+
+        Args:
+            query_term: Product name or search term
+            regions: List of regions to search (US, EU, UK, CA, LATAM, APAC)
+            start_date: Start of date range
+            end_date: End of date range
+            limit: Maximum results per source
+            mode: 'fast' (APIs only) or 'powerful' (adds web/media/intl feeds)
+            ai_service: Optional AI service for classification
+            manufacturer: Optional manufacturer name filter
+            vendor_only: Search only vendor-related actions
+            include_sanctions: Include sanctions list search
+            extra_terms: Additional search terms to include
+            multilingual: Enable multi-language search expansion
+            translate_results: Auto-translate foreign language results to English
         """
         results: List[Dict[str, Any]] = []
         status_log: Dict[str, int] = {}
@@ -106,25 +187,54 @@ class RegulatoryService:
         if start_dt > end_dt:
             start_dt, end_dt = end_dt, start_dt
         is_powerful = mode == "powerful"
-        max_terms = 12 if is_powerful else 10
+        max_terms = 20 if is_powerful else 15  # Increased for better coverage
 
+        # Prepare search terms with synonym expansion
         terms = cls.prepare_terms(query_term, manufacturer, max_terms=max_terms, extra_terms=extra_terms)
 
+        # Get multilingual terms if enabled
+        multilingual_terms = {}
+        if multilingual:
+            multilingual_terms = cls._get_multilingual_terms(query_term)
+
         if not vendor_only:
-            fda_recalls = cls._fetch_openfda_device_recalls(terms, limit, start_dt, end_dt)
+            # Enhanced FDA search with product codes
+            fda_recalls = cls._fetch_openfda_device_recalls(terms, limit * 2, start_dt, end_dt)
             results.extend(fda_recalls)
             status_log["FDA Device Recalls"] = len(fda_recalls)
+
+            # Also search by product code for better coverage
+            product_codes = get_product_codes_for_term(query_term)
+            if product_codes:
+                code_recalls = cls._fetch_openfda_by_product_code(product_codes, limit, start_dt, end_dt)
+                # Filter out duplicates
+                existing_ids = {r.get("ID") for r in results if r.get("ID")}
+                new_code_recalls = [r for r in code_recalls if r.get("ID") not in existing_ids]
+                results.extend(new_code_recalls)
+                status_log["FDA Product Code Recalls"] = len(new_code_recalls)
 
             fda_enf = cls._fetch_openfda_enforcement(terms, limit, start_dt, end_dt)
             results.extend(fda_enf)
             status_log["FDA Enforcement"] = len(fda_enf)
 
             maude_service = AdverseEventService()
-            maude_hits = maude_service.search_events(query_term or manufacturer, start_dt, end_dt, limit=30)
-            for item in maude_hits:
-                item["Matched_Term"] = query_term or manufacturer
-            results.extend(maude_hits)
-            status_log["FDA MAUDE"] = len(maude_hits)
+            # Search with multiple terms for MAUDE
+            maude_hits = []
+            for term in terms[:5]:  # Top 5 terms
+                hits = maude_service.search_events(term, start_dt, end_dt, limit=20)
+                for item in hits:
+                    item["Matched_Term"] = term
+                maude_hits.extend(hits)
+            # Dedupe MAUDE by report number
+            seen_reports = set()
+            unique_maude = []
+            for hit in maude_hits:
+                report_id = hit.get("ID", "")
+                if report_id not in seen_reports:
+                    seen_reports.add(report_id)
+                    unique_maude.append(hit)
+            results.extend(unique_maude)
+            status_log["FDA MAUDE"] = len(unique_maude)
 
             cpsc_hits = cls._fetch_cpsc(terms, start_dt, end_dt, limit=limit)
             results.extend(cpsc_hits)
@@ -143,11 +253,23 @@ class RegulatoryService:
             results.extend(web_hits)
             status_log["Regulatory Web"] = len(web_hits)
 
-            agency_hits = cls._search_global_agencies(terms, regions, limit=limit)
+            # Enhanced global agency search with multilingual support
+            agency_hits = cls._search_global_agencies(
+                terms,
+                regions,
+                limit=limit,
+                translate_results=translate_results,
+                multilingual_search=multilingual
+            )
             results.extend(agency_hits)
             status_log["Global Health Agencies"] = len(agency_hits)
 
-            media_hits = cls._search_media(query_term or manufacturer, regions)
+            # Search media in multiple regions and languages
+            media_hits = cls._search_media_multilingual(
+                query_term or manufacturer,
+                regions,
+                multilingual_terms if multilingual else {}
+            )
             results.extend(media_hits)
             status_log["Media Signals"] = len(media_hits)
 
@@ -159,6 +281,82 @@ class RegulatoryService:
         df = cls._normalize_columns(df)
         df.sort_values(by="Date", ascending=False, inplace=True, ignore_index=True)
         return df, status_log
+
+    @classmethod
+    def _get_multilingual_terms(cls, query_term: str) -> Dict[str, List[str]]:
+        """Get search terms translated to multiple languages."""
+        try:
+            from src.services.translation_service import get_multilingual_terms
+            return get_multilingual_terms(query_term)
+        except ImportError:
+            return {"en": [query_term]}
+
+    @classmethod
+    def _fetch_openfda_by_product_code(
+        cls,
+        product_codes: List[str],
+        limit: int,
+        start: date,
+        end: date
+    ) -> List[Dict[str, Any]]:
+        """Fetch FDA recalls by product code for more comprehensive results."""
+        results: List[Dict[str, Any]] = []
+        hits = search_by_product_code(product_codes, start, end, limit=limit)
+        for hit in hits:
+            recall_number = hit.get("recall_number", "")
+            classification = hit.get("classification", "")
+            record = {
+                "Source": "FDA Device Recall (Product Code)",
+                "Date": hit.get("report_date", ""),
+                "Product": hit.get("product_description", ""),
+                "Description": hit.get("product_description", ""),
+                "Reason": hit.get("reason_for_recall", ""),
+                "Firm": hit.get("recalling_firm", ""),
+                "Model Info": hit.get("model_number", "") or hit.get("code_info", ""),
+                "ID": recall_number,
+                "Link": cls._openfda_link("recall", recall_number),
+                "Status": hit.get("status", ""),
+                "Risk_Level": cls._risk_from_classification(classification),
+                "Matched_Term": f"Product Code: {hit.get('product_code', '')}",
+            }
+            results.append(record)
+        return results
+
+    @classmethod
+    def _search_media_multilingual(
+        cls,
+        query_term: str,
+        regions: Sequence[str],
+        multilingual_terms: Dict[str, List[str]]
+    ) -> List[Dict[str, Any]]:
+        """Search media with multilingual query expansion."""
+        if not query_term:
+            return []
+        media_svc = MediaMonitoringService()
+        results: List[Dict[str, Any]] = []
+
+        # Map regions to languages for media search
+        region_languages = {
+            "US": "en", "UK": "en", "CA": "en",
+            "EU": "de",  # Try German for EU
+            "LATAM": "es",  # Spanish for LATAM
+            "APAC": "en",
+        }
+
+        for region in regions:
+            # Search with English term
+            results.extend(media_svc.search_media(query_term, limit=10, region=region))
+
+            # Search with localized terms if available
+            lang = region_languages.get(region, "en")
+            if lang != "en" and lang in multilingual_terms:
+                for local_term in multilingual_terms[lang][:2]:  # Top 2 local terms
+                    hits = media_svc.search_media(local_term, limit=5, region=region)
+                    for hit in hits:
+                        hit["Matched_Term"] = f"{local_term} ({lang})"
+                    results.extend(hits)
+
+        return results
 
     @classmethod
     def search_all_sources_safe(cls, **kwargs: Any) -> tuple[pd.DataFrame, dict]:
@@ -416,10 +614,18 @@ class RegulatoryService:
         terms: Sequence[str],
         regions: Sequence[str],
         limit: int = 50,
+        translate_results: bool = True,
+        multilingual_search: bool = True,
     ) -> List[Dict[str, Any]]:
         if not terms:
             return []
-        return fetch_agency_alerts(terms, regions, limit=limit)
+        return fetch_agency_alerts(
+            terms,
+            regions,
+            limit=limit,
+            translate_results=translate_results,
+            multilingual_search=multilingual_search
+        )
 
     @staticmethod
     def _google_search(query: str, category: str = "Web Search", num: int = 10) -> List[Dict[str, Any]]:

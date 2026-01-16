@@ -1,5 +1,5 @@
 """
-Vive Health Quality Suite - Version 22.0
+Vive Health Quality Suite - Version 23.0
 Enterprise-Grade Quality Management System
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -11,7 +11,7 @@ TASK-BASED WORKFLOW (7 Tools):
 🧪 Quality Screening       - AI screening with TQM methodology
 📦 Inventory Integration   - DOI & reorder point analysis
 📚 Resources               - Regulatory links & quality guides
-🌐 Global Recall Survey    - FDA/EMA/MHRA/Health Canada/CPSC/Media surveillance
+🌐 Global Recall Survey    - Worldwide regulatory intelligence with multi-language support
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 COMPLIANCE: ISO 13485 | FDA 21 CFR 820 | EU MDR | UK MDR
@@ -19,10 +19,15 @@ COMPLIANCE: ISO 13485 | FDA 21 CFR 820 | EU MDR | UK MDR
 
 Features:
 - Task-based landing page with intuitive tool selection
-- 🆕 Global Recall Surveillance: FDA, EU EMA, UK MHRA, Health Canada, ANVISA, CPSC
-- 🆕 FDA MAUDE adverse event search integration
-- 🆕 Google News RSS media monitoring for safety signals
-- 🆕 OFAC sanctions and watchlist checking
+- 🆕 v23.0: Multi-language search (ES, PT, DE, FR, JA, ZH, KO)
+- 🆕 v23.0: Auto-translation of international results to English
+- 🆕 v23.0: Enhanced FDA search with product codes and wildcards
+- 🆕 v23.0: 20+ international regulatory feeds (FDA, EMA, MHRA, TGA, PMDA, BfArM, ANSM, etc.)
+- 🆕 v23.0: EU Safety Gate (RAPEX), WHO alerts, IMDRF news
+- Global Recall Surveillance: FDA, EU EMA, UK MHRA, Health Canada, ANVISA, CPSC
+- FDA MAUDE adverse event search integration
+- Google News RSS media monitoring for safety signals
+- OFAC sanctions and watchlist checking
 - Quick Case Evaluation Mode: 1-3 product SOP comparison with AI qualification
 - ANOVA/MANOVA statistical analysis with p-values and post-hoc testing
 - SPC Control Charting (CUSUM, Shewhart)
@@ -131,7 +136,7 @@ st.set_page_config(
 
 APP_CONFIG = {
     'title': 'Vive Health Quality Suite',
-    'version': '22.0',
+    'version': '23.0',
     'chunk_sizes': [100, 250, 500, 1000],
     'default_chunk': 500,
 }
@@ -9442,7 +9447,7 @@ def render_global_recall_surveillance():
                 regions.append("APAC")
 
         # Search mode
-        col_mode1, col_mode2, col_mode3 = st.columns(3)
+        col_mode1, col_mode2 = st.columns(2)
         with col_mode1:
             search_mode = st.radio(
                 "Search Mode",
@@ -9456,12 +9461,42 @@ def render_global_recall_surveillance():
                 value=True,
                 help="Check OFAC and other sanctions lists for manufacturer"
             )
-        with col_mode3:
             vendor_only = st.checkbox(
                 "Vendor Enforcement Only",
                 value=False,
                 help="Only show enforcement actions, not general recalls"
             )
+
+        # Advanced multilingual settings
+        with st.expander("🌍 Language & International Settings", expanded=False):
+            st.markdown("""
+            **Multi-Language Search** expands your search terms to equivalent terms in Spanish, Portuguese,
+            German, French, Japanese, and Chinese to find recalls from international agencies.
+            """)
+            lang_col1, lang_col2 = st.columns(2)
+            with lang_col1:
+                multilingual_search = st.checkbox(
+                    "🌐 Enable Multi-Language Search",
+                    value=True,
+                    help="Automatically translate search terms to find international recalls (ES, PT, DE, FR, JA, ZH)"
+                )
+            with lang_col2:
+                translate_results = st.checkbox(
+                    "🔄 Auto-Translate Results to English",
+                    value=True,
+                    help="Translate non-English results back to English for easier review"
+                )
+
+            st.markdown("**International Sources Searched:**")
+            st.markdown("""
+            - 🇺🇸 **US**: FDA Device Recalls, FDA Enforcement, MAUDE Adverse Events, CPSC
+            - 🇬🇧 **UK**: MHRA Medical Device Alerts, Drug Device Alerts
+            - 🇪🇺 **EU**: EMA Safety, EU Safety Gate (RAPEX), Germany BfArM, France ANSM
+            - 🇨🇦 **Canada**: Health Canada Recalls (EN/FR), MedEffect Advisories
+            - 🇦🇺 **APAC**: Australia TGA, Japan PMDA, Singapore HSA
+            - 🌎 **LATAM**: Brazil ANVISA, Mexico COFEPRIS
+            - 🌍 **Global**: WHO Medical Device Alerts, IMDRF News
+            """)
 
     # --- RUN SURVEILLANCE ---
     btn_col1, btn_col2, _ = st.columns([1, 1, 2])
@@ -9493,6 +9528,8 @@ def render_global_recall_surveillance():
 
             with st.status("🔍 Scanning global regulatory sources...", expanded=True) as status:
                 st.write("📡 Connecting to regulatory databases...")
+                if multilingual_search:
+                    st.write("🌍 Expanding search to multiple languages...")
 
                 try:
                     df, logs = RegulatoryService.search_all_sources(
@@ -9504,7 +9541,9 @@ def render_global_recall_surveillance():
                         limit=result_limit,
                         mode=mode,
                         vendor_only=vendor_only,
-                        include_sanctions=include_sanctions
+                        include_sanctions=include_sanctions,
+                        multilingual=multilingual_search,
+                        translate_results=translate_results
                     )
 
                     st.session_state.recall_surveillance_results = df
