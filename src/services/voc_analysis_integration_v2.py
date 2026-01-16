@@ -316,6 +316,208 @@ class EnhancedVoCAnalysisService:
         return {sku: analysis}
 
     @staticmethod
+    def generate_root_cause_recommendations(analysis: MultiPeriodTrendAnalysis) -> List[Dict[str, str]]:
+        """
+        Generate actionable recommendations based on return category analysis
+
+        Returns:
+            List of recommendations with priority, action, and rationale
+        """
+        recommendations = []
+
+        if not analysis.periods or not analysis.periods[0].category_counts:
+            return recommendations
+
+        latest = analysis.periods[0]
+        total_returns = latest.total_orders
+
+        # Analyze each category
+        for category, count in sorted(latest.category_counts.items(), key=lambda x: x[1], reverse=True):
+            percentage = count / total_returns if total_returns > 0 else 0
+
+            # Size/Fit Issues - Design problem
+            if "Size/Fit" in category and percentage > 0.25:
+                recommendations.append({
+                    "priority": "High",
+                    "category": category,
+                    "issue": f"{percentage*100:.1f}% of returns are size/fit related",
+                    "action": "Review sizing chart accuracy and consider adding detailed measurements to product page",
+                    "rationale": "Customers are receiving products that don't fit expectations"
+                })
+
+            # Product Defects - Quality control
+            if "Defect" in category or "Quality" in category:
+                if percentage > 0.15:
+                    recommendations.append({
+                        "priority": "Critical",
+                        "category": category,
+                        "issue": f"{percentage*100:.1f}% of returns are quality defects",
+                        "action": "Conduct manufacturing quality audit and implement additional QC checkpoints",
+                        "rationale": "High defect rate indicates quality control issues in production"
+                    })
+
+            # Performance Issues
+            if "Performance" in category or "Effectiveness" in category:
+                if percentage > 0.20:
+                    recommendations.append({
+                        "priority": "High",
+                        "category": category,
+                        "issue": f"{percentage*100:.1f}% of returns cite performance issues",
+                        "action": "Review product specifications and marketing claims for accuracy",
+                        "rationale": "Product may not meet customer expectations set by marketing"
+                    })
+
+            # Design/Material Issues
+            if "Design" in category or "Material" in category:
+                if percentage > 0.20:
+                    recommendations.append({
+                        "priority": "Medium",
+                        "category": category,
+                        "issue": f"{percentage*100:.1f}% of returns are design-related",
+                        "action": "Consider design revision or enhanced product photos showing design details",
+                        "rationale": "Customers are dissatisfied with design/material choices"
+                    })
+
+            # Comfort Issues
+            if "Comfort" in category and percentage > 0.15:
+                recommendations.append({
+                    "priority": "Medium",
+                    "category": category,
+                    "issue": f"{percentage*100:.1f}% of returns cite comfort issues",
+                    "action": "Add comfort-related information to product page and consider ergonomic improvements",
+                    "rationale": "Comfort is subjective but can be addressed through better customer education"
+                })
+
+            # Customer Error - Educational opportunity
+            if "Customer Error" in category or "Changed Mind" in category:
+                if percentage > 0.30:
+                    recommendations.append({
+                        "priority": "Low",
+                        "category": category,
+                        "issue": f"{percentage*100:.1f}% of returns are customer error/changed mind",
+                        "action": "Enhance product descriptions, add FAQ section, and consider adding comparison charts",
+                        "rationale": "Better product education can reduce buyer's remorse and wrong purchases"
+                    })
+
+            # Shipping Issues
+            if "Shipping" in category or "Fulfillment" in category:
+                if percentage > 0.10:
+                    recommendations.append({
+                        "priority": "Medium",
+                        "category": category,
+                        "issue": f"{percentage*100:.1f}% of returns are shipping-related",
+                        "action": "Review packaging methods and shipping carrier performance",
+                        "rationale": "Shipping issues damage customer experience and increase costs"
+                    })
+
+        return recommendations
+
+    @staticmethod
+    def generate_comparison_report(analyses: List[MultiPeriodTrendAnalysis]) -> pd.DataFrame:
+        """
+        Generate side-by-side comparison of multiple products
+
+        Args:
+            analyses: List of product trend analyses to compare
+
+        Returns:
+            DataFrame with comparison metrics
+        """
+        comparison_data = []
+
+        for analysis in analyses:
+            latest = analysis.periods[0] if analysis.periods else None
+            if not latest:
+                continue
+
+            comparison_data.append({
+                "Product": analysis.product_name,
+                "SKU": analysis.sku,
+                "Total Returns": latest.total_orders,
+                "Defect Rate": f"{latest.return_rate*100:.1f}%",
+                "Amazon Threshold": f"{analysis.amazon_threshold*100:.1f}%",
+                "Above Threshold": "Yes" if analysis.above_threshold else "No",
+                "Priority": analysis.priority_level,
+                "Risk Flags": len(analysis.risk_flags),
+                "Top Issue": latest.top_ncx_reason or "N/A",
+                "Fee Risk ($)": f"${analysis.estimated_fee_impact:.2f}" if analysis.estimated_fee_impact else "$0.00"
+            })
+
+        df = pd.DataFrame(comparison_data)
+
+        # Sort by priority and defect rate
+        priority_order = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
+        df["_priority_sort"] = df["Priority"].map(priority_order)
+        df = df.sort_values(["_priority_sort", "Risk Flags"], ascending=[True, False])
+        df = df.drop(columns=["_priority_sort"])
+
+        return df
+
+    @staticmethod
+    def detect_emerging_issues(current_analysis: MultiPeriodTrendAnalysis,
+                              historical_analyses: List[MultiPeriodTrendAnalysis]) -> List[str]:
+        """
+        Detect emerging quality issues by comparing current analysis to historical data
+
+        Returns:
+            List of alert messages for emerging issues
+        """
+        alerts = []
+
+        if not current_analysis.periods or not historical_analyses:
+            return alerts
+
+        current = current_analysis.periods[0]
+
+        # Compare to historical average
+        historical_return_rates = []
+        historical_defect_counts = []
+
+        for hist_analysis in historical_analyses:
+            if hist_analysis.periods:
+                hist_period = hist_analysis.periods[0]
+                historical_return_rates.append(hist_period.return_rate)
+                historical_defect_counts.append(hist_period.ncx_orders)
+
+        if historical_return_rates:
+            avg_historical_rate = np.mean(historical_return_rates)
+            std_historical_rate = np.std(historical_return_rates)
+
+            # Spike detection
+            if current.return_rate > avg_historical_rate + 2 * std_historical_rate:
+                alerts.append(f"🚨 SPIKE DETECTED: Return rate ({current.return_rate*100:.1f}%) is 2+ standard deviations above historical average ({avg_historical_rate*100:.1f}%)")
+
+            # Trend acceleration
+            if len(historical_return_rates) >= 3:
+                recent_trend = np.mean(historical_return_rates[-3:])
+                older_trend = np.mean(historical_return_rates[:-3]) if len(historical_return_rates) > 3 else recent_trend
+
+                if recent_trend > older_trend * 1.5:
+                    alerts.append(f"📈 ACCELERATING TREND: Recent return rate increasing faster than historical trend")
+
+        # Category-specific alerts
+        if current.category_counts:
+            # Check for sudden emergence of new categories
+            for category, count in current.category_counts.items():
+                if count > current.total_orders * 0.15:  # >15% in this category
+                    # Check if this category was minimal historically
+                    historical_category_avg = 0
+                    for hist_analysis in historical_analyses:
+                        if hist_analysis.periods and hist_analysis.periods[0].category_counts:
+                            hist_count = hist_analysis.periods[0].category_counts.get(category, 0)
+                            hist_total = hist_analysis.periods[0].total_orders
+                            if hist_total > 0:
+                                historical_category_avg += hist_count / hist_total
+
+                    if len(historical_analyses) > 0:
+                        historical_category_avg /= len(historical_analyses)
+
+                        if count / current.total_orders > historical_category_avg * 3:
+                            alerts.append(f"⚠️ EMERGING ISSUE: '{category}' is 3x higher than historical average")
+
+        return alerts
+
+    @staticmethod
     def _parse_date(date_str: str) -> Optional[datetime]:
         """Parse date string with emoji support"""
         if not date_str:
