@@ -1,5 +1,5 @@
 """
-Vive Health Quality Suite - Version 23.0
+Vive Health Quality Suite - Version 24.0
 Enterprise-Grade Quality Management System
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -19,11 +19,18 @@ COMPLIANCE: ISO 13485 | FDA 21 CFR 820 | EU MDR | UK MDR
 
 Features:
 - Task-based landing page with intuitive tool selection
-- 🆕 v23.0: Multi-language search (ES, PT, DE, FR, JA, ZH, KO)
-- 🆕 v23.0: Auto-translation of international results to English
-- 🆕 v23.0: Enhanced FDA search with product codes and wildcards
-- 🆕 v23.0: 20+ international regulatory feeds (FDA, EMA, MHRA, TGA, PMDA, BfArM, ANSM, etc.)
-- 🆕 v23.0: EU Safety Gate (RAPEX), WHO alerts, IMDRF news
+- 🆕 v24.0: VoC Analysis integration with period-over-period sales trends (L30D)
+- 🆕 v24.0: Amazon return rate fee threshold monitoring (2026 policy)
+- 🆕 v24.0: Intuitive VoC-style import workflow for Quality Screening
+- 🆕 v24.0: Dated sheet support for multi-period comparison
+- 🆕 v24.0: Sales trend analysis (Increasing/Decreasing/Stable/New)
+- 🆕 v24.0: Return rate change tracking with fee risk calculations
+- 🆕 v24.0: Amazon badge visibility impact tracking
+- v23.0: Multi-language search (ES, PT, DE, FR, JA, ZH, KO)
+- v23.0: Auto-translation of international results to English
+- v23.0: Enhanced FDA search with product codes and wildcards
+- v23.0: 20+ international regulatory feeds (FDA, EMA, MHRA, TGA, PMDA, BfArM, ANSM, etc.)
+- v23.0: EU Safety Gate (RAPEX), WHO alerts, IMDRF news
 - Global Recall Surveillance: FDA, EU EMA, UK MHRA, Health Canada, ANVISA, CPSC
 - FDA MAUDE adverse event search integration
 - Google News RSS media monitoring for safety signals
@@ -108,6 +115,9 @@ try:
         get_category_options, get_subcategory_options,
         get_threshold_for_product, get_all_thresholds_flat
     )
+    from src.services.voc_analysis_integration import (
+        VoCAnalysisService, ProductTrendAnalysis, AMAZON_RETURN_RATE_THRESHOLDS
+    )
     AI_AVAILABLE = True
     MODULAR_IMPORTS = True
 except ImportError as e:
@@ -136,7 +146,7 @@ st.set_page_config(
 
 APP_CONFIG = {
     'title': 'Vive Health Quality Suite',
-    'version': '23.0',
+    'version': '24.0',
     'chunk_sizes': [100, 250, 500, 1000],
     'default_chunk': 500,
 }
@@ -6148,9 +6158,152 @@ def render_pro_mode():
         - If your file has different column names, the system will attempt to map them
         - Blank optional fields are fine
         """)
-    
+
     st.markdown("---")
-    
+
+    # VoC Analysis Import Section
+    with st.expander("📊 VoC Analysis Import (Period-over-Period Comparison)", expanded=False):
+        st.markdown("""
+        **Import VoC Analysis data with automatic period-over-period trend analysis**
+
+        This feature analyzes your VoC Analysis workbook to identify:
+        - 📈 Sales trends (Increasing/Decreasing/Stable from previous period)
+        - 📉 Return rate changes (compared to L30D)
+        - 🚨 Amazon return rate fee threshold violations (2026 policy)
+        - ⚠️ Return badge visibility impact
+        - 💰 Estimated fee risk from excess returns
+        """)
+
+        voc_file = st.file_uploader(
+            "Upload VoC Analysis.xlsx",
+            type=['xlsx', 'xls'],
+            help="Upload your VoC Analysis workbook with dated sheets",
+            key="voc_upload"
+        )
+
+        if voc_file:
+            try:
+                # Get available periods
+                available_periods = VoCAnalysisService.get_available_periods(voc_file)
+
+                if not available_periods:
+                    st.error("No dated sheets found in workbook. Expected sheets like 'January_2026_01162026'")
+                else:
+                    st.success(f"Found {len(available_periods)} dated periods")
+
+                    col_current, col_previous = st.columns(2)
+
+                    with col_current:
+                        period_names = [display for _, display in available_periods]
+                        current_period_idx = st.selectbox(
+                            "Current Period",
+                            range(len(available_periods)),
+                            format_func=lambda i: available_periods[i][1],
+                            index=0,
+                            help="Select the most recent period to analyze"
+                        )
+                        current_sheet = available_periods[current_period_idx][0]
+
+                    with col_previous:
+                        previous_options = ["(No comparison)"] + period_names
+                        previous_idx = st.selectbox(
+                            "Compare to Period",
+                            range(len(previous_options)),
+                            format_func=lambda i: previous_options[i],
+                            index=1 if len(previous_options) > 1 else 0,
+                            help="Select previous period for trend analysis"
+                        )
+
+                        if previous_idx == 0:
+                            previous_sheet = None
+                        else:
+                            previous_sheet = available_periods[previous_idx - 1][0]
+
+                    if st.button("🔄 Import & Analyze VoC Data", type="primary"):
+                        with st.spinner("Analyzing VoC data with period comparison..."):
+                            # Parse workbook with period comparison
+                            trend_analyses = VoCAnalysisService.parse_voc_workbook(
+                                voc_file,
+                                current_sheet,
+                                previous_sheet
+                            )
+
+                            # Generate summary
+                            summary = VoCAnalysisService.generate_period_comparison_summary(trend_analyses)
+
+                            # Display summary
+                            st.markdown("#### 📊 Period Comparison Summary")
+                            col1, col2, col3, col4 = st.columns(4)
+
+                            with col1:
+                                st.metric("Products Analyzed", summary['total_products'])
+                                st.metric("Sales Increasing",
+                                         summary['sales_trends']['increasing'],
+                                         delta=f"{summary['sales_trends']['increasing']}")
+                                st.metric("Sales Decreasing",
+                                         summary['sales_trends']['decreasing'],
+                                         delta=f"-{summary['sales_trends']['decreasing']}",
+                                         delta_color="inverse")
+
+                            with col2:
+                                st.metric("Returns Improving",
+                                         summary['return_trends']['improving'],
+                                         delta=f"{summary['return_trends']['improving']}")
+                                st.metric("Returns Worsening",
+                                         summary['return_trends']['worsening'],
+                                         delta=f"-{summary['return_trends']['worsening']}",
+                                         delta_color="inverse")
+
+                            with col3:
+                                st.metric("Above Amazon Threshold",
+                                         summary['amazon_thresholds']['above_threshold'])
+                                st.metric("Return Badge Displayed",
+                                         summary['badges']['with_badge'])
+
+                            with col4:
+                                st.metric("Fee Risk Units",
+                                         summary['amazon_thresholds']['fee_risk_units'])
+                                st.metric("Est. Fee Impact",
+                                         f"${summary['amazon_thresholds']['estimated_fees']:.2f}",
+                                         delta_color="off")
+                                st.metric("Action Required",
+                                         summary['actions']['action_required'])
+
+                            # Convert to screening DataFrame
+                            df_voc = VoCAnalysisService.convert_to_screening_dataframe(trend_analyses)
+
+                            st.markdown("#### 🔍 VoC Data Preview (Top 10 by Risk)")
+                            st.dataframe(
+                                df_voc.head(10)[[
+                                    'SKU', 'Name', 'Sold', 'Return_Rate',
+                                    'Sales_Trend', 'Return_Trend',
+                                    'Above_Threshold', 'Risk_Flags'
+                                ]],
+                                use_container_width=True
+                            )
+
+                            # Store in session for screening
+                            st.session_state.voc_import_data = df_voc
+
+                            st.success(f"✅ VoC data imported successfully! {len(df_voc)} products ready for screening.")
+                            st.info("👇 Click 'Run Screening' below to analyze this data with AI-powered quality screening")
+
+            except Exception as e:
+                st.error(f"Error processing VoC file: {str(e)}")
+                import traceback
+                st.code(traceback.format_exc())
+
+        # Check if VoC data is loaded and ready
+        if 'voc_import_data' in st.session_state and st.session_state.voc_import_data is not None:
+            st.success(f"✅ VoC data ready: {len(st.session_state.voc_import_data)} products loaded")
+
+            if st.button("📊 Use VoC Data for Screening", type="primary"):
+                df_input = st.session_state.voc_import_data.copy()
+                process_screening(df_input, 'Pro', include_claude=False)
+                st.rerun()
+
+    st.markdown("---")
+
     # File upload
     uploaded_file = st.file_uploader(
         "Upload Product Data",
