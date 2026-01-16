@@ -6426,10 +6426,64 @@ def render_pro_mode():
         if 'voc_import_data' in st.session_state and st.session_state.voc_import_data is not None:
             st.success(f"✅ VoC data ready: {len(st.session_state.voc_import_data)} products loaded")
 
-            if st.button("📊 Use VoC Data for Screening", type="primary"):
-                df_input = st.session_state.voc_import_data.copy()
-                process_screening(df_input, 'Pro', include_claude=False)
-                st.rerun()
+            col1, col2 = st.columns(2)
+
+            with col1:
+                if st.button("📊 Use VoC Data for Screening", type="primary"):
+                    df_input = st.session_state.voc_import_data.copy()
+                    process_screening(df_input, 'Pro', include_claude=False)
+                    st.rerun()
+
+            with col2:
+                # Multi-product comparison view
+                if 'voc_trend_analyses' in st.session_state and st.session_state.voc_trend_analyses:
+                    if st.button("📊 View Product Comparison", type="secondary"):
+                        st.session_state.show_voc_comparison = True
+
+            # Show comparison view if requested
+            if st.session_state.get('show_voc_comparison', False):
+                st.markdown("---")
+                st.markdown("### 📊 Multi-Product Comparison")
+
+                if 'voc_trend_analyses' in st.session_state and st.session_state.voc_trend_analyses:
+                    trend_analyses = st.session_state.voc_trend_analyses
+                    analyses_list = list(trend_analyses.values())
+
+                    # Generate comparison report
+                    comparison_df = EnhancedVoCAnalysisService.generate_comparison_report(analyses_list)
+
+                    st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+
+                    # Export comparison
+                    csv = comparison_df.to_csv(index=False)
+                    st.download_button(
+                        label="📥 Download Comparison Report",
+                        data=csv,
+                        file_name=f"voc_comparison_{datetime.now().strftime('%Y%m%d')}.csv",
+                        mime="text/csv"
+                    )
+
+                    # Emerging issues alerts
+                    st.markdown("#### 🚨 Emerging Issues Detection")
+
+                    # For each product, check for emerging issues
+                    for sku, current_analysis in trend_analyses.items():
+                        # Get historical data (other products as proxy for now)
+                        historical = [a for s, a in trend_analyses.items() if s != sku]
+
+                        if historical:
+                            alerts = EnhancedVoCAnalysisService.detect_emerging_issues(
+                                current_analysis, historical
+                            )
+
+                            if alerts:
+                                with st.expander(f"⚠️ {current_analysis.product_name} ({sku})"):
+                                    for alert in alerts:
+                                        st.warning(alert)
+
+                    if st.button("❌ Close Comparison View"):
+                        st.session_state.show_voc_comparison = False
+                        st.rerun()
 
     st.markdown("---")
 
