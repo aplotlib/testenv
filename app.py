@@ -160,7 +160,7 @@ st.set_page_config(
 
 APP_CONFIG = {
     'title': 'Vive Health Quality Suite',
-    'version': '26.0',
+    'version': '27.0',
     'chunk_sizes': [100, 250, 500, 1000],
     'default_chunk': 500,
 }
@@ -6270,9 +6270,77 @@ def render_pro_mode():
                                     ])
                                     st.dataframe(category_df, use_container_width=True, hide_index=True)
 
+                                    # Visualization: Category breakdown pie chart
+                                    import plotly.graph_objects as go
+                                    fig = go.Figure(data=[go.Pie(
+                                        labels=list(latest.category_counts.keys()),
+                                        values=list(latest.category_counts.values()),
+                                        hole=0.3
+                                    )])
+                                    fig.update_layout(
+                                        title="Return Category Distribution",
+                                        height=400
+                                    )
+                                    st.plotly_chart(fig, use_container_width=True)
+
+                                # Root cause recommendations
+                                st.markdown("#### 🎯 Actionable Recommendations")
+                                recommendations = EnhancedVoCAnalysisService.generate_root_cause_recommendations(analysis)
+
+                                if recommendations:
+                                    for rec in recommendations:
+                                        priority_color = {
+                                            "Critical": "🔴",
+                                            "High": "🟠",
+                                            "Medium": "🟡",
+                                            "Low": "🟢"
+                                        }.get(rec['priority'], "⚪")
+
+                                        with st.expander(f"{priority_color} {rec['priority']} Priority - {rec['category']}"):
+                                            st.markdown(f"**Issue:** {rec['issue']}")
+                                            st.markdown(f"**Recommended Action:** {rec['action']}")
+                                            st.markdown(f"**Rationale:** {rec['rationale']}")
+                                else:
+                                    st.info("No specific recommendations generated. Product appears healthy.")
+
+                                # Export buttons
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    # Export recommendations as CSV
+                                    if recommendations:
+                                        rec_df = pd.DataFrame(recommendations)
+                                        csv = rec_df.to_csv(index=False)
+                                        st.download_button(
+                                            label="📥 Download Recommendations",
+                                            data=csv,
+                                            file_name=f"{sku}_recommendations_{datetime.now().strftime('%Y%m%d')}.csv",
+                                            mime="text/csv"
+                                        )
+
+                                with col2:
+                                    # Export full analysis
+                                    export_data = {
+                                        'Product': analysis.product_name,
+                                        'SKU': sku,
+                                        'Period': latest.period_name,
+                                        'Total Returns': latest.total_orders,
+                                        'Defect Rate': f"{latest.return_rate*100:.1f}%",
+                                        'Priority': analysis.priority_level,
+                                        'Risk Flags': ' | '.join(analysis.risk_flags)
+                                    }
+                                    export_df = pd.DataFrame([export_data])
+                                    csv = export_df.to_csv(index=False)
+                                    st.download_button(
+                                        label="📥 Download Analysis Summary",
+                                        data=csv,
+                                        file_name=f"{sku}_analysis_{datetime.now().strftime('%Y%m%d')}.csv",
+                                        mime="text/csv"
+                                    )
+
                             # Convert to screening DataFrame
                             df_voc = EnhancedVoCAnalysisService.convert_to_screening_dataframe(trend_analyses)
                             st.session_state.voc_import_data = df_voc
+                            st.session_state.voc_trend_analyses = trend_analyses  # Store for comparison features
 
                             st.success(f"✅ Totals data imported! {len(df_voc)} products ready for screening.")
                             st.info("👇 Use 'Run Screening' below to analyze with AI")
