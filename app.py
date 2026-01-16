@@ -1,5 +1,5 @@
 """
-Vive Health Quality Suite - Version 24.0
+Vive Health Quality Suite - Version 25.0
 Enterprise-Grade Quality Management System
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -19,13 +19,18 @@ COMPLIANCE: ISO 13485 | FDA 21 CFR 820 | EU MDR | UK MDR
 
 Features:
 - Task-based landing page with intuitive tool selection
-- 🆕 v24.0: VoC Analysis integration with period-over-period sales trends (L30D)
-- 🆕 v24.0: Amazon return rate fee threshold monitoring (2026 policy)
-- 🆕 v24.0: Intuitive VoC-style import workflow for Quality Screening
-- 🆕 v24.0: Dated sheet support for multi-period comparison
-- 🆕 v24.0: Sales trend analysis (Increasing/Decreasing/Stable/New)
-- 🆕 v24.0: Return rate change tracking with fee risk calculations
-- 🆕 v24.0: Amazon badge visibility impact tracking
+- 🆕 v25.0: Latest AI models (GPT-4o, o1-preview, Claude 3.5 Sonnet/Opus)
+- 🆕 v25.0: Fast/Powerful model selection (GPT-4o-mini vs o1-preview)
+- 🆕 v25.0: Light/Dark theme switcher for optimal legibility
+- 🆕 v25.0: WCAG AAA compliant color contrast (7:1 ratio)
+- 🆕 v25.0: Enhanced UI/UX with improved formatting
+- v24.0: VoC Analysis integration with period-over-period sales trends (L30D)
+- v24.0: Amazon return rate fee threshold monitoring (2026 policy)
+- v24.0: Intuitive VoC-style import workflow for Quality Screening
+- v24.0: Dated sheet support for multi-period comparison
+- v24.0: Sales trend analysis (Increasing/Decreasing/Stable/New)
+- v24.0: Return rate change tracking with fee risk calculations
+- v24.0: Amazon badge visibility impact tracking
 - v23.0: Multi-language search (ES, PT, DE, FR, JA, ZH, KO)
 - v23.0: Auto-translation of international results to English
 - v23.0: Enhanced FDA search with product codes and wildcards
@@ -118,11 +123,17 @@ try:
     from src.services.voc_analysis_integration import (
         VoCAnalysisService, ProductTrendAnalysis, AMAZON_RETURN_RATE_THRESHOLDS
     )
+    from src.ui.theme_manager import (
+        inject_theme_css, render_theme_toggle, get_current_theme,
+        get_color, get_status_color
+    )
     AI_AVAILABLE = True
     MODULAR_IMPORTS = True
+    THEME_AVAILABLE = True
 except ImportError as e:
     AI_AVAILABLE = False
     MODULAR_IMPORTS = False
+    THEME_AVAILABLE = False
     print(f"Module Missing: {e}")
 
 # Check optional imports
@@ -146,7 +157,7 @@ st.set_page_config(
 
 APP_CONFIG = {
     'title': 'Vive Health Quality Suite',
-    'version': '24.0',
+    'version': '25.0',
     'chunk_sizes': [100, 250, 500, 1000],
     'default_chunk': 500,
 }
@@ -176,12 +187,15 @@ QUALITY_CATEGORIES = [
     'Medical/Health Concerns'
 ]
 
-# AI Provider options - OpenAI default for Tab 3
+# AI Provider options - Latest models with Fast/Powerful choice
 AI_PROVIDER_OPTIONS = {
-    'OpenAI GPT-3.5 (Default)': AIProvider.OPENAI,
-    'Claude Haiku (Fast)': AIProvider.FASTEST,
-    'Claude Sonnet': AIProvider.CLAUDE,
-    'Both (Consensus)': AIProvider.BOTH
+    '🚀 GPT-4o-mini (Fast & Efficient)': AIProvider.OPENAI_FAST,
+    '⚡ GPT-4o (Standard - Recommended)': AIProvider.OPENAI,
+    '🧠 o1-preview (Most Powerful OpenAI)': AIProvider.OPENAI_POWERFUL,
+    '🏃 Claude 3.5 Haiku (Fastest)': AIProvider.CLAUDE_FAST,
+    '🎯 Claude 3.5 Sonnet (Balanced)': AIProvider.CLAUDE,
+    '💎 Claude Opus (Most Powerful)': AIProvider.CLAUDE_POWERFUL,
+    '🔄 Both GPT-4o + Claude (Consensus)': AIProvider.BOTH
 }
 
 # Source of Flag options for tracking how issues came to attention
@@ -10015,18 +10029,36 @@ def render_all_tabs(provider_map: dict, provider_selection: str):
 
 def main():
     initialize_session_state()
-    inject_custom_css()
 
-    # Header
-    st.markdown("""
-    <div class="main-header">
-        <h1 class="main-title">🏥 VIVE HEALTH QUALITY SUITE</h1>
-        <p style="color: white; margin: 0.5rem 0; font-size: 1.1rem;">
-            <strong>Enterprise Quality Management System v22.0</strong>
+    # Inject theme CSS first (replaces inject_custom_css())
+    if THEME_AVAILABLE:
+        inject_theme_css()
+    else:
+        inject_custom_css()  # Fallback to old CSS if theme not available
+
+    # Theme toggle button (top right)
+    if THEME_AVAILABLE:
+        render_theme_toggle()
+
+    # Get current theme colors
+    if THEME_AVAILABLE:
+        theme = get_current_theme()
+        header_bg = theme.primary
+        header_text = theme.text_inverse
+    else:
+        header_bg = COLORS['primary']
+        header_text = 'white'
+
+    # Header with dynamic theming
+    st.markdown(f"""
+    <div class="main-header" style="background: linear-gradient(135deg, {header_bg} 0%, {COLORS['secondary']} 100%); padding: 2rem; border-radius: 10px; margin-bottom: 2rem;">
+        <h1 class="main-title" style="color: {header_text}; margin: 0;">🏥 VIVE HEALTH QUALITY SUITE</h1>
+        <p style="color: {header_text}; margin: 0.5rem 0; font-size: 1.1rem;">
+            <strong>Enterprise Quality Management System v25.0</strong>
         </p>
-        <p style="color: rgba(255,255,255,0.9); margin: 0; font-size: 0.9rem;">
-            🤖 <strong>AI-Powered:</strong> OpenAI/Claude LLMs | TQM Methodology | Dual Export (Leadership/Company-Wide)<br/>
-            🌐 <strong>Global Intelligence:</strong> FDA | EU EMA | UK MHRA | Health Canada | CPSC | Media Monitoring<br/>
+        <p style="color: rgba(255,255,255,0.95); margin: 0; font-size: 0.9rem;">
+            🤖 <strong>AI-Powered:</strong> GPT-4o, o1-preview, Claude 3.5 Sonnet/Opus | TQM Methodology<br/>
+            🌐 <strong>Global Intelligence:</strong> FDA | EU EMA | UK MHRA | Health Canada | 20+ International Sources<br/>
             📊 <strong>Compliance:</strong> ISO 13485 | FDA 21 CFR 820 | EU MDR | UK MDR
         </p>
     </div>
