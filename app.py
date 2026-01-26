@@ -6496,7 +6496,6 @@ def render_pro_mode():
             try:
                 # Save to temp file for format detection
                 import tempfile
-                import os
                 suffix = '.xlsx' if voc_file.name.endswith('.xlsx') else '.csv' if voc_file.name.endswith('.csv') else '.xls'
 
                 with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
