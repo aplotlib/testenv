@@ -1,0 +1,17 @@
+# Data Connection Dependencies
+# Install with: pip install -r requirements_data_connections.txt
+
+# Google Sheets Integration
+gspread>=5.12.0
+google-auth>=2.23.0
+
+# Database Integrations
+psycopg2-binary>=2.9.9  # PostgreSQL
+mysql-connector-python>=8.2.0  # MySQL
+# sqlite3 is included in Python standard library
+
+# Smartsheet Integration
+smartsheet-python-sdk>=3.0.0
+
+# Core dependencies (if not already installed)
+pandas>=2.1.0

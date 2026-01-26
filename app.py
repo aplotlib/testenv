@@ -160,7 +160,7 @@ st.set_page_config(
 
 APP_CONFIG = {
     'title': 'Vive Health Quality Suite',
-    'version': '28.0',
+    'version': '29.0',
     'chunk_sizes': [100, 250, 500, 1000],
     'default_chunk': 500,
 }
@@ -785,24 +785,305 @@ def log_process(message: str, msg_type: str = 'info'):
 def render_api_health_check():
     """Render API health check status in sidebar"""
     keys = check_api_keys()
-    
+
     st.sidebar.markdown("### 🔌 API Status")
-    
+
     col1, col2 = st.sidebar.columns(2)
-    
+
     with col1:
         if keys.get('openai'):
             st.success("OpenAI ✓")
         else:
             st.error("OpenAI ✗")
-    
+
     with col2:
         if keys.get('claude'):
             st.success("Claude ✓")
         else:
             st.warning("Claude ✗")
-    
+
     return keys
+
+
+def render_data_connections_sidebar():
+    """Render data source connections in sidebar"""
+    from src.services.data_source_integrations import ConnectionManager
+
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 🔗 Data Connections")
+
+    # Initialize connection manager
+    if 'connection_manager' not in st.session_state:
+        st.session_state.connection_manager = ConnectionManager()
+
+    conn_mgr = st.session_state.connection_manager
+
+    # List existing connections
+    connections = conn_mgr.list_connections()
+
+    if connections:
+        st.sidebar.markdown(f"**Connected:** {len(connections)} source(s)")
+
+        selected_conn = st.sidebar.selectbox(
+            "Active Connection",
+            ["None"] + connections,
+            key="active_connection"
+        )
+
+        if selected_conn != "None":
+            # Test connection button
+            if st.sidebar.button("🔄 Test Connection"):
+                with st.spinner("Testing..."):
+                    if conn_mgr.test_connection(selected_conn):
+                        st.sidebar.success(f"✓ {selected_conn} is working")
+                    else:
+                        st.sidebar.error(f"✗ {selected_conn} failed")
+    else:
+        st.sidebar.info("No connections configured")
+
+    # Add connection button
+    if st.sidebar.button("➕ Add Connection"):
+        st.session_state.show_connection_modal = True
+
+
+def render_connected_data_import():
+    """Render import from connected data sources"""
+    from src.services.data_source_integrations import ConnectionManager
+
+    if 'connection_manager' not in st.session_state:
+        st.session_state.connection_manager = ConnectionManager()
+
+    conn_mgr = st.session_state.connection_manager
+    connections = conn_mgr.list_connections()
+
+    if not connections:
+        st.warning("No data connections configured. Click '➕ Add Connection' in the sidebar to get started.")
+        return
+
+    st.markdown("### 🔗 Import from Connected Source")
+
+    selected_conn = st.selectbox(
+        "Select Data Source",
+        connections,
+        key="import_conn_select"
+    )
+
+    conn_config = conn_mgr.connections[selected_conn]
+    conn_type = conn_config['type']
+
+    if conn_type == 'google_sheets':
+        st.markdown("#### Google Sheets Import")
+
+        sheet_id = st.text_input(
+            "Google Sheet ID",
+            placeholder="Copy from URL: docs.google.com/spreadsheets/d/[SHEET_ID]/...",
+            help="Find the ID in your Google Sheet URL",
+            key="google_sheet_id"
+        )
+
+        worksheet_name = st.text_input(
+            "Worksheet Name (optional)",
+            placeholder="Leave blank for first sheet",
+            key="google_worksheet_name"
+        )
+
+        if sheet_id:
+            if st.button("📥 Import from Google Sheets"):
+                with st.spinner("Importing data from Google Sheets..."):
+                    connector = conn_mgr.get_connection(selected_conn)
+                    if connector:
+                        df = connector.read_sheet(sheet_id, worksheet_name if worksheet_name else None)
+                        if not df.empty:
+                            st.success(f"✓ Imported {len(df)} rows from Google Sheets")
+                            st.dataframe(df.head(10), use_container_width=True)
+
+                            # Process button
+                            if st.button("🔍 Run Screening on Imported Data"):
+                                process_screening(df, 'Pro', include_claude=False)
+                                st.rerun()
+                        else:
+                            st.error("No data found or import failed")
+                    else:
+                        st.error("Connection failed. Check credentials.")
+
+    elif conn_type == 'database':
+        st.markdown("#### Database Query")
+
+        db_type = conn_config['params'].get('db_type', 'unknown')
+        st.info(f"Connected to: **{db_type}** database")
+
+        # Query input
+        query = st.text_area(
+            "SQL Query",
+            placeholder="SELECT SKU, Name, Category, Sold, Returned FROM products WHERE...",
+            height=150,
+            key="db_query"
+        )
+
+        if query:
+            if st.button("📥 Execute Query"):
+                with st.spinner("Executing query..."):
+                    connector = conn_mgr.get_connection(selected_conn)
+                    if connector:
+                        df = connector.query(query)
+                        if not df.empty:
+                            st.success(f"✓ Retrieved {len(df)} rows from database")
+                            st.dataframe(df.head(10), use_container_width=True)
+
+                            # Process button
+                            if st.button("🔍 Run Screening on Query Results"):
+                                process_screening(df, 'Pro', include_claude=False)
+                                st.rerun()
+                        else:
+                            st.error("Query returned no results")
+                        connector.close()
+                    else:
+                        st.error("Connection failed")
+
+    elif conn_type == 'smartsheet':
+        st.markdown("#### Smartsheet Import")
+
+        # List available sheets
+        connector = conn_mgr.get_connection(selected_conn)
+        if connector:
+            sheets = connector.list_sheets()
+
+            if sheets:
+                sheet_options = {f"{s['name']} (ID: {s['id']})": s['id'] for s in sheets}
+                selected_sheet = st.selectbox(
+                    "Select Sheet",
+                    list(sheet_options.keys()),
+                    key="smartsheet_select"
+                )
+
+                sheet_id = sheet_options[selected_sheet]
+
+                if st.button("📥 Import from Smartsheet"):
+                    with st.spinner("Importing data from Smartsheet..."):
+                        df = connector.read_sheet(sheet_id)
+                        if not df.empty:
+                            st.success(f"✓ Imported {len(df)} rows from Smartsheet")
+                            st.dataframe(df.head(10), use_container_width=True)
+
+                            # Process button
+                            if st.button("🔍 Run Screening on Imported Data"):
+                                process_screening(df, 'Pro', include_claude=False)
+                                st.rerun()
+                        else:
+                            st.error("No data found or import failed")
+            else:
+                st.warning("No sheets found in Smartsheet account")
+
+
+def render_connection_modal():
+    """Render connection configuration modal"""
+    from src.services.data_source_integrations import ConnectionManager
+
+    st.markdown("### 🔗 Add Data Connection")
+
+    conn_mgr = st.session_state.connection_manager
+
+    # Connection type selection
+    conn_type = st.selectbox(
+        "Connection Type",
+        ["Google Sheets", "Database (PostgreSQL/MySQL/SQLite)", "Smartsheet"],
+        key="new_conn_type"
+    )
+
+    conn_name = st.text_input("Connection Name", placeholder="e.g., Production Database", key="new_conn_name")
+
+    if conn_type == "Google Sheets":
+        st.markdown("""
+        **Setup Instructions:**
+        1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+        2. Enable Google Sheets API
+        3. Create Service Account credentials
+        4. Download JSON key file
+        5. Share your Google Sheet with the service account email
+        """)
+
+        creds_file = st.file_uploader("Upload Service Account JSON", type=['json'], key="google_creds")
+
+        if creds_file and conn_name:
+            if st.button("💾 Save Connection"):
+                # Save credentials file
+                creds_path = f"google_creds_{conn_name}.json"
+                with open(creds_path, 'wb') as f:
+                    f.write(creds_file.getvalue())
+
+                conn_mgr.add_connection(conn_name, 'google_sheets', {
+                    'credentials_file': creds_path
+                })
+
+                st.success(f"✓ {conn_name} saved!")
+                st.session_state.show_connection_modal = False
+                st.rerun()
+
+    elif conn_type == "Database (PostgreSQL/MySQL/SQLite)":
+        db_type = st.selectbox("Database Type", ["PostgreSQL", "MySQL", "SQLite"], key="db_type")
+
+        if db_type == "SQLite":
+            db_file = st.text_input("Database File Path", placeholder="quality_suite.db", key="sqlite_path")
+
+            if conn_name and db_file:
+                if st.button("💾 Save Connection"):
+                    conn_mgr.add_connection(conn_name, 'database', {
+                        'db_type': 'sqlite',
+                        'database': db_file
+                    })
+                    st.success(f"✓ {conn_name} saved!")
+                    st.session_state.show_connection_modal = False
+                    st.rerun()
+
+        else:
+            col1, col2 = st.columns(2)
+            with col1:
+                host = st.text_input("Host", placeholder="localhost", key="db_host")
+                database = st.text_input("Database Name", key="db_name")
+                user = st.text_input("Username", key="db_user")
+
+            with col2:
+                port = st.number_input("Port", value=5432 if db_type == "PostgreSQL" else 3306, key="db_port")
+                password = st.text_input("Password", type="password", key="db_password")
+
+            if conn_name and host and database and user and password:
+                if st.button("💾 Save Connection"):
+                    conn_mgr.add_connection(conn_name, 'database', {
+                        'db_type': db_type.lower(),
+                        'host': host,
+                        'port': port,
+                        'database': database,
+                        'user': user,
+                        'password': password
+                    })
+                    st.success(f"✓ {conn_name} saved!")
+                    st.session_state.show_connection_modal = False
+                    st.rerun()
+
+    elif conn_type == "Smartsheet":
+        st.markdown("""
+        **Setup Instructions:**
+        1. Go to [Smartsheet](https://app.smartsheet.com/)
+        2. Account > Apps & Integrations > API Access
+        3. Generate new access token
+        4. Copy token and paste below
+        """)
+
+        access_token = st.text_input("Access Token", type="password", key="smartsheet_token")
+
+        if conn_name and access_token:
+            if st.button("💾 Save Connection"):
+                conn_mgr.add_connection(conn_name, 'smartsheet', {
+                    'access_token': access_token
+                })
+                st.success(f"✓ {conn_name} saved!")
+                st.session_state.show_connection_modal = False
+                st.rerun()
+
+    # Close button
+    if st.button("❌ Cancel"):
+        st.session_state.show_connection_modal = False
+        st.rerun()
 
 
 # -------------------------
@@ -6045,11 +6326,18 @@ def render_lite_mode():
 
 def render_pro_mode():
     """Render Pro mode - mass upload analysis"""
-    
+
     st.info("🚀 **Pro Mode**: Upload CSV/Excel for mass analysis (up to 500+ products)")
-    
-    # Template download section
-    st.markdown("#### 📋 Download Template")
+
+    # Data source tabs
+    data_tab1, data_tab2 = st.tabs(["📁 File Upload", "🔗 Connected Source"])
+
+    with data_tab2:
+        render_connected_data_import()
+
+    with data_tab1:
+        # Template download section
+        st.markdown("#### 📋 Download Template")
     col_template, col_example = st.columns(2)
     
     with col_template:
@@ -10561,9 +10849,16 @@ def main():
     else:
         st.warning("⚠️ No AI API keys configured. Some features will be limited.")
 
+    # Connection configuration modal
+    if st.session_state.get('show_connection_modal', False):
+        render_connection_modal()
+
     # Sidebar - Always visible
     with st.sidebar:
         st.markdown("### ⚙️ Global Configuration")
+
+        # Data connections
+        render_data_connections_sidebar()
 
         # AI Provider selection
         provider_selection = st.selectbox(
