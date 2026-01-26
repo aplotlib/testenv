@@ -115,7 +115,7 @@ def display_recalls_tab():
             st.dataframe(
                 df,
                 column_config={"Link": st.column_config.LinkColumn("Source Link")},
-                use_container_width=True,
+                width="stretch",
             )
             st.divider()
             if st.button("📄 Generate DOCX Report"):

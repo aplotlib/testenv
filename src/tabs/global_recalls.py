@@ -87,7 +87,7 @@ def display_global_recalls_tab():
             st.dataframe(
                 df, 
                 column_config={"Link": st.column_config.LinkColumn("Link")}, 
-                use_container_width=True
+                width="stretch"
             )
             
             # Export

@@ -491,7 +491,7 @@ def render_table_view(df: pd.DataFrame) -> None:
     st.dataframe(
         df,
         column_config={"Link": st.column_config.LinkColumn("Source Link")},
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
     csv = df.to_csv(index=False).encode("utf-8")
@@ -578,7 +578,7 @@ def render_batch_scan() -> None:
             return
 
         st.success(f"✅ Scan complete. Found {len(results)} potential matches.")
-        st.dataframe(results, use_container_width=True, hide_index=True)
+        st.dataframe(results, width="stretch", hide_index=True)
         csv = results.to_csv(index=False).encode("utf-8")
         st.download_button("💾 Download Batch Results", csv, "batch_scan_results.csv", "text/csv")
 
