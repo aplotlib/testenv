@@ -70,7 +70,7 @@ def render_root_cause_analysis(tracker):
                 })
 
             df_pareto = pd.DataFrame(pareto_data)
-            st.dataframe(df_pareto, use_container_width=True)
+            st.dataframe(df_pareto, width="stretch")
 
             # Identify vital few (80% rule)
             vital_few = [item for item in pareto_data if float(item['Cumulative %'].rstrip('%')) <= 80]
@@ -314,7 +314,7 @@ def render_capa_management(tracker):
         if not pending_df.empty:
             display_cols = ['Product name', 'SKU', 'Return rate Amazon', 'Top Issue(s)']
             display_cols = [c for c in display_cols if c in pending_df.columns]
-            st.dataframe(pending_df[display_cols], use_container_width=True, height=300)
+            st.dataframe(pending_df[display_cols], width="stretch", height=300)
 
     elif "Root Cause" in capa_stage:
         st.markdown("#### 🔍 Root Cause Investigation")
@@ -446,7 +446,7 @@ def render_capa_management(tracker):
                 })
 
         if cases_with_results:
-            st.dataframe(pd.DataFrame(cases_with_results), use_container_width=True)
+            st.dataframe(pd.DataFrame(cases_with_results), width="stretch")
         else:
             st.info("No verification results documented yet")
 

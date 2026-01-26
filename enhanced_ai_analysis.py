@@ -64,11 +64,11 @@ MODELS = {
     },
     'claude': {
         'fast': 'claude-3-5-haiku-20241022',      # Latest Haiku - fastest
-        'standard': 'claude-3-5-sonnet-20241022', # Latest Sonnet 3.5
-        'enhanced': 'claude-3-5-sonnet-20241022', # Sonnet 3.5 for quality
+        'standard': 'claude-3-5-sonnet-20240620', # Sonnet 3.5 (stable version)
+        'enhanced': 'claude-3-5-sonnet-20240620', # Sonnet 3.5 for quality
         'extreme': 'claude-3-opus-20240229',      # Opus for maximum power
         'powerful': 'claude-3-opus-20240229',     # Most capable Claude
-        'chat': 'claude-3-5-sonnet-20241022',
+        'chat': 'claude-3-5-sonnet-20240620',
         'summary': 'claude-3-5-haiku-20241022'
     }
 }
@@ -86,7 +86,7 @@ PRICING = {
     'gpt-4-turbo': {'input': 0.01, 'output': 0.03},
     # Claude - Latest models
     'claude-3-5-haiku-20241022': {'input': 0.001, 'output': 0.005},     # Latest Haiku
-    'claude-3-5-sonnet-20241022': {'input': 0.003, 'output': 0.015},    # Latest Sonnet
+    'claude-3-5-sonnet-20240620': {'input': 0.003, 'output': 0.015},    # Sonnet 3.5 (stable)
     'claude-3-opus-20240229': {'input': 0.015, 'output': 0.075},        # Opus (most powerful)
     # Legacy Claude (for reference)
     'claude-3-haiku-20240307': {'input': 0.00025, 'output': 0.00125},

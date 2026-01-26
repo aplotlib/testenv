@@ -92,7 +92,7 @@ def display_dashboard_tab():
                 "return_rate": st.column_config.NumberColumn("Return Rate (%)", format="%.2f%%"),
                 "quality_status": "Status"
             },
-            use_container_width=True,
+            width="stretch",
             hide_index=True
         )
 
@@ -145,7 +145,7 @@ def display_dashboard_tab():
                        {'range': [10, 15], 'color': "orange"},
                        {'range': [15, 25], 'color': "red"}],
                    }))
-        st.plotly_chart(gauge_fig, use_container_width=True)
+        st.plotly_chart(gauge_fig, width="stretch")
 
     with col_ai:
         st.subheader("🤖 AI Insights & Recommendations")
@@ -160,7 +160,7 @@ def display_dashboard_tab():
     st.subheader("🚨 Top Return Issues")
     top_issues = results.get("top_return_reasons", pd.DataFrame())
     if not top_issues.empty:
-        st.bar_chart(top_issues.set_index('reason')['count'], use_container_width=True)
+        st.bar_chart(top_issues.set_index('reason')['count'], width="stretch")
     else:
         st.info("No top issues identified.")
 

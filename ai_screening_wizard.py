@@ -372,7 +372,7 @@ Keep response under 150 words."""
 
     col_nav1, col_nav2 = st.columns([3, 1])
     with col_nav2:
-        if st.button("Next →", key="step0_next", type="primary", use_container_width=True):
+        if st.button("Next →", key="step0_next", type="primary", width="stretch"):
             wizard['case_data']['flag_source'] = flag_source
             wizard['case_data']['flag_source_1'] = flag_source_detail
             wizard['case_data']['flag_date'] = flag_date
@@ -508,11 +508,11 @@ def render_step_product_metrics(wizard, tracker):
 
     col_nav1, col_nav2, col_nav3 = st.columns([1, 2, 1])
     with col_nav1:
-        if st.button("← Back", key="step1_back", use_container_width=True):
+        if st.button("← Back", key="step1_back", width="stretch"):
             wizard['step'] = 0
             st.rerun()
     with col_nav3:
-        if st.button("Next →", key="step1_next", type="primary", use_container_width=True):
+        if st.button("Next →", key="step1_next", type="primary", width="stretch"):
             if not product_name or not sku:
                 st.error("Product Name and SKU are required")
             else:
@@ -646,11 +646,11 @@ Keep response concise and actionable."""
 
     col_nav1, col_nav2, col_nav3 = st.columns([1, 2, 1])
     with col_nav1:
-        if st.button("← Back", key="step2_back", use_container_width=True):
+        if st.button("← Back", key="step2_back", width="stretch"):
             wizard['step'] = 1
             st.rerun()
     with col_nav3:
-        if st.button("Next →", key="step2_next", type="primary", use_container_width=True):
+        if st.button("Next →", key="step2_next", type="primary", width="stretch"):
             if not top_issues:
                 st.error("Please enter the top issues")
             else:
@@ -800,11 +800,11 @@ Be specific and actionable."""
 
     col_nav1, col_nav2, col_nav3 = st.columns([1, 2, 1])
     with col_nav1:
-        if st.button("← Back", key="step3_back", use_container_width=True):
+        if st.button("← Back", key="step3_back", width="stretch"):
             wizard['step'] = 2
             st.rerun()
     with col_nav3:
-        if st.button("Next →", key="step3_next", type="primary", use_container_width=True):
+        if st.button("Next →", key="step3_next", type="primary", width="stretch"):
             wizard['case_data']['action_taken'] = action_taken
             wizard['case_data']['action_date'] = action_date
             wizard['case_data']['follow_up_date'] = follow_up_date
@@ -975,17 +975,17 @@ def render_step_priority_review(wizard, tracker, QualityTrackerCase):
     st.markdown("---")
     col_nav1, col_nav2, col_nav3 = st.columns([1, 1, 2])
     with col_nav1:
-        if st.button("← Back", key="step4_back", use_container_width=True):
+        if st.button("← Back", key="step4_back", width="stretch"):
             wizard['step'] = 3
             st.rerun()
     with col_nav2:
-        if st.button("🗑️ Cancel", key="step4_cancel", use_container_width=True):
+        if st.button("🗑️ Cancel", key="step4_cancel", width="stretch"):
             wizard['step'] = 0
             wizard['case_data'] = {}
             st.rerun()
     with col_nav3:
         submit_label = "✅ Add to Priority Tracker" if should_add else "📋 Add to Tracker (Override)"
-        if st.button(submit_label, key="step4_submit", type="primary", use_container_width=True, disabled=not should_add):
+        if st.button(submit_label, key="step4_submit", type="primary", width="stretch", disabled=not should_add):
             # Create the case
             new_case = QualityTrackerCase()
             new_case.priority = priority_num

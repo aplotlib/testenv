@@ -486,7 +486,7 @@ def render_theme_toggle():
     col1, col2, col3 = st.columns([6, 2, 1])
 
     with col2:
-        if st.button(f"{icon} {text}", key='theme_toggle_btn', use_container_width=True):
+        if st.button(f"{icon} {text}", key='theme_toggle_btn', width="stretch"):
             toggle_theme()
             st.rerun()
 

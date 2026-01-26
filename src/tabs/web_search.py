@@ -21,7 +21,7 @@ def display_web_search():
                 st.markdown("##### Focus")
                 include_media = st.checkbox("Media RSS", value=True)
                 include_google = st.checkbox("Google CSE", value=True)
-            submit = st.form_submit_button("🔎 Search Web", type="primary", use_container_width=True)
+            submit = st.form_submit_button("🔎 Search Web", type="primary", width="stretch")
 
     if submit:
         if not query:

@@ -895,7 +895,7 @@ def render_connected_data_import():
                         df = connector.read_sheet(sheet_id, worksheet_name if worksheet_name else None)
                         if not df.empty:
                             st.success(f"✓ Imported {len(df)} rows from Google Sheets")
-                            st.dataframe(df.head(10), use_container_width=True)
+                            st.dataframe(df.head(10), width="stretch")
 
                             # Process button
                             if st.button("🔍 Run Screening on Imported Data"):
@@ -928,7 +928,7 @@ def render_connected_data_import():
                         df = connector.query(query)
                         if not df.empty:
                             st.success(f"✓ Retrieved {len(df)} rows from database")
-                            st.dataframe(df.head(10), use_container_width=True)
+                            st.dataframe(df.head(10), width="stretch")
 
                             # Process button
                             if st.button("🔍 Run Screening on Query Results"):
@@ -963,7 +963,7 @@ def render_connected_data_import():
                         df = connector.read_sheet(sheet_id)
                         if not df.empty:
                             st.success(f"✓ Imported {len(df)} rows from Smartsheet")
-                            st.dataframe(df.head(10), use_container_width=True)
+                            st.dataframe(df.head(10), width="stretch")
 
                             # Process button
                             if st.button("🔍 Run Screening on Imported Data"):
@@ -1703,7 +1703,7 @@ def render_root_cause_analysis(tracker):
                 })
 
             df_pareto = pd.DataFrame(pareto_data)
-            st.dataframe(df_pareto, use_container_width=True)
+            st.dataframe(df_pareto, width="stretch")
 
             # Identify vital few (80% rule)
             vital_few = [item for item in pareto_data if float(item['Cumulative %'].rstrip('%')) <= 80]
@@ -1939,7 +1939,7 @@ def render_capa_management(tracker):
         if not pending_df.empty:
             display_cols = ['Product name', 'SKU', 'Return rate Amazon', 'Top Issue(s)']
             display_cols = [c for c in display_cols if c in pending_df.columns]
-            st.dataframe(pending_df[display_cols], use_container_width=True, height=300)
+            st.dataframe(pending_df[display_cols], width="stretch", height=300)
 
     elif "Root Cause" in capa_stage:
         st.markdown("#### 🔍 Root Cause Investigation")
@@ -2067,7 +2067,7 @@ def render_capa_management(tracker):
                 })
 
         if cases_with_results:
-            st.dataframe(pd.DataFrame(cases_with_results), use_container_width=True)
+            st.dataframe(pd.DataFrame(cases_with_results), width="stretch")
         else:
             st.info("No verification results documented yet")
 
@@ -2952,7 +2952,7 @@ Keep response under 150 words."""
 
             col_nav1, col_nav2 = st.columns([3, 1])
             with col_nav2:
-                if st.button("Next →", key="step0_next", type="primary", use_container_width=True):
+                if st.button("Next →", key="step0_next", type="primary", width="stretch"):
                     wizard['case_data']['flag_source'] = flag_source
                     wizard['case_data']['flag_source_1'] = flag_source_detail
                     wizard['case_data']['flag_date'] = flag_date
@@ -3088,11 +3088,11 @@ Keep response under 150 words."""
 
             col_nav1, col_nav2, col_nav3 = st.columns([1, 2, 1])
             with col_nav1:
-                if st.button("← Back", key="step1_back", use_container_width=True):
+                if st.button("← Back", key="step1_back", width="stretch"):
                     wizard['step'] = 0
                     st.rerun()
             with col_nav3:
-                if st.button("Next →", key="step1_next", type="primary", use_container_width=True):
+                if st.button("Next →", key="step1_next", type="primary", width="stretch"):
                     if not product_name or not sku:
                         st.error("Product Name and SKU are required")
                     else:
@@ -3225,11 +3225,11 @@ Keep response concise and actionable."""
 
             col_nav1, col_nav2, col_nav3 = st.columns([1, 2, 1])
             with col_nav1:
-                if st.button("← Back", key="step2_back", use_container_width=True):
+                if st.button("← Back", key="step2_back", width="stretch"):
                     wizard['step'] = 1
                     st.rerun()
             with col_nav3:
-                if st.button("Next →", key="step2_next", type="primary", use_container_width=True):
+                if st.button("Next →", key="step2_next", type="primary", width="stretch"):
                     if not top_issues:
                         st.error("Please enter the top issues")
                     else:
@@ -3343,11 +3343,11 @@ Be specific and actionable."""
 
             col_nav1, col_nav2, col_nav3 = st.columns([1, 2, 1])
             with col_nav1:
-                if st.button("← Back", key="step3_back", use_container_width=True):
+                if st.button("← Back", key="step3_back", width="stretch"):
                     wizard['step'] = 2
                     st.rerun()
             with col_nav3:
-                if st.button("Next →", key="step3_next", type="primary", use_container_width=True):
+                if st.button("Next →", key="step3_next", type="primary", width="stretch"):
                     wizard['case_data']['action_taken'] = action_taken
                     wizard['case_data']['action_date'] = action_date
                     wizard['case_data']['follow_up_date'] = follow_up_date
@@ -3559,17 +3559,17 @@ Be specific and actionable."""
             st.markdown("---")
             col_nav1, col_nav2, col_nav3 = st.columns([1, 1, 2])
             with col_nav1:
-                if st.button("← Back", key="step4_back", use_container_width=True):
+                if st.button("← Back", key="step4_back", width="stretch"):
                     wizard['step'] = 3
                     st.rerun()
             with col_nav2:
-                if st.button("🗑️ Cancel", key="step4_cancel", use_container_width=True):
+                if st.button("🗑️ Cancel", key="step4_cancel", width="stretch"):
                     wizard['step'] = 0
                     wizard['case_data'] = {}
                     st.rerun()
             with col_nav3:
                 submit_label = "✅ Add to Priority Tracker" if should_add else "📋 Add to Tracker (Override)"
-                if st.button(submit_label, key="step4_submit", type="primary", use_container_width=True, disabled=not should_add):
+                if st.button(submit_label, key="step4_submit", type="primary", width="stretch", disabled=not should_add):
                     # Create the case
                     new_case = QualityTrackerCase()
                     new_case.priority = priority_num
@@ -3678,7 +3678,7 @@ and export confirmed cases back to Smartsheet for tracking.
             key="load_demo_tracker",
             help="Load 3 sample cases for testing",
             type="secondary",
-            use_container_width=True
+            width="stretch"
         ):
             demo_cases = generate_demo_tracker_cases()
             st.session_state.tracker_cases = demo_cases
@@ -3726,7 +3726,7 @@ and export confirmed cases back to Smartsheet for tracking.
                 key="clear_all_cases",
                 help="Remove all cases from current session",
                 type="secondary",
-                use_container_width=True
+                width="stretch"
             ):
                 st.session_state.tracker_cases = []
                 tracker.cases = []
@@ -3740,7 +3740,7 @@ and export confirmed cases back to Smartsheet for tracking.
                 key="ai_review_all",
                 help="Generate AI analysis of all current cases",
                 type="primary",
-            use_container_width=True
+            width="stretch"
             ):
                 with st.spinner("🤖 Analyzing cases..."):
                     review = tracker.generate_ai_review()
@@ -3910,7 +3910,7 @@ and export confirmed cases back to Smartsheet for tracking.
                         lambda x: f"{x:.2%}" if pd.notna(x) and x is not None else "N/A"
                     )
 
-                st.dataframe(display_df, use_container_width=True, height=300)
+                st.dataframe(display_df, width="stretch", height=300)
 
         st.markdown("---")
 
@@ -3956,7 +3956,7 @@ and export confirmed cases back to Smartsheet for tracking.
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     key="dl_leadership_excel",
                     type="primary",
-                    use_container_width=True
+                    width="stretch"
                 )
             with col1b:
                 leadership_csv = tracker.export_leadership_csv()
@@ -3966,7 +3966,7 @@ and export confirmed cases back to Smartsheet for tracking.
                     file_name="Tracker_ Priority List (Leadership).csv",
                     mime="text/csv",
                     key="dl_leadership_csv",
-                    use_container_width=True
+                    width="stretch"
                 )
 
         with col2:
@@ -3995,7 +3995,7 @@ and export confirmed cases back to Smartsheet for tracking.
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     key="dl_company_excel",
                     type="primary",
-                    use_container_width=True
+                    width="stretch"
                 )
             with col2b:
                 company_csv = tracker.export_company_wide_csv()
@@ -4005,7 +4005,7 @@ and export confirmed cases back to Smartsheet for tracking.
                     file_name="Company Wide Quality Tracker.csv",
                     mime="text/csv",
                     key="dl_company_csv",
-                    use_container_width=True
+                    width="stretch"
                 )
 
         st.markdown("---")
@@ -4255,7 +4255,7 @@ and export confirmed cases back to Smartsheet for tracking.
                         'Category': category,
                         'Threshold': threshold
                     })
-                st.dataframe(pd.DataFrame(threshold_data), use_container_width=True, height=250)
+                st.dataframe(pd.DataFrame(threshold_data), width="stretch", height=250)
             else:
                 st.markdown(f"**{criterion['name']}:** {criterion['logic']}")
 
@@ -5170,7 +5170,7 @@ def render_threshold_manager(selected_profile):
                 st.dataframe(
                     pd.DataFrame(threshold_data),
                     hide_index=True,
-                    use_container_width=True
+                    width="stretch"
                 )
             
             with col2:
@@ -5259,21 +5259,21 @@ def render_ai_chat_panel():
     col1, col2 = st.columns(2)
     
     with col1:
-        if st.button("❓ How to set thresholds?", key="q1", use_container_width=True):
+        if st.button("❓ How to set thresholds?", key="q1", width="stretch"):
             _add_ai_response("threshold_help")
     
     with col2:
-        if st.button("📊 Explain my results", key="q2", use_container_width=True):
+        if st.button("📊 Explain my results", key="q2", width="stretch"):
             _add_ai_response("results_help")
     
     col3, col4 = st.columns(2)
     
     with col3:
-        if st.button("🎯 What should I screen?", key="q3", use_container_width=True):
+        if st.button("🎯 What should I screen?", key="q3", width="stretch"):
             _add_ai_response("screening_help")
     
     with col4:
-        if st.button("⚠️ Risk score meaning?", key="q4", use_container_width=True):
+        if st.button("⚠️ Risk score meaning?", key="q4", width="stretch"):
             _add_ai_response("risk_help")
     
     # Free text input
@@ -5285,7 +5285,7 @@ def render_ai_chat_panel():
         label_visibility="collapsed"
     )
     
-    if st.button("Send", key="send_chat", use_container_width=True):
+    if st.button("Send", key="send_chat", width="stretch"):
         if user_question.strip():
             _process_ai_chat(user_question)
 
@@ -5717,7 +5717,7 @@ def render_quick_eval_mode():
             st.session_state.audio_transcription = ""
 
         # Simple voice recording button
-        if st.button("🎙️ Start Recording", key="voice_record", use_container_width=True):
+        if st.button("🎙️ Start Recording", key="voice_record", width="stretch"):
             st.info("🎤 **Voice Recording Instructions:**\n\n"
                    "1. Click the button below\n"
                    "2. Speak clearly into your microphone\n"
@@ -5732,7 +5732,7 @@ def render_quick_eval_mode():
             help="Many browsers support voice-to-text when you click the microphone icon in this field"
         )
 
-        if voice_input and st.button("➕ Add to Summary", use_container_width=True):
+        if voice_input and st.button("➕ Add to Summary", width="stretch"):
             current_summary = st.session_state.quick_eval_summary
             if current_summary:
                 st.session_state.quick_eval_summary = current_summary + " " + voice_input
@@ -5743,7 +5743,7 @@ def render_quick_eval_mode():
     st.markdown("---")
 
     # Evaluate Button
-    if st.button("🚀 Evaluate Case Qualification", type="primary", use_container_width=True):
+    if st.button("🚀 Evaluate Case Qualification", type="primary", width="stretch"):
         # Validate input
         valid_products = [p for p in st.session_state.quick_eval_products
                          if p['sku'] and p['product_name'] and p['units_sold'] > 0]
@@ -6097,7 +6097,7 @@ def render_quick_eval_mode():
                 report_text,
                 file_name=f"case_eval_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
                 mime="text/plain",
-                use_container_width=True
+                width="stretch"
             )
 
         with col2:
@@ -6125,11 +6125,11 @@ def render_quick_eval_mode():
                 csv_buffer.getvalue(),
                 file_name=f"case_eval_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv",
-                use_container_width=True
+                width="stretch"
             )
 
         with col3:
-            if st.button("🔄 New Evaluation", use_container_width=True):
+            if st.button("🔄 New Evaluation", width="stretch"):
                 st.session_state.quick_eval_results = None
                 st.session_state.quick_eval_products = []
                 st.session_state.quick_eval_summary = ""
@@ -6306,7 +6306,7 @@ def render_lite_mode():
     # Process button
     col_btn, col_clear = st.columns([3, 1])
     with col_btn:
-        if st.button("🔍 Run AI Screening", type="primary", use_container_width=True, disabled=valid_count == 0):
+        if st.button("🔍 Run AI Screening", type="primary", width="stretch", disabled=valid_count == 0):
             # Filter to valid entries only
             valid_entries = [e for e in all_entries if e.get('_valid', False)]
             
@@ -6319,7 +6319,7 @@ def render_lite_mode():
             process_screening(df_input)
     
     with col_clear:
-        if st.button("🗑️ Clear All", use_container_width=True):
+        if st.button("🗑️ Clear All", width="stretch"):
             st.session_state.lite_entries = [{'id': 0}]
             st.rerun()
 
@@ -6556,7 +6556,7 @@ def render_pro_mode():
                                         }
                                         for cat, count in sorted(latest.category_counts.items(), key=lambda x: x[1], reverse=True)
                                     ])
-                                    st.dataframe(category_df, use_container_width=True, hide_index=True)
+                                    st.dataframe(category_df, width="stretch", hide_index=True)
 
                                     # Visualizations
                                     import plotly.graph_objects as go
@@ -6584,7 +6584,7 @@ def render_pro_mode():
                                             title="Return Category Distribution",
                                             height=400
                                         )
-                                        st.plotly_chart(fig_pie, use_container_width=True)
+                                        st.plotly_chart(fig_pie, width="stretch")
 
                                         # Bar chart: Top 10 categories
                                         sorted_cats = sorted(latest.category_counts.items(), key=lambda x: x[1], reverse=True)[:10]
@@ -6600,7 +6600,7 @@ def render_pro_mode():
                                             height=400,
                                             xaxis={'tickangle': -45}
                                         )
-                                        st.plotly_chart(fig_bar, use_container_width=True)
+                                        st.plotly_chart(fig_bar, width="stretch")
 
                                     with viz_tab2:
                                         # Trend visualization (if multiple periods exist)
@@ -6653,7 +6653,7 @@ def render_pro_mode():
                                             fig_trend.update_yaxes(title_text="Count", row=2, col=1)
                                             fig_trend.update_layout(height=600, showlegend=True)
 
-                                            st.plotly_chart(fig_trend, use_container_width=True)
+                                            st.plotly_chart(fig_trend, width="stretch")
                                         else:
                                             # Single period - show comparison to threshold
                                             fig_gauge = go.Figure(go.Indicator(
@@ -6677,7 +6677,7 @@ def render_pro_mode():
                                                 }
                                             ))
                                             fig_gauge.update_layout(height=400)
-                                            st.plotly_chart(fig_gauge, use_container_width=True)
+                                            st.plotly_chart(fig_gauge, width="stretch")
 
                                             st.info(f"📊 Single period analysis. Upload multiple periods to see trends over time.")
 
@@ -6713,7 +6713,7 @@ def render_pro_mode():
                                             title="Quality Defects vs Customer Error",
                                             height=400
                                         )
-                                        st.plotly_chart(fig_defect, use_container_width=True)
+                                        st.plotly_chart(fig_defect, width="stretch")
 
                                         # Breakdown of defect categories
                                         defect_breakdown = {cat: latest.category_counts.get(cat, 0)
@@ -6733,7 +6733,7 @@ def render_pro_mode():
                                                 yaxis_title="Defect Type",
                                                 height=400
                                             )
-                                            st.plotly_chart(fig_defect_detail, use_container_width=True)
+                                            st.plotly_chart(fig_defect_detail, width="stretch")
 
                                         # Key metrics
                                         col1, col2, col3 = st.columns(3)
@@ -6934,7 +6934,7 @@ def render_pro_mode():
                         # Generate comparison report
                         comparison_df = EnhancedVoCAnalysisService.generate_comparison_report(analyses_list)
 
-                        st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+                        st.dataframe(comparison_df, width="stretch", hide_index=True)
 
                         # Export comparison
                         csv = comparison_df.to_csv(index=False)
@@ -6995,7 +6995,7 @@ def render_pro_mode():
                             showlegend=False
                         )
 
-                        st.plotly_chart(fig_compare, use_container_width=True)
+                        st.plotly_chart(fig_compare, width="stretch")
 
                         # Category comparison heatmap
                         st.markdown("#### 🔥 Return Category Heatmap")
@@ -7038,7 +7038,7 @@ def render_pro_mode():
                                 xaxis={'tickangle': -45}
                             )
 
-                            st.plotly_chart(fig_heatmap, use_container_width=True)
+                            st.plotly_chart(fig_heatmap, width="stretch")
 
                         # Priority distribution
                         priority_counts = {}
@@ -7055,7 +7055,7 @@ def render_pro_mode():
                             title="Product Portfolio Risk Distribution",
                             height=400
                         )
-                        st.plotly_chart(fig_priority, use_container_width=True)
+                        st.plotly_chart(fig_priority, width="stretch")
 
                     with comp_tab3:
                         # Emerging issues alerts
@@ -7133,7 +7133,7 @@ def render_pro_mode():
             
             # Preview data
             st.markdown("#### Data Preview")
-            st.dataframe(df_input.head(10), use_container_width=True)
+            st.dataframe(df_input.head(10), width="stretch")
             
             # Statistical analysis suggestion
             st.markdown("#### 📊 Statistical Analysis Options")
@@ -7206,7 +7206,7 @@ def render_pro_mode():
             st.markdown("---")
             
             # Run analysis button
-            if st.button("🚀 Run Full Screening Analysis", type="primary", use_container_width=True):
+            if st.button("🚀 Run Full Screening Analysis", type="primary", width="stretch"):
                 # Rename columns to standard names
                 df_renamed = df_input.rename(columns={v: k for k, v in validation['column_mapping'].items()})
                 
@@ -7575,7 +7575,7 @@ def render_screening_results():
                 tooltip=['SKU', 'Category', 'Return_Rate_Pct', 'Landed Cost', 'Risk_Score', 'Action']
             ).interactive().properties(height=400)
             
-            st.altair_chart(chart, use_container_width=True)
+            st.altair_chart(chart, width="stretch")
     
     # Claude Review (if available)
     claude_reviews = [c for c in st.session_state.ai_chat_history if c.get('role') == 'claude_review']
@@ -7651,7 +7651,7 @@ def render_screening_results():
                 st.markdown("##### 📊 Benchmark Comparison Results")
                 st.dataframe(
                     benchmark_df.style.apply(color_performance, axis=1),
-                    use_container_width=True,
+                    width="stretch",
                     height=400
                 )
 
@@ -7693,7 +7693,7 @@ def render_screening_results():
 
     st.dataframe(
         display_df.style.apply(highlight_action, axis=1),
-        use_container_width=True,
+        width="stretch",
         height=400
     )
     
@@ -8647,7 +8647,7 @@ def render_screening_results():
                             preview_df = capa_plan.to_dataframe()
                             with st.expander("📋 Preview Plan", expanded=True):
                                 st.dataframe(preview_df[['Task ID', 'Task Name', 'Assigned To', 'Duration (Days)', 'Status', 'Priority']],
-                                           use_container_width=True, height=400)
+                                           width="stretch", height=400)
 
                             # Download options
                             col1, col2 = st.columns(2)
@@ -8769,7 +8769,7 @@ def render_screening_results():
                             preview_df = crit_plan.to_dataframe()
                             with st.expander("📋 Preview Plan", expanded=True):
                                 st.dataframe(preview_df[['Task ID', 'Task Name', 'Assigned To', 'Duration (Days)', 'Status', 'Priority']],
-                                           use_container_width=True, height=400)
+                                           width="stretch", height=400)
 
                             # Download options
                             col1, col2 = st.columns(2)
@@ -8930,7 +8930,7 @@ def render_screening_results():
                             preview_df = rework_plan.to_dataframe()
                             with st.expander("📋 Preview Plan", expanded=True):
                                 st.dataframe(preview_df[['Task ID', 'Task Name', 'Assigned To', 'Duration (Days)', 'Status', 'Priority']],
-                                           use_container_width=True, height=400)
+                                           width="stretch", height=400)
 
                             # AI-customized info
                             st.info(f"🤖 **AI-Customized Plan:** Based on {complexity} complexity, {batch_size} units, {team_size} team members")
@@ -9032,7 +9032,7 @@ def render_screening_results():
             file_name=f"quality_screening_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
             mime="text/csv",
             help="Best for copy/paste into Google Sheets tracker",
-            use_container_width=True
+            width="stretch"
         )
     
     with col2:
@@ -9080,12 +9080,12 @@ def render_screening_results():
             file_name=f"quality_screening_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             help="Full report with metadata sheet",
-            use_container_width=True
+            width="stretch"
         )
     
     with col3:
         # Clear results
-        if st.button("🗑️ Clear Results", use_container_width=True):
+        if st.button("🗑️ Clear Results", width="stretch"):
             st.session_state.qc_results_df = None
             st.session_state.anova_result = None
             st.session_state.manova_result = None
@@ -9213,7 +9213,7 @@ def render_help_guide():
                         mime="text/csv",
                         help="⭐ 70 real products with realistic quality issues - perfect for testing all AI features",
                         type="primary",
-                        use_container_width=True
+                        width="stretch"
                     )
                     st.caption("✨ **Advanced Demo includes:** Products from actual catalog, realistic return scenarios, safety risks, multilingual support testing, fuzzy matching against 231 historical products")
             except Exception as e:
@@ -9315,7 +9315,7 @@ def render_inventory_integration_tab():
 
         # Process button
         if odoo_file:
-            if st.button("🚀 Process Inventory Data", type="primary", use_container_width=True):
+            if st.button("🚀 Process Inventory Data", type="primary", width="stretch"):
                 with st.spinner("Processing inventory data..."):
                     try:
                         # Parse Odoo file
@@ -9426,7 +9426,7 @@ def render_inventory_integration_tab():
                     'LeadTimeDays': [45, 30, 60],
                     'SafetyStockDays': [14, 7, 21]
                 })
-                st.dataframe(template_df, use_container_width=True)
+                st.dataframe(template_df, width="stretch")
 
                 csv_buffer = io.StringIO()
                 template_df.to_csv(csv_buffer, index=False)
@@ -9550,7 +9550,7 @@ def render_inventory_integration_tab():
             lambda x: f"${x:,.0f}"
         )
 
-        st.dataframe(display_df, use_container_width=True, height=600)
+        st.dataframe(display_df, width="stretch", height=600)
 
         # Export options
         st.markdown("---")
@@ -9567,7 +9567,7 @@ def render_inventory_integration_tab():
                 csv_buffer.getvalue(),
                 file_name=f"inventory_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv",
-                use_container_width=True
+                width="stretch"
             )
 
         with export_col2:
@@ -9582,7 +9582,7 @@ def render_inventory_integration_tab():
                     excel_buffer.getvalue(),
                     file_name=f"inventory_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
+                    width="stretch"
                 )
 
     # --- TAB 4: Critical Integration View ---
@@ -9890,7 +9890,7 @@ def render_inventory_integration_tab():
                     csv_buffer.getvalue(),
                     file_name=f"critical_integration_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                     mime="text/csv",
-                    use_container_width=True
+                    width="stretch"
                 )
 
         except Exception as e:
@@ -9955,7 +9955,7 @@ def render_categorizer_tool(provider_map=None, provider_selection=None):
                 file_name=st.session_state.export_filename,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 type="primary",
-                use_container_width=True
+                width="stretch"
             )
 
 
@@ -10052,7 +10052,7 @@ def render_b2b_tool(provider_map=None, provider_selection=None):
             st.metric("Unique Products", unique_skus)
 
         st.markdown("#### Preview (Top 10)")
-        st.dataframe(df_res.head(10), use_container_width=True)
+        st.dataframe(df_res.head(10), width="stretch")
 
         col1, col2 = st.columns(2)
         with col1:
@@ -10062,10 +10062,10 @@ def render_b2b_tool(provider_map=None, provider_selection=None):
                 file_name=st.session_state.b2b_export_filename,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 type="primary",
-                use_container_width=True
+                width="stretch"
             )
         with col2:
-            if st.button("🔄 Clear / Start Over", use_container_width=True):
+            if st.button("🔄 Clear / Start Over", width="stretch"):
                 st.session_state.b2b_processed_data = None
                 st.session_state.b2b_processing_complete = False
                 st.rerun()
@@ -10198,7 +10198,7 @@ def render_task_selector():
             if st.button(
                 f"Open {task['title']}",
                 key=f"task_{task_id}",
-                use_container_width=True,
+                width="stretch",
                 type=btn_type
             ):
                 st.session_state.selected_task = task_id
@@ -10238,7 +10238,7 @@ def render_task_selector():
 
         col_go, col_all = st.columns(2)
         with col_go:
-            if st.button("🔍 Go", use_container_width=True, type="primary"):
+            if st.button("🔍 Go", width="stretch", type="primary"):
                 if user_input:
                     matched = match_task_from_input(user_input)
                     if matched:
@@ -10247,7 +10247,7 @@ def render_task_selector():
                     else:
                         st.warning("No matching tool found. Try: b2b, screen, tracker, inventory, categorize, resources")
         with col_all:
-            if st.button("📂 Show All Tools", use_container_width=True):
+            if st.button("📂 Show All Tools", width="stretch"):
                 st.session_state.selected_task = 'all'
                 st.rerun()
 
@@ -10315,7 +10315,7 @@ def render_global_recall_surveillance():
 
     for i, (label, query) in enumerate(preset_categories):
         with preset_cols[i]:
-            if st.button(label, key=f"preset_{i}", use_container_width=True):
+            if st.button(label, key=f"preset_{i}", width="stretch"):
                 st.session_state.recall_search_query = query
                 st.rerun()
 
@@ -10439,12 +10439,12 @@ def render_global_recall_surveillance():
         run_search = st.button(
             "🚀 Launch Surveillance",
             type="primary",
-            use_container_width=True
+            width="stretch"
         )
     with btn_col2:
         clear_results = st.button(
             "🗑️ Clear Results",
-            use_container_width=True
+            width="stretch"
         )
 
     if clear_results:
@@ -10525,7 +10525,7 @@ def render_global_recall_surveillance():
                     {"Source": source, "Records": count}
                     for source, count in logs.items()
                 ])
-                st.dataframe(source_df, use_container_width=True, hide_index=True)
+                st.dataframe(source_df, width="stretch", hide_index=True)
 
         # Results tabs
         tab_smart, tab_table = st.tabs(["🧠 Smart View", "📊 Full Table"])
@@ -10576,7 +10576,7 @@ def render_global_recall_surveillance():
                     "Link": st.column_config.LinkColumn("Source Link"),
                     "Risk_Level": st.column_config.TextColumn("Risk"),
                 },
-                use_container_width=True,
+                width="stretch",
                 hide_index=True
             )
 
@@ -10590,7 +10590,7 @@ def render_global_recall_surveillance():
                     csv_data,
                     f"regulatory_surveillance_{date.today().isoformat()}.csv",
                     "text/csv",
-                    use_container_width=True
+                    width="stretch"
                 )
             with col_exp2:
                 # High-risk only export
@@ -10603,7 +10603,7 @@ def render_global_recall_surveillance():
                             csv_high,
                             f"high_risk_alerts_{date.today().isoformat()}.csv",
                             "text/csv",
-                            use_container_width=True
+                            width="stretch"
                         )
 
     elif logs:
@@ -10625,7 +10625,7 @@ def render_global_recall_surveillance():
         if batch_file:
             try:
                 batch_df = pd.read_csv(batch_file)
-                st.dataframe(batch_df.head(10), use_container_width=True)
+                st.dataframe(batch_df.head(10), width="stretch")
 
                 # Find product name column
                 name_cols = [c for c in batch_df.columns if 'product' in c.lower() or 'name' in c.lower() or 'description' in c.lower()]
@@ -10665,7 +10665,7 @@ def render_global_recall_surveillance():
                     if all_results:
                         batch_results = pd.concat(all_results, ignore_index=True)
                         st.success(f"✅ Found {len(batch_results)} potential matches across {len(all_results)} products")
-                        st.dataframe(batch_results, use_container_width=True)
+                        st.dataframe(batch_results, width="stretch")
 
                         csv_batch = batch_results.to_csv(index=False).encode('utf-8')
                         st.download_button(
