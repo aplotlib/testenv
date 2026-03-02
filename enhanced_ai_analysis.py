@@ -51,10 +51,10 @@ MAX_RETRIES = 2
 
 # Token configurations by mode
 TOKEN_LIMITS = {
-    'standard': 100,
+    'standard': 60,      # Single category name response — small by design
     'enhanced': 200,
     'extreme': 400,
-    'chat': 1000,       # Increased for Claude's more verbose responses
+    'chat': 1000,
     'summary': 500
 }
 
@@ -99,90 +99,232 @@ PRICING = {
     'gpt-3.5-turbo': {'input': 0.00050, 'output': 0.00150},
 }
 
-# Medical Device Return Categories
+# Medical Device Return Categories — granular taxonomy for actionable QA analysis
+# Size/Fit split into directional sub-types for root cause clarity.
+# Comfort split by failure mode (pressure vs. rigidity vs. softness vs. skin reaction).
+# Defects split by physical failure type.
 MEDICAL_DEVICE_CATEGORIES = [
-    'Size/Fit Issues',
-    'Comfort Issues',
-    'Product Defects/Quality',
-    'Performance/Effectiveness',
-    'Stability/Positioning Issues',
-    'Equipment Compatibility',
-    'Design/Material Issues',
-    'Wrong Product/Misunderstanding',
-    'Missing Components',
-    'Customer Error/Changed Mind',
-    'Shipping/Fulfillment Issues',
-    'Assembly/Usage Difficulty',
-    'Medical/Health Concerns',
-    'Price/Value',
-    'Other/Miscellaneous'
+    # ── Size & Fit ─────────────────────────────────────────────────────────────
+    'Size: Too Small',                          # Product is physically undersized for patient
+    'Size: Too Large',                          # Product is physically oversized for patient
+    'Size: Doesn\'t Fit / Wrong Dimensions',    # Fit failure not clearly directional (e.g., shape incompatibility, can't secure)
+    # ── Comfort ────────────────────────────────────────────────────────────────
+    'Comfort: Causes Pain or Pressure',         # Digs in, rubs, causes sores or bruising
+    'Comfort: Too Hard / Rigid',                # Insufficient padding, overly stiff structure
+    'Comfort: Too Soft / Lacks Support',        # Collapses under use, insufficient firmness
+    'Comfort: Skin Irritation or Allergic Reaction',  # Rash, redness, material sensitivity
+    # ── Defects ────────────────────────────────────────────────────────────────
+    'Defect: Broken / Structural Failure',      # Snapped, cracked, buckle/strap failure, weld failure
+    'Defect: Malfunctions / Stops Working',     # Works initially then fails (wheels, brakes, motors)
+    'Defect: Cosmetic Damage',                  # Scratches, paint peeling, discoloration — no functional impact
+    'Defect: Poor Material Quality',            # Thin fabric, cheap plastic, material deforms/wears quickly
+    # ── Product & Order ────────────────────────────────────────────────────────
+    'Wrong Product / Not as Described',         # Listing mismatch, different color/model than shown
+    'Missing or Incomplete Components',         # Parts absent from box, accessories missing
+    # ── Performance & Compatibility ────────────────────────────────────────────
+    'Performance: Ineffective / Doesn\'t Help', # Works mechanically but doesn\'t achieve therapeutic goal
+    'Equipment Compatibility Issue',            # Doesn\'t attach to wheelchair, bed, walker, etc.
+    # ── Stability & Positioning ────────────────────────────────────────────────
+    'Stability: Shifts / Unstable / Falls',     # Slides out of position, tips over, won\'t stay in place
+    # ── Assembly & Instructions ────────────────────────────────────────────────
+    'Assembly / Usage Difficulty',              # Hard to assemble, confusing instructions, complex operation
+    # ── Customer & Fulfillment ─────────────────────────────────────────────────
+    'Customer: Changed Mind / No Longer Needed',
+    'Customer: Ordered Wrong Size or Item',     # Customer self-identified ordering mistake
+    'Fulfillment: Damaged in Shipping',         # Box/item damaged by carrier
+    'Fulfillment: Wrong Item Sent',             # Warehouse/seller sent incorrect product
+    # ── Medical & Safety ───────────────────────────────────────────────────────
+    'Medical / Safety Concern',                 # Injury, adverse reaction, safety hazard
+    # ── Catch-all ──────────────────────────────────────────────────────────────
+    'Other / Miscellaneous',
 ]
 
-# FBA reason code mapping
-FBA_REASON_MAP = {
-    'NOT_COMPATIBLE': 'Equipment Compatibility',
-    'DAMAGED_BY_FC': 'Product Defects/Quality',
-    'DAMAGED_BY_CARRIER': 'Shipping/Fulfillment Issues',
-    'DEFECTIVE': 'Product Defects/Quality',
-    'NOT_AS_DESCRIBED': 'Wrong Product/Misunderstanding',
-    'WRONG_ITEM': 'Wrong Product/Misunderstanding',
-    'MISSING_PARTS': 'Missing Components',
-    'QUALITY_NOT_ADEQUATE': 'Product Defects/Quality',
-    'UNWANTED_ITEM': 'Customer Error/Changed Mind',
-    'UNAUTHORIZED_PURCHASE': 'Customer Error/Changed Mind',
-    'CUSTOMER_DAMAGED': 'Customer Error/Changed Mind',
-    'SWITCHEROO': 'Wrong Product/Misunderstanding',
-    'EXPIRED_ITEM': 'Product Defects/Quality',
-    'DAMAGED_GLASS_VIAL': 'Product Defects/Quality',
-    'DIFFERENT_PRODUCT': 'Wrong Product/Misunderstanding',
-    'MISSING_ITEM': 'Missing Components',
-    'NOT_DELIVERED': 'Shipping/Fulfillment Issues',
-    'ORDERED_WRONG_ITEM': 'Customer Error/Changed Mind',
-    'UNNEEDED_ITEM': 'Customer Error/Changed Mind',
-    'BAD_GIFT': 'Customer Error/Changed Mind',
-    'INACCURATE_WEBSITE_DESCRIPTION': 'Wrong Product/Misunderstanding',
-    'BETTER_PRICE_AVAILABLE': 'Price/Value',
-    'DOES_NOT_FIT': 'Size/Fit Issues',
-    'NOT_COMPATIBLE_WITH_DEVICE': 'Equipment Compatibility',
-    'UNSATISFACTORY_PRODUCT': 'Performance/Effectiveness',
-    'ARRIVED_LATE': 'Shipping/Fulfillment Issues',
-    'TOO_SMALL': 'Size/Fit Issues',
-    'TOO_LARGE': 'Size/Fit Issues',
-    'UNCOMFORTABLE': 'Comfort Issues',
-    'DIFFICULT_TO_USE': 'Assembly/Usage Difficulty',
-    'DAMAGED': 'Product Defects/Quality',
-    'BROKEN': 'Product Defects/Quality',
-    'POOR_QUALITY': 'Product Defects/Quality',
-    'NOT_WORKING': 'Product Defects/Quality',
-    'DOESNT_WORK': 'Product Defects/Quality'
+# Legacy flat category map — maps old strings to new granular ones for backward compatibility
+# (used when reading previously categorized data or external inputs)
+LEGACY_CATEGORY_MAP = {
+    'Size/Fit Issues':            'Size: Doesn\'t Fit / Wrong Dimensions',
+    'Comfort Issues':             'Comfort: Causes Pain or Pressure',
+    'Product Defects/Quality':    'Defect: Broken / Structural Failure',
+    'Performance/Effectiveness':  'Performance: Ineffective / Doesn\'t Help',
+    'Stability/Positioning Issues': 'Stability: Shifts / Unstable / Falls',
+    'Equipment Compatibility':    'Equipment Compatibility Issue',
+    'Design/Material Issues':     'Defect: Poor Material Quality',
+    'Wrong Product/Misunderstanding': 'Wrong Product / Not as Described',
+    'Missing Components':         'Missing or Incomplete Components',
+    'Customer Error/Changed Mind': 'Customer: Changed Mind / No Longer Needed',
+    'Shipping/Fulfillment Issues': 'Fulfillment: Damaged in Shipping',
+    'Assembly/Usage Difficulty':  'Assembly / Usage Difficulty',
+    'Medical/Health Concerns':    'Medical / Safety Concern',
+    'Price/Value':                'Other / Miscellaneous',
+    'Other/Miscellaneous':        'Other / Miscellaneous',
 }
 
-# Quick categorization patterns for speed
+# FBA reason code mapping — updated to new granular categories
+FBA_REASON_MAP = {
+    'NOT_COMPATIBLE':              'Equipment Compatibility Issue',
+    'DAMAGED_BY_FC':               'Defect: Broken / Structural Failure',
+    'DAMAGED_BY_CARRIER':          'Fulfillment: Damaged in Shipping',
+    'DEFECTIVE':                   'Defect: Malfunctions / Stops Working',
+    'NOT_AS_DESCRIBED':            'Wrong Product / Not as Described',
+    'WRONG_ITEM':                  'Fulfillment: Wrong Item Sent',
+    'MISSING_PARTS':               'Missing or Incomplete Components',
+    'QUALITY_NOT_ADEQUATE':        'Defect: Poor Material Quality',
+    'UNWANTED_ITEM':               'Customer: Changed Mind / No Longer Needed',
+    'UNAUTHORIZED_PURCHASE':       'Customer: Changed Mind / No Longer Needed',
+    'CUSTOMER_DAMAGED':            'Customer: Changed Mind / No Longer Needed',
+    'SWITCHEROO':                  'Wrong Product / Not as Described',
+    'EXPIRED_ITEM':                'Defect: Poor Material Quality',
+    'DAMAGED_GLASS_VIAL':          'Defect: Broken / Structural Failure',
+    'DIFFERENT_PRODUCT':           'Fulfillment: Wrong Item Sent',
+    'MISSING_ITEM':                'Missing or Incomplete Components',
+    'NOT_DELIVERED':               'Fulfillment: Damaged in Shipping',
+    'ORDERED_WRONG_ITEM':          'Customer: Ordered Wrong Size or Item',
+    'UNNEEDED_ITEM':               'Customer: Changed Mind / No Longer Needed',
+    'BAD_GIFT':                    'Customer: Changed Mind / No Longer Needed',
+    'INACCURATE_WEBSITE_DESCRIPTION': 'Wrong Product / Not as Described',
+    'BETTER_PRICE_AVAILABLE':      'Other / Miscellaneous',
+    'DOES_NOT_FIT':                "Size: Doesn't Fit / Wrong Dimensions",
+    'NOT_COMPATIBLE_WITH_DEVICE':  'Equipment Compatibility Issue',
+    'UNSATISFACTORY_PRODUCT':      "Performance: Ineffective / Doesn't Help",
+    'ARRIVED_LATE':                'Other / Miscellaneous',
+    # Directional size codes — now mapped to specific sub-types
+    'TOO_SMALL':                   'Size: Too Small',
+    'TOO_LARGE':                   'Size: Too Large',
+    'UNCOMFORTABLE':               'Comfort: Causes Pain or Pressure',
+    'DIFFICULT_TO_USE':            'Assembly / Usage Difficulty',
+    'DAMAGED':                     'Defect: Broken / Structural Failure',
+    'BROKEN':                      'Defect: Broken / Structural Failure',
+    'POOR_QUALITY':                'Defect: Poor Material Quality',
+    'NOT_WORKING':                 'Defect: Malfunctions / Stops Working',
+    'DOESNT_WORK':                 'Defect: Malfunctions / Stops Working',
+}
+
+# Quick categorization patterns for speed — granular, directional patterns first
+# Order matters: more specific patterns (too small / too large) must come before
+# the generic size/fit catch-all so they win on early exit.
 QUICK_PATTERNS = {
-    'Size/Fit Issues': [
-        r'too (small|large|big|tight|loose)', r'doesn[\']?t fit', r'wrong size',
-        r'size issue', r'(small|large)r than expected', r'fit issue'
+    # ── Size: directional (must be checked before generic fit) ─────────────────
+    'Size: Too Small': [
+        r'\btoo small\b', r'\btoo tight\b', r'\btoo narrow\b', r'\btoo short\b',
+        r'\bsmaller than expected\b', r'\bsmaller than (advertised|described|pictured)\b',
+        r'\bneeded a larger\b', r'\bshould have ordered (a )?(larger|bigger)\b',
+        r'\bnot big enough\b', r'\bnot large enough\b', r'\bwish it was (bigger|larger)\b',
+        r'\brunning small\b', r'\bruns small\b',
     ],
-    'Product Defects/Quality': [
-        r'defect', r'broken', r'damaged', r'poor quality', r'doesn[\']?t work',
-        r'stopped working', r'malfunction', r'fell apart', r'ripped', r'torn'
+    'Size: Too Large': [
+        r'\btoo (big|large|wide|long|bulky|loose|baggy)\b',
+        r'\blarger than expected\b', r'\bbigger than (advertised|described|pictured)\b',
+        r'\bneeded a smaller\b', r'\bshould have ordered (a )?(smaller|petite)\b',
+        r'\bnot small enough\b', r'\bwish it was smaller\b',
+        r'\brunning (big|large)\b', r'\bruns (big|large)\b',
+        r'\boverwhelming(ly)? large\b',
     ],
-    'Wrong Product/Misunderstanding': [
-        r'wrong (item|product)', r'not as described', r'different than',
-        r'thought it was', r'expected', r'not what I ordered'
+    "Size: Doesn't Fit / Wrong Dimensions": [
+        r"\bdoesn[\']?t fit\b", r'\bwon[\']?t fit\b', r'\bcannot fit\b', r"\bcan't fit\b",
+        r'\bwrong size\b', r'\bwrong fit\b', r'\bsize issue\b', r'\bfit issue\b',
+        r'\bdoes not fit\b', r'\bfit (poorly|incorrectly|badly)\b',
+        r'\bsize (problem|concern|complaint)\b',
     ],
-    'Customer Error/Changed Mind': [
-        r'changed mind', r'don[\']?t need', r'ordered by mistake',
-        r'accidentally', r'no longer need', r'bought wrong'
+    # ── Comfort — split by failure mode ────────────────────────────────────────
+    'Comfort: Causes Pain or Pressure': [
+        r'\bcauses? (pain|sores?|blisters?|bruising|chafing|marks)\b',
+        r'\bhurts?\b', r'\bpainful\b', r'\bsore\b', r'\bdigs? in\b',
+        r'\brubs?\b', r'\bcuts? into\b', r'\bpinches?\b', r'\buncomfortable\b',
+        r'\bnumbs?\b', r'\bcirculation\b',
     ],
-    'Comfort Issues': [
-        r'uncomfort', r'hurts', r'painful', r'too (hard|soft|firm)',
-        r'causes pain', r'irritat'
+    'Comfort: Too Hard / Rigid': [
+        r'\btoo (hard|stiff|rigid|firm|inflexible)\b',
+        r'\bnot (soft|padded|cushioned) enough\b',
+        r'\blacks? padding\b', r'\bno padding\b', r'\binsufficient(ly)? padded\b',
     ],
-    'Equipment Compatibility': [
-        r'doesn[\']?t fit (my|the)', r'not compatible', r'incompatible',
-        r'doesn[\']?t work with', r'won[\']?t fit'
-    ]
+    'Comfort: Too Soft / Lacks Support': [
+        r'\btoo (soft|flimsy|weak|floppy|flexible)\b',
+        r'\bnot (firm|supportive|rigid|stiff) enough\b',
+        r'\blacks? support\b', r'\bno support\b', r'\bcollapses?\b', r'\bgives? way\b',
+    ],
+    'Comfort: Skin Irritation or Allergic Reaction': [
+        r'\birritati(on|ng|es?)\b', r'\brash\b', r'\ballerg(y|ic)\b',
+        r'\bred(ness|dening)\b', r'\bswelling\b', r'\breaction\b',
+        r'\bitching\b', r'\bitchy\b', r'\bbreaks? out\b', r'\bsensitiv(e|ity)\b',
+    ],
+    # ── Defects ─────────────────────────────────────────────────────────────────
+    'Defect: Broken / Structural Failure': [
+        r'\bbroken\b', r'\bsnapped\b', r'\bcracked\b', r'\bfell apart\b',
+        r'\bfalls? apart\b', r'\bfell off\b', r'\bdetached\b', r'\bshattered\b',
+        r'\bbroke (after|within|on|immediately)\b', r'\bstructural\b',
+        r'\bbuckle (broke|snapped|failed)\b', r'\bstrap (broke|snapped|tore)\b',
+    ],
+    'Defect: Malfunctions / Stops Working': [
+        r"\bdoesn[\']?t work\b", r'\bdoes not work\b', r'\bstopped working\b',
+        r'\bstops? working\b', r'\bmalfunctions?\b', r'\bnot functioning\b',
+        r'\bquit working\b', r'\bdead on arrival\b', r'\bDOA\b',
+        r'\bno longer works?\b', r'\bfailed (after|within)\b',
+    ],
+    'Defect: Cosmetic Damage': [
+        r'\bscratched\b', r'\bscratches\b', r'\bpaint (peeling|chipping|flaking)\b',
+        r'\bpeeling\b', r'\bdiscolor(ed|ation)\b', r'\brust(ed|ing)?\b',
+        r'\bcosmet(ic|ically)\b', r'\bappearance\b',
+    ],
+    'Defect: Poor Material Quality': [
+        r'\bpoor (quality|material|construction|build)\b', r'\bcheap (material|plastic|fabric)\b',
+        r'\blow quality\b', r'\bthin (material|fabric|plastic)\b',
+        r'\bflimsy (material|build|construction)\b', r'\bwears? (out|through) quickly\b',
+        r'\bfalls? apart after\b', r'\bdeteriorat\b',
+    ],
+    # ── Product / Order ──────────────────────────────────────────────────────────
+    'Wrong Product / Not as Described': [
+        r'\bwrong (item|product|color|model|version)\b', r'\bnot as (described|advertised|shown|pictured)\b',
+        r'\bdifferent (from|than) (what|the) (I|was)\b', r'\bnot what (I|was) (ordered|expected)\b',
+        r'\bmisleading (description|listing|photo)\b',
+    ],
+    'Missing or Incomplete Components': [
+        r'\bmissing (part|piece|component|accessory|hardware|screw)\b',
+        r'\bincomplete\b', r'\bnot (all|everything) (included|in box|present)\b',
+        r'\bparts? (missing|absent|not included)\b', r'\bno instructions?\b',
+    ],
+    # ── Customer & Fulfillment ───────────────────────────────────────────────────
+    'Customer: Changed Mind / No Longer Needed': [
+        r'\bchanged (my )?mind\b', r'\bno longer (need|want|require)\b',
+        r'\bdon[\']?t need (it|anymore|this)\b', r'\bnot needed\b',
+        r'\bdecided (not to|against)\b', r'\bdonating\b',
+    ],
+    'Customer: Ordered Wrong Size or Item': [
+        r'\bordered (the )?wrong (size|item|product)\b', r'\bmy (mistake|error|fault)\b',
+        r'\baccidentally (ordered|bought|purchased)\b',
+        r'\bshould have ordered (a )?(different|another|the other)\b',
+        r'\bI (made a mistake|was wrong about)\b',
+    ],
+    'Fulfillment: Damaged in Shipping': [
+        r'\bdamaged (in|during|by) (shipping|transit|delivery)\b',
+        r'\barrived (damaged|broken|crushed|dented|wet)\b',
+        r'\bbox (damaged|crushed|wet|torn)\b', r'\bshipping damage\b',
+        r'\bcarrier damage\b',
+    ],
+    'Fulfillment: Wrong Item Sent': [
+        r'\bsent (the )?wrong (item|product|size|color)\b',
+        r'\breceived (the )?wrong\b', r'\bpackaged incorrectly\b',
+        r'\bmix[- ]up\b', r'\bswitcheroo\b',
+    ],
+    # ── Equipment compatibility ───────────────────────────────────────────────────
+    'Equipment Compatibility Issue': [
+        r"\bdoesn[\']?t (fit|work) (with|on|for) (my|the|a)\b",
+        r'\bnot compatible (with|for)\b', r'\bincompatible\b',
+        r"\bwon[\']?t (attach|connect|mount|fit) (to|on)\b",
+    ],
+    # ── Stability ─────────────────────────────────────────────────────────────────
+    'Stability: Shifts / Unstable / Falls': [
+        r'\bunstable\b', r'\btips? (over|easily)\b', r'\bfalls? over\b',
+        r'\bwobble?s?\b', r'\bshifts? (out|around|constantly)\b',
+        r'\bslides? (out|off|around)\b', r'\bwon[\']?t stay (in place|on|put)\b',
+        r'\bkeeps? (moving|shifting|sliding|falling)\b',
+    ],
+    # ── Assembly ──────────────────────────────────────────────────────────────────
+    'Assembly / Usage Difficulty': [
+        r'\bdifficult (to (assemble|use|adjust|put together|set up))\b',
+        r'\bhard (to (assemble|use|put together|adjust))\b',
+        r'\bcomplicated (to|instructions)\b', r'\bconfusing instructions?\b',
+        r'\bcannot figure out\b', r'\bimpossible to (assemble|use)\b',
+    ],
 }
 
 # Compile patterns for speed
@@ -274,22 +416,38 @@ def quick_categorize(complaint: str, fba_reason: str = None) -> Optional[str]:
 
 
 def detect_severity(complaint: str, category: str) -> str:
-    """Detect severity level of complaint"""
+    """Detect severity level based on complaint text and granular category."""
     complaint_lower = complaint.lower()
 
-    critical_keywords = ['injury', 'injured', 'hospital', 'emergency', 'dangerous', 'unsafe', 'hazard']
-    if any(keyword in complaint_lower for keyword in critical_keywords):
+    # Critical — safety/injury signals always override category
+    critical_keywords = ['injury', 'injured', 'hospital', 'emergency', 'dangerous',
+                         'unsafe', 'hazard', 'broke while', 'failed while', 'collapsed while']
+    if any(kw in complaint_lower for kw in critical_keywords):
+        return 'critical'
+    if category == 'Medical / Safety Concern':
         return 'critical'
 
-    if category == 'Medical/Health Concerns':
-        return 'critical'
-
-    major_keywords = ['defective', 'broken', 'malfunction', 'unusable', 'failed', 'stopped working']
-    if any(keyword in complaint_lower for keyword in major_keywords):
+    # Major — functional failures, structural defects, stability issues
+    major_categories = {
+        'Defect: Broken / Structural Failure',
+        'Defect: Malfunctions / Stops Working',
+        'Stability: Shifts / Unstable / Falls',
+    }
+    major_keywords = ['unusable', 'cannot use', "can't use", 'completely broken',
+                      'fell apart', 'stopped working', 'failed', 'malfunction']
+    if category in major_categories or any(kw in complaint_lower for kw in major_keywords):
         return 'major'
 
-    if category in ['Product Defects/Quality', 'Performance/Effectiveness']:
-        return 'major'
+    # Moderate — quality, fit, comfort issues affecting usability
+    moderate_categories = {
+        'Defect: Poor Material Quality',
+        'Size: Too Small', 'Size: Too Large', "Size: Doesn't Fit / Wrong Dimensions",
+        'Comfort: Causes Pain or Pressure',
+        "Performance: Ineffective / Doesn't Help",
+        'Equipment Compatibility Issue',
+    }
+    if category in moderate_categories:
+        return 'moderate'
 
     return 'minor'
 
@@ -679,15 +837,44 @@ class EnhancedAIAnalyzer:
 
         self.cost_tracker.add_ai_categorization()
 
-        system_prompt = (
-            "You are a medical device quality expert. Categorize this return into exactly one "
-            "category from the provided list. Respond with ONLY the category name, nothing else."
+        system_prompt = """You are a medical device quality engineer with 15+ years of experience in returns analysis and CAPA investigations. Your job is to assign EXACTLY ONE category from the provided list to a customer return complaint.
+
+DECISION RULES — read carefully before categorizing:
+1. SIZE categories require a clear directional statement. "Too small" and "too tight" = "Size: Too Small". "Too big", "too loose", "too large", "too wide" = "Size: Too Large". Only use "Size: Doesn't Fit / Wrong Dimensions" when direction is ambiguous or it's a shape/dimension mismatch with equipment.
+2. COMFORT vs SIZE: "It hurts" or "digs in" = Comfort: Causes Pain or Pressure. "Too tight" without pain language = Size: Too Small.
+3. DEFECT SUBTYPES: Use "Broken / Structural Failure" for physical breaks (snapped, cracked, fell apart). Use "Malfunctions / Stops Working" for products that worked then failed electronically/mechanically. Use "Poor Material Quality" for gradual deterioration or cheap-feeling materials without an acute break.
+4. CUSTOMER CAUSED: Only use Customer categories when the customer explicitly states it was their mistake or decision. "Wrong size" alone is NOT customer error — it's a size issue.
+5. STABILITY vs SIZE: A product that "slides around" or "tips over" = Stability. A product that "won't fit my leg" = Size.
+
+EXAMPLES (use these to calibrate your judgment):
+- "Brace is way too small, couldn't get it past my knee" → Size: Too Small
+- "Way too big, slides right off my leg" → Size: Too Large
+- "Doesn't fit over my walking boot" → Size: Doesn't Fit / Wrong Dimensions
+- "Cuts into my skin after 20 minutes" → Comfort: Causes Pain or Pressure
+- "Hard as a rock, no cushioning at all" → Comfort: Too Hard / Rigid
+- "Collapses inward, gives no lateral support" → Comfort: Too Soft / Lacks Support
+- "Caused a rash on my arm after 2 days" → Comfort: Skin Irritation or Allergic Reaction
+- "Buckle snapped in half on first use" → Defect: Broken / Structural Failure
+- "Worked fine for a week then motor stopped" → Defect: Malfunctions / Stops Working
+- "Paint started peeling after one wash" → Defect: Cosmetic Damage
+- "Velcro wore out after 2 weeks, cheap material" → Defect: Poor Material Quality
+- "Doesn't attach to my rollator — wrong bracket size" → Equipment Compatibility Issue
+- "Keeps sliding off the seat cushion" → Stability: Shifts / Unstable / Falls
+- "I ordered the wrong size, my fault entirely" → Customer: Ordered Wrong Size or Item
+- "Decided I don't need it after all" → Customer: Changed Mind / No Longer Needed
+- "Arrived with the frame bent from the box being crushed" → Fulfillment: Damaged in Shipping
+
+Respond with ONLY the exact category name from the list. No explanation, no punctuation, no quotes."""
+
+        categories_list = '\n'.join(f'  {cat}' for cat in MEDICAL_DEVICE_CATEGORIES)
+        user_prompt = (
+            f'AVAILABLE CATEGORIES:\n{categories_list}\n\n'
+            f'COMPLAINT: "{complaint}"\n\n'
+            f'CATEGORY:'
         )
 
-        categories_list = '\n'.join(f'- {cat}' for cat in MEDICAL_DEVICE_CATEGORIES)
-        user_prompt = f'Complaint: "{complaint}"\n\nCategories:\n{categories_list}\n\nCategory:'
-
-        response, _ = self._route_call(user_prompt, system_prompt, mode)
+        # Use standard mode (Sonnet) for AI categorization — Haiku misses nuance on size/comfort splits
+        response, _ = self._route_call(user_prompt, system_prompt, 'standard')
 
         if response:
             category = self._clean_category_response(response)
@@ -727,29 +914,59 @@ class EnhancedAIAnalyzer:
         return results
 
     def _clean_category_response(self, response: str) -> str:
-        """Clean AI response to extract category name."""
-        response = response.strip().strip('"').strip("'")
+        """
+        Clean Claude's response to extract the exact category name.
+        Handles: extra whitespace, quotes, common preamble phrases,
+        and partial/prefix matches for the 'Prefix: Description' naming convention.
+        """
+        # Strip fences and quotes
+        response = response.strip().strip('`').strip('"').strip("'").strip()
 
-        for prefix in ['Category:', 'The category is:', 'Answer:']:
-            if response.startswith(prefix):
+        # Strip common preamble phrases Claude may add despite instructions
+        for prefix in ['Category:', 'The category is:', 'Answer:', 'Result:',
+                       'Classification:', 'Return category:']:
+            if response.lower().startswith(prefix.lower()):
                 response = response[len(prefix):].strip()
 
+        # Take only the first line (in case Claude added an explanation on line 2)
+        response = response.splitlines()[0].strip()
+
+        # 1. Exact match (case-insensitive)
         for valid_cat in MEDICAL_DEVICE_CATEGORIES:
             if response.lower() == valid_cat.lower():
                 return valid_cat
 
+        # 2. Substring match — valid category name appears anywhere in response
         response_lower = response.lower()
         for valid_cat in MEDICAL_DEVICE_CATEGORIES:
             if valid_cat.lower() in response_lower:
                 return valid_cat
 
+        # 3. Prefix match — for 'Size: Too Small' style names, match by prefix alone
+        #    e.g. Claude says "Size: Too Small (the product was too tight)" → match prefix
         for valid_cat in MEDICAL_DEVICE_CATEGORIES:
-            cat_words = set(valid_cat.lower().split('/'))
-            response_words = set(response_lower.split())
-            if cat_words & response_words:
+            prefix = valid_cat.split(':')[0].strip().lower()
+            suffix_words = [w for w in valid_cat.lower().split() if len(w) > 3]
+            if prefix and prefix in response_lower:
+                # Verify at least one meaningful word from full name also matches
+                if any(w in response_lower for w in suffix_words):
+                    return valid_cat
+
+        # 4. Legacy name remapping — if old-style category comes back, upgrade it
+        response_stripped = response.strip()
+        if response_stripped in LEGACY_CATEGORY_MAP:
+            return LEGACY_CATEGORY_MAP[response_stripped]
+
+        # 5. Keyword overlap fallback
+        for valid_cat in MEDICAL_DEVICE_CATEGORIES:
+            # Use meaningful tokens only (>3 chars, ignore 'and', 'the', etc.)
+            cat_tokens = {w for w in re.split(r'[\s/:\-]+', valid_cat.lower()) if len(w) > 3}
+            resp_tokens = {w for w in re.split(r'[\s/:\-]+', response_lower) if len(w) > 3}
+            overlap = cat_tokens & resp_tokens
+            if len(overlap) >= 2:
                 return valid_cat
 
-        return 'Other/Miscellaneous'
+        return 'Other / Miscellaneous'
 
     def get_cost_summary(self) -> Dict[str, Any]:
         return self.cost_tracker.get_summary()
