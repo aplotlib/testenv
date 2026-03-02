@@ -1,14 +1,21 @@
 """
-Enhanced AI Analysis Module - Dual AI with Speed Optimization
-Version 15.0 - B2B Optimized
+Enhanced AI Analysis Module - Claude-Primary with Speed Optimization
+Version 16.0 - Claude API Migration
 
 Key Features:
+- Claude (Anthropic) as primary AI provider
 - Dual AI support with intelligent routing
 - Batch processing for speed
 - Claude Haiku for fast categorization/summarization
-- GPT-3.5 for complex cases
+- Claude Sonnet/Opus for complex cases
 - Parallel API calls
 - Dynamic Worker Scaling
+
+Migration Notes:
+- Migrated from OpenAI to Anthropic Claude as primary provider
+- All Claude API calls use direct HTTP requests (requests library)
+- Claude model strings updated to current Claude 4.x / 4.5 family
+- OpenAI kept as optional fallback if key is present
 """
 
 import logging
@@ -39,58 +46,57 @@ def safe_import(module_name):
 requests, has_requests = safe_import('requests')
 
 # API Configuration
-API_TIMEOUT = 45  # Increased for longer summaries
+API_TIMEOUT = 45
 MAX_RETRIES = 2
 
 # Token configurations by mode
 TOKEN_LIMITS = {
-    'standard': 100,     
-    'enhanced': 200,     
-    'extreme': 400,      
-    'chat': 500,
-    'summary': 300       # Increased for detailed reasons
+    'standard': 100,
+    'enhanced': 200,
+    'extreme': 400,
+    'chat': 1000,       # Increased for Claude's more verbose responses
+    'summary': 500
 }
 
-# Model configurations - Latest and most powerful models (Jan 2026)
+# =====================================================================
+# MODEL CONFIGURATIONS — Current Claude 4.x / 4.5 family (March 2026)
+# =====================================================================
 MODELS = {
-    'openai': {
-        'fast': 'gpt-4o-mini',          # Fast, efficient GPT-4 class model
-        'standard': 'gpt-4o',            # Latest GPT-4 Omni (multimodal)
-        'enhanced': 'gpt-4o',            # GPT-4 Omni for complex tasks
-        'extreme': 'o1-preview',         # Most powerful reasoning model
-        'powerful': 'o1-preview',        # o1-preview for maximum capability
-        'chat': 'gpt-4o',
-        'summary': 'gpt-4o'
-    },
     'claude': {
-        'fast': 'claude-3-5-haiku-20241022',      # Latest Haiku - fastest
-        'standard': 'claude-3-5-sonnet-20240620', # Sonnet 3.5 (stable version)
-        'enhanced': 'claude-3-5-sonnet-20240620', # Sonnet 3.5 for quality
-        'extreme': 'claude-3-opus-20240229',      # Opus for maximum power
-        'powerful': 'claude-3-opus-20240229',     # Most capable Claude
-        'chat': 'claude-3-5-sonnet-20240620',
-        'summary': 'claude-3-5-haiku-20241022'
+        'fast':      'claude-haiku-4-5-20251001',   # Fastest, cheapest
+        'standard':  'claude-sonnet-4-6',             # Balanced performance
+        'enhanced':  'claude-sonnet-4-6',             # Quality tasks
+        'extreme':   'claude-opus-4-6',               # Maximum capability
+        'powerful':  'claude-opus-4-6',               # Alias for extreme
+        'chat':      'claude-sonnet-4-6',             # Conversational
+        'summary':   'claude-haiku-4-5-20251001'      # Fast summaries
+    },
+    # OpenAI kept as optional fallback
+    'openai': {
+        'fast':      'gpt-4o-mini',
+        'standard':  'gpt-4o',
+        'enhanced':  'gpt-4o',
+        'extreme':   'gpt-4o',
+        'powerful':  'gpt-4o',
+        'chat':      'gpt-4o',
+        'summary':   'gpt-4o-mini'
     }
 }
 
-# Updated pricing per 1K tokens (January 2026)
+# Updated pricing per 1K tokens (March 2026)
 PRICING = {
-    # OpenAI - Latest models
-    'gpt-4o-mini': {'input': 0.00015, 'output': 0.0006},           # Fast & cheap
-    'gpt-4o': {'input': 0.0025, 'output': 0.010},                  # GPT-4 Omni
-    'o1-preview': {'input': 0.015, 'output': 0.060},               # Most powerful
-    'o1-mini': {'input': 0.003, 'output': 0.012},                  # Fast reasoning
-    # Legacy OpenAI (for reference)
-    'gpt-3.5-turbo': {'input': 0.0005, 'output': 0.0015},
-    'gpt-4': {'input': 0.03, 'output': 0.06},
-    'gpt-4-turbo': {'input': 0.01, 'output': 0.03},
-    # Claude - Latest models
-    'claude-3-5-haiku-20241022': {'input': 0.001, 'output': 0.005},     # Latest Haiku
-    'claude-3-5-sonnet-20240620': {'input': 0.003, 'output': 0.015},    # Sonnet 3.5 (stable)
-    'claude-3-opus-20240229': {'input': 0.015, 'output': 0.075},        # Opus (most powerful)
-    # Legacy Claude (for reference)
-    'claude-3-haiku-20240307': {'input': 0.00025, 'output': 0.00125},
-    'claude-3-sonnet-20240229': {'input': 0.003, 'output': 0.015}
+    # Claude — current family
+    'claude-haiku-4-5-20251001':  {'input': 0.00080, 'output': 0.00400},
+    'claude-sonnet-4-6':          {'input': 0.00300, 'output': 0.01500},
+    'claude-opus-4-6':            {'input': 0.01500, 'output': 0.07500},
+    # Claude 3.x — legacy (kept for reference)
+    'claude-3-5-haiku-20241022':  {'input': 0.00100, 'output': 0.00500},
+    'claude-3-5-sonnet-20241022': {'input': 0.00300, 'output': 0.01500},
+    'claude-3-opus-20240229':     {'input': 0.01500, 'output': 0.07500},
+    # OpenAI — optional fallback
+    'gpt-4o-mini':   {'input': 0.00015, 'output': 0.00060},
+    'gpt-4o':        {'input': 0.00250, 'output': 0.01000},
+    'gpt-3.5-turbo': {'input': 0.00050, 'output': 0.00150},
 }
 
 # Medical Device Return Categories
@@ -185,15 +191,17 @@ COMPILED_PATTERNS = {
     for category, patterns in QUICK_PATTERNS.items()
 }
 
+
 class AIProvider(Enum):
     OPENAI = "openai"
-    OPENAI_FAST = "openai_fast"       # GPT-4o-mini
-    OPENAI_POWERFUL = "openai_powerful"  # o1-preview
+    OPENAI_FAST = "openai_fast"
+    OPENAI_POWERFUL = "openai_powerful"
     CLAUDE = "claude"
-    CLAUDE_FAST = "claude_fast"       # Haiku 3.5
-    CLAUDE_POWERFUL = "claude_powerful"  # Opus
+    CLAUDE_FAST = "claude_fast"
+    CLAUDE_POWERFUL = "claude_powerful"
     BOTH = "both"
-    FASTEST = "fastest"               # Auto-select fastest available
+    FASTEST = "fastest"  # Auto-select fastest available (Claude-first)
+
 
 @dataclass
 class CostEstimate:
@@ -205,7 +213,7 @@ class CostEstimate:
     input_cost: float
     output_cost: float
     total_cost: float
-    
+
     def to_dict(self):
         return {
             'provider': self.provider,
@@ -217,23 +225,25 @@ class CostEstimate:
             'total_cost': self.total_cost
         }
 
+
 def estimate_tokens(text: str) -> int:
     """Estimate token count (rough approximation)"""
     return max(len(text) // 4, len(text.split()) * 4 // 3)
+
 
 def calculate_cost(model: str, input_tokens: int, output_tokens: int) -> CostEstimate:
     """Calculate cost for API usage"""
     if model not in PRICING:
         logger.warning(f"Model {model} not in pricing table")
         return CostEstimate("unknown", model, input_tokens, output_tokens, 0, 0, 0)
-    
+
     pricing = PRICING[model]
     input_cost = (input_tokens / 1000) * pricing['input']
     output_cost = (output_tokens / 1000) * pricing['output']
     total_cost = input_cost + output_cost
-    
-    provider = 'openai' if 'gpt' in model else 'claude'
-    
+
+    provider = 'claude' if 'claude' in model else 'openai'
+
     return CostEstimate(
         provider=provider,
         model=model,
@@ -244,50 +254,49 @@ def calculate_cost(model: str, input_tokens: int, output_tokens: int) -> CostEst
         total_cost=total_cost
     )
 
+
 def quick_categorize(complaint: str, fba_reason: str = None) -> Optional[str]:
     """Quick pattern-based categorization for speed"""
     if not complaint:
         return None
-    
-    # Check FBA reason first
+
     if fba_reason and fba_reason in FBA_REASON_MAP:
         return FBA_REASON_MAP[fba_reason]
-    
+
     complaint_lower = complaint.lower()
-    
-    # Check compiled patterns
+
     for category, patterns in COMPILED_PATTERNS.items():
         for pattern in patterns:
             if pattern.search(complaint_lower):
                 return category
-    
+
     return None
+
 
 def detect_severity(complaint: str, category: str) -> str:
     """Detect severity level of complaint"""
     complaint_lower = complaint.lower()
-    
-    # Critical keywords
+
     critical_keywords = ['injury', 'injured', 'hospital', 'emergency', 'dangerous', 'unsafe', 'hazard']
     if any(keyword in complaint_lower for keyword in critical_keywords):
         return 'critical'
-    
+
     if category == 'Medical/Health Concerns':
         return 'critical'
-    
-    # Major keywords
+
     major_keywords = ['defective', 'broken', 'malfunction', 'unusable', 'failed', 'stopped working']
     if any(keyword in complaint_lower for keyword in major_keywords):
         return 'major'
-    
+
     if category in ['Product Defects/Quality', 'Performance/Effectiveness']:
         return 'major'
-    
+
     return 'minor'
+
 
 class CostTracker:
     """Track API costs across sessions"""
-    
+
     def __init__(self):
         self.session_costs = []
         self.total_input_tokens = 0
@@ -297,27 +306,22 @@ class CostTracker:
         self.start_time = datetime.now()
         self.quick_categorizations = 0
         self.ai_categorizations = 0
-    
+
     def add_cost(self, cost_estimate: CostEstimate):
-        """Add cost to tracking"""
         self.session_costs.append(cost_estimate)
         self.total_input_tokens += cost_estimate.input_tokens
         self.total_output_tokens += cost_estimate.output_tokens
         self.total_cost += cost_estimate.total_cost
         self.api_calls += 1
-    
+
     def add_quick_categorization(self):
-        """Track quick categorization"""
         self.quick_categorizations += 1
-    
+
     def add_ai_categorization(self):
-        """Track AI categorization"""
         self.ai_categorizations += 1
-    
+
     def get_summary(self) -> Dict[str, Any]:
-        """Get cost summary"""
         duration = (datetime.now() - self.start_time).total_seconds() / 60
-        
         return {
             'total_cost': round(self.total_cost, 4),
             'api_calls': self.api_calls,
@@ -329,122 +333,192 @@ class CostTracker:
             'duration_minutes': round(duration, 1),
             'breakdown_by_provider': self._get_provider_breakdown()
         }
-    
+
     def _get_provider_breakdown(self) -> Dict[str, Dict]:
-        """Get cost breakdown by provider"""
         breakdown = {'openai': {'calls': 0, 'cost': 0}, 'claude': {'calls': 0, 'cost': 0}}
-        
         for cost in self.session_costs:
             provider = cost.provider
             if provider in breakdown:
                 breakdown[provider]['calls'] += 1
                 breakdown[provider]['cost'] += cost.total_cost
-        
         return breakdown
 
+
 class EnhancedAIAnalyzer:
-    """Main AI analyzer with dual AI support and speed optimization"""
-    
-    def __init__(self, provider: AIProvider = AIProvider.FASTEST, max_workers: int = 5):
+    """
+    Main AI analyzer — Claude (Anthropic) primary, OpenAI optional fallback.
+    Uses direct HTTP requests (requests library) for both providers.
+    """
+
+    def __init__(self, provider: AIProvider = AIProvider.CLAUDE, max_workers: int = 5):
         self.provider = provider
         self.max_workers = max_workers
-        self.openai_key = self._get_api_key('openai')
         self.claude_key = self._get_api_key('claude')
-        
-        # Initialize tracking
+        self.openai_key = self._get_api_key('openai')
+
         self.cost_tracker = CostTracker()
-        
-        # Initialize API availability
-        self.openai_configured = bool(self.openai_key and has_requests)
+
         self.claude_configured = bool(self.claude_key and has_requests)
-        
-        # Thread pool for parallel processing
+        self.openai_configured = bool(self.openai_key and has_requests)
+
         self.executor = ThreadPoolExecutor(max_workers=self.max_workers)
-        
-        # Session for connection pooling
+
         self.session = None
         if has_requests:
             self.session = requests.Session()
-        
-        logger.info(f"AI Analyzer initialized - OpenAI: {self.openai_configured}, Claude: {self.claude_configured}, Mode: {provider.value}, Workers: {self.max_workers}")
-    
+
+        logger.info(
+            f"AI Analyzer initialized — Claude: {self.claude_configured}, "
+            f"OpenAI: {self.openai_configured}, Mode: {provider.value}, Workers: {self.max_workers}"
+        )
+
     def _get_api_key(self, provider: str) -> Optional[str]:
-        """Get API key from multiple sources"""
-        # Try Streamlit secrets first
+        """Get API key from Streamlit secrets or environment variables."""
+        # Streamlit secrets first
         try:
             import streamlit as st
             if hasattr(st, 'secrets'):
-                if provider == 'openai':
-                    for key_name in ["OPENAI_API_KEY", "openai_api_key", "openai"]:
-                        if key_name in st.secrets:
-                            key_value = str(st.secrets[key_name]).strip()
-                            if key_value and key_value.startswith('sk-'):
-                                logger.info(f"Found {provider} key in Streamlit secrets")
-                                return key_value
-                elif provider == 'claude':
+                if provider == 'claude':
                     for key_name in ["ANTHROPIC_API_KEY", "anthropic_api_key", "claude_api_key", "claude"]:
                         if key_name in st.secrets:
                             key_value = str(st.secrets[key_name]).strip()
                             if key_value:
-                                logger.info(f"Found {provider} key in Streamlit secrets")
+                                logger.info(f"Found Claude key in Streamlit secrets ({key_name})")
+                                return key_value
+                elif provider == 'openai':
+                    for key_name in ["OPENAI_API_KEY", "openai_api_key", "openai"]:
+                        if key_name in st.secrets:
+                            key_value = str(st.secrets[key_name]).strip()
+                            if key_value and key_value.startswith('sk-'):
+                                logger.info(f"Found OpenAI key in Streamlit secrets")
                                 return key_value
         except Exception as e:
             logger.debug(f"Streamlit secrets not available: {e}")
-        
-        # Try environment variables
+
+        # Environment variables fallback
         env_vars = {
+            'claude': ["ANTHROPIC_API_KEY", "CLAUDE_API_KEY"],
             'openai': ["OPENAI_API_KEY", "OPENAI_API"],
-            'claude': ["ANTHROPIC_API_KEY", "CLAUDE_API_KEY"]
         }
-        
         for env_name in env_vars.get(provider, []):
             api_key = os.environ.get(env_name, '').strip()
             if api_key:
-                logger.info(f"Found {provider} key in environment")
+                logger.info(f"Found {provider} key in environment ({env_name})")
                 return api_key
-        
+
         logger.warning(f"No {provider} API key found")
         return None
-    
+
     def get_api_status(self) -> Dict[str, Any]:
-        """Get API status with cost summary"""
         status = {
-            'available': self.openai_configured or self.claude_configured,
-            'openai_configured': self.openai_configured,
+            'available': self.claude_configured or self.openai_configured,
             'claude_configured': self.claude_configured,
-            'dual_ai_available': self.openai_configured and self.claude_configured,
+            'openai_configured': self.openai_configured,
+            'primary_provider': 'claude',
             'provider': self.provider.value,
             'cost_summary': self.cost_tracker.get_summary(),
             'message': ''
         }
-        
-        if status['dual_ai_available']:
-            status['message'] = 'Both OpenAI and Claude APIs are configured'
-        elif self.openai_configured:
-            status['message'] = 'OpenAI API is configured (Claude not available)'
+        if self.claude_configured and self.openai_configured:
+            status['message'] = 'Claude (primary) and OpenAI (fallback) both configured'
         elif self.claude_configured:
-            status['message'] = 'Claude API is configured (OpenAI not available)'
+            status['message'] = 'Claude API configured'
+        elif self.openai_configured:
+            status['message'] = 'OpenAI API configured (Claude key missing — add ANTHROPIC_API_KEY to secrets)'
         else:
-            status['message'] = 'No APIs configured'
-        
+            status['message'] = 'No APIs configured — add ANTHROPIC_API_KEY to Streamlit secrets'
         return status
-    
-    def _call_openai(self, prompt: str, system_prompt: str, mode: str = 'standard') -> Tuple[Optional[str], Optional[CostEstimate]]:
-        """Call OpenAI API with cost tracking"""
+
+    # ----------------------------------------------------------------
+    # Claude API call (direct HTTP — Anthropic Messages API)
+    # ----------------------------------------------------------------
+    def _call_claude(
+        self, prompt: str, system_prompt: str, mode: str = 'standard'
+    ) -> Tuple[Optional[str], Optional[CostEstimate]]:
+        """Call Anthropic Claude API with cost tracking."""
+        if not self.claude_configured:
+            return None, None
+
+        model = MODELS['claude'].get(mode, MODELS['claude']['standard'])
+        max_tokens = TOKEN_LIMITS.get(mode, TOKEN_LIMITS['standard'])
+        input_tokens = estimate_tokens(system_prompt + prompt)
+
+        headers = {
+            "Content-Type": "application/json",
+            "x-api-key": self.claude_key,
+            "anthropic-version": "2023-06-01"
+        }
+
+        payload = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": prompt}]
+        }
+
+        for attempt in range(MAX_RETRIES):
+            try:
+                response = (self.session or requests).post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers=headers,
+                    json=payload,
+                    timeout=API_TIMEOUT
+                )
+
+                if response.status_code == 200:
+                    result = response.json()
+                    content = result["content"][0]["text"].strip()
+
+                    usage = result.get("usage", {})
+                    actual_input = usage.get("input_tokens", input_tokens)
+                    actual_output = usage.get("output_tokens", len(content.split()))
+
+                    cost = calculate_cost(model, actual_input, actual_output)
+                    self.cost_tracker.add_cost(cost)
+                    return content, cost
+
+                elif response.status_code == 429:
+                    wait_time = min(2 ** attempt, 10)
+                    logger.warning(f"Claude rate limited, waiting {wait_time}s")
+                    time.sleep(wait_time)
+
+                elif response.status_code == 529:
+                    # Anthropic overloaded
+                    wait_time = min(2 ** attempt * 2, 20)
+                    logger.warning(f"Claude overloaded, waiting {wait_time}s")
+                    time.sleep(wait_time)
+
+                else:
+                    logger.error(f"Claude API error {response.status_code}: {response.text[:200]}")
+                    return None, None
+
+            except Exception as e:
+                logger.error(f"Claude call error: {e}")
+                if attempt == MAX_RETRIES - 1:
+                    return None, None
+                time.sleep(1)
+
+        return None, None
+
+    # ----------------------------------------------------------------
+    # OpenAI API call — optional fallback
+    # ----------------------------------------------------------------
+    def _call_openai(
+        self, prompt: str, system_prompt: str, mode: str = 'standard'
+    ) -> Tuple[Optional[str], Optional[CostEstimate]]:
+        """Call OpenAI API (optional fallback) with cost tracking."""
         if not self.openai_configured:
             return None, None
-        
+
         model = MODELS['openai'].get(mode, MODELS['openai']['standard'])
         max_tokens = TOKEN_LIMITS.get(mode, TOKEN_LIMITS['standard'])
-        
-        # Estimate input tokens
         input_tokens = estimate_tokens(system_prompt + prompt)
-        
+
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.openai_key}"
         }
-        
+
         payload = {
             "model": model,
             "messages": [
@@ -454,7 +528,7 @@ class EnhancedAIAnalyzer:
             "temperature": 0.1,
             "max_tokens": max_tokens
         }
-        
+
         for attempt in range(MAX_RETRIES):
             try:
                 response = (self.session or requests).post(
@@ -463,358 +537,172 @@ class EnhancedAIAnalyzer:
                     json=payload,
                     timeout=API_TIMEOUT
                 )
-                
+
                 if response.status_code == 200:
                     result = response.json()
                     content = result["choices"][0]["message"]["content"].strip()
-                    
-                    # Get actual token usage
+
                     usage = result.get("usage", {})
                     actual_input = usage.get("prompt_tokens", input_tokens)
                     actual_output = usage.get("completion_tokens", len(content.split()))
-                    
-                    # Calculate cost
+
                     cost = calculate_cost(model, actual_input, actual_output)
                     self.cost_tracker.add_cost(cost)
-                    
                     return content, cost
-                
+
                 elif response.status_code == 429:
                     wait_time = min(2 ** attempt, 10)
                     logger.warning(f"OpenAI rate limited, waiting {wait_time}s")
                     time.sleep(wait_time)
-                    continue
-                
+
                 else:
                     logger.error(f"OpenAI API error {response.status_code}")
                     return None, None
-                    
+
             except Exception as e:
                 logger.error(f"OpenAI call error: {e}")
                 if attempt == MAX_RETRIES - 1:
                     return None, None
                 time.sleep(1)
-        
+
         return None, None
-    
-    def _call_claude(self, prompt: str, system_prompt: str, mode: str = 'standard') -> Tuple[Optional[str], Optional[CostEstimate]]:
-        """Call Claude API with cost tracking"""
-        if not self.claude_configured:
+
+    # ----------------------------------------------------------------
+    # Internal routing helper
+    # ----------------------------------------------------------------
+    def _route_call(
+        self, prompt: str, system_prompt: str, mode: str
+    ) -> Tuple[Optional[str], Optional[CostEstimate]]:
+        """Route API call to the configured provider, Claude-first."""
+        p = self.provider
+
+        if p in (AIProvider.CLAUDE, AIProvider.CLAUDE_FAST):
+            eff_mode = 'fast' if p == AIProvider.CLAUDE_FAST else mode
+            return self._call_claude(prompt, system_prompt, eff_mode)
+
+        if p == AIProvider.CLAUDE_POWERFUL:
+            return self._call_claude(prompt, system_prompt, 'powerful')
+
+        if p in (AIProvider.OPENAI, AIProvider.OPENAI_FAST):
+            eff_mode = 'fast' if p == AIProvider.OPENAI_FAST else mode
+            return self._call_openai(prompt, system_prompt, eff_mode)
+
+        if p == AIProvider.OPENAI_POWERFUL:
+            return self._call_openai(prompt, system_prompt, 'powerful')
+
+        if p == AIProvider.FASTEST:
+            # Claude-first
+            if self.claude_configured:
+                result, cost = self._call_claude(prompt, system_prompt, 'fast')
+                if result:
+                    return result, cost
+            if self.openai_configured:
+                return self._call_openai(prompt, system_prompt, 'fast')
             return None, None
-        
-        model = MODELS['claude'].get(mode, MODELS['claude']['standard'])
-        max_tokens = TOKEN_LIMITS.get(mode, TOKEN_LIMITS['standard'])
-        
-        # Estimate input tokens
-        input_tokens = estimate_tokens(system_prompt + prompt)
-        
-        headers = {
-            "Content-Type": "application/json",
-            "x-api-key": self.claude_key,
-            "anthropic-version": "2023-06-01"
-        }
-        
-        payload = {
-            "model": model,
-            "max_tokens": max_tokens,
-            "temperature": 0.1,
-            "system": system_prompt,
-            "messages": [{"role": "user", "content": prompt}]
-        }
-        
-        for attempt in range(MAX_RETRIES):
-            try:
-                response = (self.session or requests).post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers=headers,
-                    json=payload,
-                    timeout=API_TIMEOUT
-                )
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    content = result["content"][0]["text"].strip()
-                    
-                    # Get actual token usage
-                    usage = result.get("usage", {})
-                    actual_input = usage.get("input_tokens", input_tokens)
-                    actual_output = usage.get("output_tokens", len(content.split()))
-                    
-                    # Calculate cost
-                    cost = calculate_cost(model, actual_input, actual_output)
-                    self.cost_tracker.add_cost(cost)
-                    
-                    return content, cost
-                
-                elif response.status_code == 429:
-                    wait_time = min(2 ** attempt, 10)
-                    logger.warning(f"Claude rate limited, waiting {wait_time}s")
-                    time.sleep(wait_time)
-                    continue
-                
-                else:
-                    logger.error(f"Claude API error {response.status_code}: {response.text}")
-                    return None, None
-                    
-            except Exception as e:
-                logger.error(f"Claude call error: {e}")
-                if attempt == MAX_RETRIES - 1:
-                    return None, None
-                time.sleep(1)
-        
-        return None, None
-    
+
+        if p == AIProvider.BOTH:
+            # Parallel calls, take longer/better response
+            futures = []
+            if self.claude_configured:
+                futures.append(self.executor.submit(self._call_claude, prompt, system_prompt, mode))
+            if self.openai_configured:
+                futures.append(self.executor.submit(self._call_openai, prompt, system_prompt, mode))
+
+            results = []
+            for future in as_completed(futures, timeout=API_TIMEOUT):
+                try:
+                    resp, cost = future.result()
+                    if resp:
+                        results.append((resp, cost))
+                except Exception as e:
+                    logger.error(f"Parallel call failed: {e}")
+
+            if results:
+                return max(results, key=lambda x: len(x[0]))
+            return None, None
+
+        # Default: Claude
+        return self._call_claude(prompt, system_prompt, mode)
+
+    # ----------------------------------------------------------------
+    # Public API
+    # ----------------------------------------------------------------
+    def generate_text(self, prompt: str, system_prompt: str, mode: str = 'chat') -> Optional[str]:
+        """Generate a single response for general analysis or chat use cases."""
+        response, _ = self._route_call(prompt, system_prompt, mode)
+        return response
+
     def summarize_batch(self, items: List[Dict[str, str]]) -> List[Dict[str, str]]:
-        """Summarize a batch of tickets for B2B reports"""
-        # Updated prompt: No word limit, focus on accuracy
-        system_prompt = "You are a customer service analyst. Summarize the return/replacement reason. Provide an accurate, detailed description of the 'Why' (e.g., 'Product defective', 'Customer changed mind', 'Wrong item sent'). Do not arbitrarily limit length; use as many words as necessary to fully capture the issue."
-        
+        """Summarize a batch of tickets for B2B reports."""
+        system_prompt = (
+            "You are a customer service analyst. Summarize the return/replacement reason. "
+            "Provide an accurate, detailed description of the 'Why' (e.g., 'Product defective', "
+            "'Customer changed mind', 'Wrong item sent'). Use as many words as needed to fully "
+            "capture the issue."
+        )
+
         futures = []
-        results = []
-        
         for item in items:
             prompt = f"Subject: {item.get('subject', '')}\nDetails: {item.get('details', '')}\nSummary:"
-            
-            # Default to fastest or configured
-            use_claude = self.claude_configured and (self.provider == AIProvider.CLAUDE or self.provider == AIProvider.FASTEST or self.provider == AIProvider.BOTH)
-            
-            if use_claude:
-                future = self.executor.submit(self._call_claude, prompt, system_prompt, 'summary')
-            elif self.openai_configured:
-                future = self.executor.submit(self._call_openai, prompt, system_prompt, 'summary')
-            else:
-                future = None
-                
+            future = self.executor.submit(self._call_claude, prompt, system_prompt, 'summary')
             futures.append((future, item))
-            
-        # Collect results
+
+        results = []
         for future, item in futures:
             summary = "Summary Unavailable"
-            if future:
-                try:
-                    resp, _ = future.result(timeout=API_TIMEOUT)
-                    if resp:
-                        summary = resp
-                except Exception as e:
-                    logger.error(f"Summary error: {e}")
-            
-            # Return new dict with summary
+            try:
+                resp, _ = future.result(timeout=API_TIMEOUT)
+                if resp:
+                    summary = resp
+            except Exception as e:
+                logger.error(f"Summary error: {e}")
+
             result_item = item.copy()
             result_item['summary'] = summary
             results.append(result_item)
-            
+
         return results
 
-    def generate_text(self, prompt: str, system_prompt: str, mode: str = 'chat') -> Optional[str]:
-        """Generate a single response for general analysis or chat use cases."""
-        # Handle new fast provider options
-        if self.provider == AIProvider.OPENAI_FAST:
-            if self.openai_configured:
-                response, _ = self._call_openai(prompt, system_prompt, 'fast')
-                return response
-            return None
-
-        if self.provider == AIProvider.OPENAI_POWERFUL:
-            if self.openai_configured:
-                response, _ = self._call_openai(prompt, system_prompt, 'powerful')
-                return response
-            return None
-
-        if self.provider == AIProvider.CLAUDE_FAST:
-            if self.claude_configured:
-                response, _ = self._call_claude(prompt, system_prompt, 'fast')
-                return response
-            return None
-
-        if self.provider == AIProvider.CLAUDE_POWERFUL:
-            if self.claude_configured:
-                response, _ = self._call_claude(prompt, system_prompt, 'powerful')
-                return response
-            return None
-
-        # Original FASTEST logic (auto-select fastest available)
-        if self.provider == AIProvider.FASTEST:
-            if self.claude_configured:
-                response, _ = self._call_claude(prompt, system_prompt, 'fast')
-                if response:
-                    return response
-            if self.openai_configured:
-                response, _ = self._call_openai(prompt, system_prompt, 'fast')
-                if response:
-                    return response
-            return None
-
-        # BOTH provider (consensus)
-        if self.provider == AIProvider.BOTH:
-            openai_future = None
-            claude_future = None
-
-            if self.openai_configured:
-                openai_future = self.executor.submit(
-                    self._call_openai, prompt, system_prompt, mode
-                )
-            if self.claude_configured:
-                claude_future = self.executor.submit(
-                    self._call_claude, prompt, system_prompt, mode
-                )
-
-            openai_result = None
-            claude_result = None
-
-            if openai_future:
-                try:
-                    openai_response, _ = openai_future.result(timeout=API_TIMEOUT)
-                    if openai_response:
-                        openai_result = openai_response
-                except Exception as e:
-                    logger.error(f"OpenAI chat call failed: {e}")
-
-            if claude_future:
-                try:
-                    claude_response, _ = claude_future.result(timeout=API_TIMEOUT)
-                    if claude_response:
-                        claude_result = claude_response
-                except Exception as e:
-                    logger.error(f"Claude chat call failed: {e}")
-
-            if openai_result and claude_result:
-                return max([openai_result, claude_result], key=len)
-            return openai_result or claude_result
-
-        # Standard providers
-        if self.provider == AIProvider.OPENAI and self.openai_configured:
-            response, _ = self._call_openai(prompt, system_prompt, mode)
-            return response
-        if self.provider == AIProvider.CLAUDE and self.claude_configured:
-            response, _ = self._call_claude(prompt, system_prompt, mode)
-            return response
-
-        return None
-
-    def categorize_return(self, complaint: str, fba_reason: str = None, mode: str = 'standard') -> Tuple[str, float, str, str]:
-        """Categorize return with speed optimization"""
+    def categorize_return(
+        self, complaint: str, fba_reason: str = None, mode: str = 'standard'
+    ) -> Tuple[str, float, str, str]:
+        """Categorize return with speed optimization."""
         if not complaint or not complaint.strip():
             return 'Other/Miscellaneous', 0.1, 'none', 'en'
-        
-        # Try quick categorization first
+
+        # Quick pattern match first
         quick_category = quick_categorize(complaint, fba_reason)
         if quick_category:
             self.cost_tracker.add_quick_categorization()
             severity = detect_severity(complaint, quick_category)
             return quick_category, 0.9, severity, 'en'
-        
-        # AI categorization
+
         self.cost_tracker.add_ai_categorization()
-        
-        # Build prompts
-        system_prompt = """You are a medical device quality expert. Categorize this return into exactly one category from the provided list. Respond with ONLY the category name, nothing else."""
-        
+
+        system_prompt = (
+            "You are a medical device quality expert. Categorize this return into exactly one "
+            "category from the provided list. Respond with ONLY the category name, nothing else."
+        )
+
         categories_list = '\n'.join(f'- {cat}' for cat in MEDICAL_DEVICE_CATEGORIES)
-        
-        user_prompt = f"""Complaint: "{complaint}"
+        user_prompt = f'Complaint: "{complaint}"\n\nCategories:\n{categories_list}\n\nCategory:'
 
-Categories:
-{categories_list}
+        response, _ = self._route_call(user_prompt, system_prompt, mode)
 
-Category:"""
-        
-        # Choose provider based on mode
-        if self.provider == AIProvider.FASTEST:
-            # Use Claude Haiku for speed
-            if self.claude_configured:
-                response, _ = self._call_claude(user_prompt, system_prompt, 'standard')
-                if response:
-                    category = self._clean_category_response(response)
-                    severity = detect_severity(complaint, category)
-                    return category, 0.85, severity, 'en'
-            # Fallback to OpenAI
-            if self.openai_configured:
-                response, _ = self._call_openai(user_prompt, system_prompt, 'standard')
-                if response:
-                    category = self._clean_category_response(response)
-                    severity = detect_severity(complaint, category)
-                    return category, 0.85, severity, 'en'
-        
-        elif self.provider == AIProvider.BOTH:
-            # Parallel calls for consensus
-            openai_future = None
-            claude_future = None
-            
-            if self.openai_configured:
-                openai_future = self.executor.submit(
-                    self._call_openai, user_prompt, system_prompt, mode
-                )
-            
-            if self.claude_configured:
-                claude_future = self.executor.submit(
-                    self._call_claude, user_prompt, system_prompt, mode
-                )
-            
-            # Get results
-            openai_result = None
-            claude_result = None
-            
-            if openai_future:
-                try:
-                    openai_response, _ = openai_future.result(timeout=API_TIMEOUT)
-                    if openai_response:
-                        openai_result = self._clean_category_response(openai_response)
-                except Exception as e:
-                    logger.error(f"OpenAI parallel call failed: {e}")
-            
-            if claude_future:
-                try:
-                    claude_response, _ = claude_future.result(timeout=API_TIMEOUT)
-                    if claude_response:
-                        claude_result = self._clean_category_response(claude_response)
-                except Exception as e:
-                    logger.error(f"Claude parallel call failed: {e}")
-            
-            # Determine final category
-            if openai_result and claude_result:
-                if openai_result == claude_result:
-                    category = openai_result
-                    confidence = 0.95
-                else:
-                    # Prefer non-misc category
-                    category = openai_result if openai_result != 'Other/Miscellaneous' else claude_result
-                    confidence = 0.8
-            elif openai_result:
-                category = openai_result
-                confidence = 0.85
-            elif claude_result:
-                category = claude_result
-                confidence = 0.85
-            else:
-                category = 'Other/Miscellaneous'
-                confidence = 0.3
-            
+        if response:
+            category = self._clean_category_response(response)
             severity = detect_severity(complaint, category)
-            return category, confidence, severity, 'en'
-        
-        else:
-            # Single provider mode
-            if self.provider == AIProvider.OPENAI and self.openai_configured:
-                response, _ = self._call_openai(user_prompt, system_prompt, mode)
-            elif self.provider == AIProvider.CLAUDE and self.claude_configured:
-                response, _ = self._call_claude(user_prompt, system_prompt, mode)
-            else:
-                response = None
-            
-            if response:
-                category = self._clean_category_response(response)
-                severity = detect_severity(complaint, category)
-                return category, 0.85, severity, 'en'
-        
-        # Final fallback
+            return category, 0.85, severity, 'en'
+
         return 'Other/Miscellaneous', 0.3, 'none', 'en'
-    
-    def categorize_batch(self, complaints: List[Dict[str, Any]], mode: str = 'standard') -> List[Dict[str, Any]]:
-        """Categorize multiple complaints in parallel for speed"""
+
+    def categorize_batch(
+        self, complaints: List[Dict[str, Any]], mode: str = 'standard'
+    ) -> List[Dict[str, Any]]:
+        """Categorize multiple complaints in parallel for speed."""
         results = []
         futures = []
-        
-        # Submit all tasks
+
         for item in complaints:
             future = self.executor.submit(
                 self.categorize_return,
@@ -823,120 +711,95 @@ Category:"""
                 mode
             )
             futures.append((future, item))
-        
-        # Collect results
+
         for future, item in futures:
             try:
                 category, confidence, severity, language = future.result(timeout=API_TIMEOUT)
                 result = item.copy()
-                result.update({
-                    'category': category,
-                    'confidence': confidence,
-                    'severity': severity,
-                    'language': language
-                })
+                result.update({'category': category, 'confidence': confidence, 'severity': severity, 'language': language})
                 results.append(result)
             except Exception as e:
                 logger.error(f"Batch categorization error: {e}")
                 result = item.copy()
-                result.update({
-                    'category': 'Other/Miscellaneous',
-                    'confidence': 0.1,
-                    'severity': 'none',
-                    'language': 'en'
-                })
+                result.update({'category': 'Other/Miscellaneous', 'confidence': 0.1, 'severity': 'none', 'language': 'en'})
                 results.append(result)
-        
+
         return results
-    
+
     def _clean_category_response(self, response: str) -> str:
-        """Clean AI response to extract category"""
-        response = response.strip().strip('"').strip("'").strip()
-        
-        # Remove common prefixes
-        prefixes = ['Category:', 'The category is:', 'Answer:']
-        for prefix in prefixes:
+        """Clean AI response to extract category name."""
+        response = response.strip().strip('"').strip("'")
+
+        for prefix in ['Category:', 'The category is:', 'Answer:']:
             if response.startswith(prefix):
                 response = response[len(prefix):].strip()
-        
-        # Try exact match first
+
         for valid_cat in MEDICAL_DEVICE_CATEGORIES:
-            if response == valid_cat or response.lower() == valid_cat.lower():
+            if response.lower() == valid_cat.lower():
                 return valid_cat
-        
-        # Try partial match
+
         response_lower = response.lower()
         for valid_cat in MEDICAL_DEVICE_CATEGORIES:
             if valid_cat.lower() in response_lower:
                 return valid_cat
-        
-        # Try keyword match
+
         for valid_cat in MEDICAL_DEVICE_CATEGORIES:
             cat_words = set(valid_cat.lower().split('/'))
             response_words = set(response_lower.split())
             if cat_words & response_words:
                 return valid_cat
-        
+
         return 'Other/Miscellaneous'
-    
+
     def get_cost_summary(self) -> Dict[str, Any]:
-        """Get detailed cost summary"""
         return self.cost_tracker.get_summary()
-    
+
     def estimate_remaining_cost(self, remaining_items: int) -> float:
-        """Estimate cost for remaining items"""
-        # Consider quick categorization rate
-        summary = self.cost_tracker.get_summary()
-        quick_rate = self.cost_tracker.quick_categorizations / max(1, 
-            self.cost_tracker.quick_categorizations + self.cost_tracker.ai_categorizations)
-        
-        # Adjust estimate based on quick categorization rate
+        quick_rate = self.cost_tracker.quick_categorizations / max(
+            1, self.cost_tracker.quick_categorizations + self.cost_tracker.ai_categorizations
+        )
         ai_items = remaining_items * (1 - quick_rate)
-        
         if self.cost_tracker.api_calls > 0:
             avg_cost = self.cost_tracker.total_cost / self.cost_tracker.api_calls
             return round(avg_cost * ai_items, 2)
-        
         return 0.0
-    
+
     def __del__(self):
-        """Cleanup resources"""
         if hasattr(self, 'executor'):
             self.executor.shutdown(wait=False)
         if hasattr(self, 'session') and self.session:
             self.session.close()
 
-# Helper functions for batch processing
+
+# ---------------------------------------------------------------------------
+# Batch processing helper
+# ---------------------------------------------------------------------------
 def process_dataframe_in_batches(df, analyzer, batch_size=20):
-    """Process dataframe in batches for speed"""
+    """Process dataframe in batches for speed."""
     total_rows = len(df)
     results = []
-    
+
     for i in range(0, total_rows, batch_size):
-        batch = df.iloc[i:i+batch_size]
+        batch = df.iloc[i:i + batch_size]
         batch_data = []
-        
         for idx, row in batch.iterrows():
             batch_data.append({
                 'index': idx,
                 'complaint': str(row.get('Complaint', '')),
                 'fba_reason': str(row.get('FBA_Reason_Code', '')) if 'FBA_Reason_Code' in row else None
             })
-        
-        # Process batch
         batch_results = analyzer.categorize_batch(batch_data)
         results.extend(batch_results)
-    
+
     return results
 
+
 # =============================================================================
-# DEEP DIVE ANALYSIS - Investigation Method Recommendations
+# DEEP DIVE ANALYSIS — Investigation Method Recommendations
 # =============================================================================
 
 class DeepDiveAnalyzer:
-    """
-    Advanced AI analysis for flagged products with investigation recommendations
-    """
+    """Advanced AI analysis for flagged products with investigation recommendations."""
 
     def __init__(self, ai_analyzer: 'EnhancedAIAnalyzer'):
         self.ai = ai_analyzer
@@ -957,7 +820,7 @@ class DeepDiveAnalyzer:
                 'name': 'Root Cause Analysis (Formal RCA)',
                 'best_for': 'Critical/high-impact issues requiring comprehensive investigation',
                 'use_when': 'Safety concerns, regulatory issues, or high-value/high-volume problems',
-                'example': 'Medical device failure with potential patient impact - requires full documentation'
+                'example': 'Medical device failure with potential patient impact — requires full documentation'
             },
             'fmea': {
                 'name': 'FMEA (Failure Mode Effects Analysis)',
@@ -969,7 +832,7 @@ class DeepDiveAnalyzer:
                 'name': '8D Problem Solving',
                 'best_for': 'Team-based problem solving with customer impact',
                 'use_when': 'Customer complaints requiring cross-functional investigation and containment',
-                'example': 'Batch quality issue affecting multiple customers - requires immediate containment + long-term fix'
+                'example': 'Batch quality issue affecting multiple customers — requires immediate containment + long-term fix'
             },
             'pareto': {
                 'name': 'Pareto Analysis (80/20 Rule)',
@@ -979,34 +842,24 @@ class DeepDiveAnalyzer:
             }
         }
 
-    def analyze_flagged_product(self, product_data: Dict[str, Any],
-                                 product_docs: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
-        """
-        Deep dive analysis of a flagged product with AI recommendations
-
-        Args:
-            product_data: Product screening result data
-            product_docs: Optional dict with keys like 'manual', 'amazon_listing', 'ifu', 'specs'
-
-        Returns:
-            Comprehensive analysis with investigation recommendations
-        """
-
-        # Build context for AI
-        context_parts = []
-        context_parts.append(f"Product: {product_data.get('product_name', 'Unknown')}")
-        context_parts.append(f"SKU: {product_data.get('sku', 'Unknown')}")
-        context_parts.append(f"Category: {product_data.get('category', 'Unknown')}")
-        context_parts.append(f"Return Rate: {product_data.get('return_rate', 0):.1%}")
-        context_parts.append(f"Category Threshold: {product_data.get('category_threshold', 0):.1%}")
-        context_parts.append(f"Units Sold: {product_data.get('units_sold', 0):,}")
-        context_parts.append(f"Units Returned: {product_data.get('units_returned', 0):,}")
-        context_parts.append(f"Landed Cost: ${product_data.get('landed_cost', 0):.2f}")
+    def analyze_flagged_product(
+        self, product_data: Dict[str, Any], product_docs: Optional[Dict[str, str]] = None
+    ) -> Dict[str, Any]:
+        """Deep dive analysis of a flagged product with AI recommendations."""
+        context_parts = [
+            f"Product: {product_data.get('product_name', 'Unknown')}",
+            f"SKU: {product_data.get('sku', 'Unknown')}",
+            f"Category: {product_data.get('category', 'Unknown')}",
+            f"Return Rate: {product_data.get('return_rate', 0):.1%}",
+            f"Category Threshold: {product_data.get('category_threshold', 0):.1%}",
+            f"Units Sold: {product_data.get('units_sold', 0):,}",
+            f"Units Returned: {product_data.get('units_returned', 0):,}",
+            f"Landed Cost: ${product_data.get('landed_cost', 0):.2f}",
+        ]
 
         if product_data.get('triggers'):
             context_parts.append(f"Triggers: {', '.join(product_data['triggers'])}")
 
-        # Add document content if provided
         doc_context = ""
         if product_docs:
             if 'manual' in product_docs:
@@ -1016,7 +869,6 @@ class DeepDiveAnalyzer:
             if 'ifu' in product_docs:
                 doc_context += f"\n\nInstructions for Use:\n{product_docs['ifu'][:1000]}"
 
-        # AI prompt for deep analysis
         prompt = f"""Analyze this flagged medical device product and provide investigation guidance:
 
 {chr(10).join(context_parts)}
@@ -1047,47 +899,44 @@ Provide a comprehensive analysis with:
 
 Format your response as structured JSON."""
 
-        try:
-            # Use generate_text instead of _call_api
-            system_prompt = "You are a quality investigation expert. Analyze the provided quality issue and recommend the best investigation approach."
-            response = self.ai.generate_text(prompt, system_prompt, mode='chat')
+        system_prompt = (
+            "You are a quality investigation expert. Analyze the provided quality issue and "
+            "recommend the best investigation approach. Respond in JSON format."
+        )
 
+        try:
+            response = self.ai.generate_text(prompt, system_prompt, mode='chat')
             if not response:
                 raise Exception("No response from AI")
 
-            # Try to parse as JSON, fallback to text
             try:
-                import json
                 analysis = json.loads(response)
-            except:
-                # If not JSON, structure the text response
-                analysis = {
-                    'raw_analysis': response,
-                    'recommended_method': self._extract_method_from_text(response),
-                    'risk_level': self._extract_risk_level(response)
-                }
-
+            except json.JSONDecodeError:
+                # Claude sometimes wraps JSON in markdown fences
+                cleaned = re.sub(r'```(?:json)?\s*|\s*```', '', response).strip()
+                try:
+                    analysis = json.loads(cleaned)
+                except json.JSONDecodeError:
+                    analysis = {
+                        'raw_analysis': response,
+                        'recommended_method': self._extract_method_from_text(response),
+                        'risk_level': self._extract_risk_level(response)
+                    }
             return analysis
 
         except Exception as e:
             logger.error(f"Deep dive analysis failed: {e}")
-            return {
-                'error': str(e),
-                'recommended_method': 'rca',  # Default to RCA for safety
-                'risk_level': 'Medium'
-            }
+            return {'error': str(e), 'recommended_method': 'rca', 'risk_level': 'Medium'}
 
     def _extract_method_from_text(self, text: str) -> str:
-        """Extract investigation method from text response"""
         text_lower = text.lower()
         for method_key in self.investigation_methods:
             if method_key.replace('_', ' ') in text_lower or \
                self.investigation_methods[method_key]['name'].lower() in text_lower:
                 return method_key
-        return 'rca'  # Default
+        return 'rca'
 
     def _extract_risk_level(self, text: str) -> str:
-        """Extract risk level from text"""
         text_lower = text.lower()
         if 'critical' in text_lower or 'immediate' in text_lower or 'urgent' in text_lower:
             return 'Critical'
@@ -1095,48 +944,32 @@ Format your response as structured JSON."""
             return 'High'
         elif 'low' in text_lower:
             return 'Low'
-        else:
-            return 'Medium'
+        return 'Medium'
 
     def get_method_details(self, method_key: str) -> Dict[str, str]:
-        """Get detailed info about an investigation method"""
         return self.investigation_methods.get(method_key, self.investigation_methods['rca'])
 
 
 # =============================================================================
-# BULK OPERATIONS - Multiple Products
+# BULK OPERATIONS — Multiple Products
 # =============================================================================
 
 class BulkOperationsManager:
-    """
-    Handles bulk generation of vendor emails and investigation plans
-    """
+    """Handles bulk generation of vendor emails and investigation plans."""
 
     def __init__(self, vendor_email_generator, investigation_plan_generator):
         self.vendor_gen = vendor_email_generator
         self.investigation_gen = investigation_plan_generator
 
-    def generate_bulk_vendor_emails(self, flagged_products: List[Dict[str, Any]],
-                                     vendor_info: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """
-        Generate vendor emails for multiple flagged products
-
-        Args:
-            flagged_products: List of product screening results
-            vendor_info: Common vendor information
-
-        Returns:
-            List of email objects with subject, body, product info
-        """
+    def generate_bulk_vendor_emails(
+        self, flagged_products: List[Dict[str, Any]], vendor_info: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
         emails = []
-
         for product in flagged_products:
             try:
                 email_result = self.vendor_gen.generate_email(
-                    product_data=product,
-                    vendor_info=vendor_info
+                    product_data=product, vendor_info=vendor_info
                 )
-
                 emails.append({
                     'sku': product.get('sku'),
                     'product_name': product.get('product_name'),
@@ -1146,41 +979,22 @@ class BulkOperationsManager:
                     'return_rate': product.get('return_rate', 0),
                     'units_affected': product.get('units_returned', 0)
                 })
-
             except Exception as e:
                 logger.error(f"Failed to generate email for {product.get('sku')}: {e}")
-                emails.append({
-                    'sku': product.get('sku'),
-                    'product_name': product.get('product_name'),
-                    'error': str(e)
-                })
-
+                emails.append({'sku': product.get('sku'), 'product_name': product.get('product_name'), 'error': str(e)})
         return emails
 
-    def generate_bulk_investigation_plans(self, flagged_products: List[Dict[str, Any]],
-                                           investigation_methods: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
-        """
-        Generate investigation plans for multiple flagged products
-
-        Args:
-            flagged_products: List of product screening results
-            investigation_methods: Optional dict mapping SKU to investigation method
-
-        Returns:
-            List of investigation plan objects
-        """
+    def generate_bulk_investigation_plans(
+        self, flagged_products: List[Dict[str, Any]], investigation_methods: Optional[Dict[str, str]] = None
+    ) -> List[Dict[str, Any]]:
         plans = []
-
         for product in flagged_products:
             try:
                 sku = product.get('sku')
                 method = investigation_methods.get(sku) if investigation_methods else None
-
                 plan_result = self.investigation_gen.generate_plan(
-                    product_data=product,
-                    investigation_method=method
+                    product_data=product, investigation_method=method
                 )
-
                 plans.append({
                     'sku': sku,
                     'product_name': product.get('product_name'),
@@ -1190,36 +1004,26 @@ class BulkOperationsManager:
                     'team_required': plan_result.get('team', []),
                     'priority': product.get('action', 'Monitor')
                 })
-
             except Exception as e:
                 logger.error(f"Failed to generate plan for {product.get('sku')}: {e}")
-                plans.append({
-                    'sku': product.get('sku'),
-                    'product_name': product.get('product_name'),
-                    'error': str(e)
-                })
-
+                plans.append({'sku': product.get('sku'), 'product_name': product.get('product_name'), 'error': str(e)})
         return plans
 
     def export_bulk_emails_to_csv(self, emails: List[Dict[str, Any]]) -> str:
-        """Export emails to CSV format"""
         import pandas as pd
         import io
-
         df = pd.DataFrame(emails)
-        csv_buffer = io.StringIO()
-        df.to_csv(csv_buffer, index=False)
-        return csv_buffer.getvalue()
+        buf = io.StringIO()
+        df.to_csv(buf, index=False)
+        return buf.getvalue()
 
     def export_bulk_plans_to_csv(self, plans: List[Dict[str, Any]]) -> str:
-        """Export plans to CSV format"""
         import pandas as pd
         import io
-
         df = pd.DataFrame(plans)
-        csv_buffer = io.StringIO()
-        df.to_csv(csv_buffer, index=False)
-        return csv_buffer.getvalue()
+        buf = io.StringIO()
+        df.to_csv(buf, index=False)
+        return buf.getvalue()
 
 
 # Export all components
@@ -1236,5 +1040,7 @@ __all__ = [
     'process_dataframe_in_batches',
     'quick_categorize',
     'DeepDiveAnalyzer',
-    'BulkOperationsManager'
+    'BulkOperationsManager',
+    'MODELS',
+    'PRICING',
 ]
