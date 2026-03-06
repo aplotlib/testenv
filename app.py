@@ -106,7 +106,7 @@ try:
         ALL_COLUMNS_LEADERSHIP, ALL_COLUMNS_COMPANY_WIDE,
         LEADERSHIP_ONLY_COLUMNS, generate_demo_cases as generate_demo_tracker_cases
     )
-    from quality_resources import QUALITY_RESOURCES, get_total_link_count
+    from quality_resources import QUALITY_RESOURCES, get_total_link_count     from b2b_zendesk_reporting import render_b2b_zendesk_reporting
     # Import new modular components
     from advanced_analytics import (
         render_root_cause_analysis as rca_render,
@@ -634,7 +634,7 @@ def initialize_session_state():
         'b2b_processing_complete': False,
         'b2b_export_data': None,
         'b2b_export_filename': None,
-        'b2b_perf_mode': 'Small (< 500 rows)',
+        'b2b_perf_mode': 'Small (< 500 rows)',                  # Tab: B2B Zendesk Reporting         'zendesk_report': None,         'zendesk_kpis': None,         'zendesk_date_label': None,         'zendesk_filtered': None,
         
         # Tab 3: Quality Screening - NEW
         'qc_mode': 'Lite',
@@ -10120,7 +10120,7 @@ TASK_DEFINITIONS = {
         'title': 'Global Recall Surveillance',
         'subtitle': 'Worldwide Regulatory Intelligence',
         'description': 'Scan FDA, EU EMA, UK MHRA, Health Canada, ANVISA, CPSC, and global media for recalls, alerts, and safety signals affecting your products.',
-        'keywords': ['recall', 'recalls', 'surveillance', 'fda', 'mhra', 'ema', 'health canada', 'anvisa', 'cpsc', 'maude', 'adverse', 'alert', 'safety', 'global', 'worldwide'],
+        'keywords': ['recall', 'recalls', 'surveillance', 'fda', 'mhra', 'ema', 'health canada', 'anvisa', 'cpsc', 'maude', 'adverse', 'alert', 'safety', 'global', 'worldwide'],     },     'zendesk': {         'icon': '🎫',         'title': 'B2B Zendesk Reporting',         'subtitle': 'Quality Issue Analysis',         'description': 'Analyse Zendesk B2C quality-issue recordings. Produces a consolidated report grouped by Parent SKU sorted by issue occurrence.',         'keywords': ['zendesk', 'quality issues', 'customer service', 'quality report', 'b2c quality'],
     },
 }
 
@@ -10163,8 +10163,9 @@ def render_task_selector():
     row1 = st.columns(3)
     row2 = st.columns(3)
 
-    tasks_row1 = ['categorize', 'b2b', 'tracker']
-    tasks_row2 = ['screening', 'inventory', 'resources']
+    tasks_row1 = ['categorize', 'b2b', 'zendesk']
+    tasks_row2 = ['tracker', 'screening', 'inventory']
+    tasks_row3 = ['resources']
 
     def render_task_card(col, task_id, featured=False):
         """Render a single task card"""
@@ -10750,6 +10751,8 @@ def render_single_tool(task_id: str, provider_map: dict, provider_selection: str
         render_quality_resources()
     elif task_id == 'recalls':
         render_global_recall_surveillance()
+    elif task_id == 'zendesk':
+        render_b2b_zendesk_reporting()
 
 
 def render_all_tabs(provider_map: dict, provider_selection: str):
