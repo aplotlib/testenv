@@ -106,7 +106,8 @@ try:
         ALL_COLUMNS_LEADERSHIP, ALL_COLUMNS_COMPANY_WIDE,
         LEADERSHIP_ONLY_COLUMNS, generate_demo_cases as generate_demo_tracker_cases
     )
-    from quality_resources import QUALITY_RESOURCES, get_total_link_count     from b2b_zendesk_reporting import render_b2b_zendesk_reporting
+    from quality_resources import QUALITY_RESOURCES, get_total_link_count
+    from b2b_zendesk_reporting import render_b2b_zendesk_reporting
     # Import new modular components
     from advanced_analytics import (
         render_root_cause_analysis as rca_render,
