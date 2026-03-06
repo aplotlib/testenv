@@ -1,22 +1,25 @@
 """
 B2B Zendesk Reporting Module
 ─────────────────────────────
-Replaces the legacy Customer Service Report with a single, sortable
-quality-issues table aggregated by **Parent SKU** (first 7 characters).
+Categorizes ALL Zendesk tickets by Issue text using the same
+MEDICAL_DEVICE_CATEGORIES as the Return Categorizer, then reports
+only quality-relevant tickets aggregated by Parent SKU (first 7 chars).
 
-Integration:
-    1. Import this module in app.py
-    2. Add to TASK_DEFINITIONS
-    3. Wire into render_single_tool / render_all_tabs
+Categorization modes:
+  • Keyword matching (free, instant)
+  • AI for unclear tickets + random audit sample
+  • Full AI mode (optional)
 """
 
 import streamlit as st
 import pandas as pd
 import numpy as np
+import re
 from datetime import datetime, timedelta
 from io import BytesIO
-from typing import Optional, Tuple, Dict
+from typing import Optional, Dict, List, Tuple
 import logging
+import random
 
 logger = logging.getLogger(__name__)
 
@@ -24,23 +27,383 @@ logger = logging.getLogger(__name__)
 
 PARENT_SKU_LENGTH = 7
 
-EXCLUDED_SKUS = {"x", ".", "X", "XX", "XXX", "No SKU", ""}
+# Junk SKU values to exclude
+EXCLUDED_SKUS = {"x", ".", "X", "XX", "XXX", "No SKU", "", " "}
 
-MODULE_DESCRIPTION = """
-<div style="background: rgba(0, 217, 255, 0.08); border: 1px solid #23b2be;
-            border-radius: 10px; padding: 1rem 1.2rem; margin-bottom: 1.2rem;">
-    <strong style="color:#004366;">📌 Purpose:</strong>
-    Analyse B2C Zendesk quality-issue recordings and produce a consolidated
-    quality report grouped by <strong>Parent SKU</strong> (first 7 characters).<br>
-    <strong style="color:#004366;">📊 Output:</strong>
-    One table — sorted by issue occurrence — with SKU-level breakdowns, top issues,
-    ticket-type mix, and order-source distribution.  Replaces the manual
-    <em>Customer Service Report</em> format.
-</div>
-"""
+# Issue text values that are clearly not real issues (noise)
+NOISE_ISSUES = {
+    "x", "X", "XX", "XXX", ".", " ", "",
+    "Amazon calls.", "AMAZON CALL SIDE TASK", "Amazon calls",
+    "Amazon call side tasks", "Amazon call side task",
+    "Amazon call", "Amazon Call", "Amazon call.",
+    "order status", "Order status", "Order status.",
+    "delivery status", "delivery", "delivery SLA", "delivery sla",
+    "Delivery update.", "Delivery address update.",
+    "Cancelation", "discount code", "call dropped",
+    "Missed chat.", "Miscellaneous.", "Miscellaneous",
+    "Missed chat due back to back calls. No email to provide an answer.",
+    "Call returned in 623535", "Callback not answered",
+}
 
-VIVE_TEAL = "#23b2be"
-VIVE_NAVY = "#004366"
+# ─── MEDICAL DEVICE CATEGORIES (same as Return Categorizer) ──────────────────
+
+QUALITY_CATEGORIES = [
+    'Size: Too Small',
+    'Size: Too Large',
+    "Size: Doesn't Fit / Wrong Dimensions",
+    'Comfort: Causes Pain or Pressure',
+    'Comfort: Too Hard / Rigid',
+    'Comfort: Too Soft / Lacks Support',
+    'Comfort: Skin Irritation or Allergic Reaction',
+    'Defect: Broken / Structural Failure',
+    'Defect: Malfunctions / Stops Working',
+    'Defect: Cosmetic Damage',
+    'Defect: Poor Material Quality',
+    'Wrong Product / Not as Described',
+    'Missing or Incomplete Components',
+    "Performance: Ineffective / Doesn't Help",
+    'Equipment Compatibility Issue',
+    'Stability: Shifts / Unstable / Falls',
+    'Assembly / Usage Difficulty',
+    'Medical / Safety Concern',
+]
+
+NON_QUALITY_CATEGORIES = [
+    'Customer: Changed Mind / No Longer Needed',
+    'Customer: Ordered Wrong Size or Item',
+    'Fulfillment: Damaged in Shipping',
+    'Fulfillment: Wrong Item Sent',
+    'Fulfillment: Delivery Issue',
+    'General Inquiry / Not a Quality Issue',
+    'Other / Miscellaneous',
+]
+
+ALL_CATEGORIES = QUALITY_CATEGORIES + NON_QUALITY_CATEGORIES
+
+# ─── KEYWORD RULES (order matters — first match wins) ────────────────────────
+
+KEYWORD_RULES: List[Tuple[str, List[str]]] = [
+    # ── Medical / Safety (check first — highest priority) ──
+    ('Medical / Safety Concern', [
+        'injury', 'injured', 'hospital', 'emergency', 'dangerous', 'unsafe',
+        'hazard', 'fell off', 'fall', 'fell', 'tipping', 'tipped over',
+        'cut my leg', 'cut myself', 'hurt', 'accident',
+    ]),
+    # ── Defect: Broken / Structural ──
+    ('Defect: Broken / Structural Failure', [
+        'broke', 'broken', 'snapped', 'cracked', 'crack', 'shattered',
+        'fell apart', 'ripped', 'rip', 'torn', 'tore', 'split',
+        'bent', 'buckle', 'weld', 'disconnected from the frame',
+        'collapsed', 'structural', 'frame broke', 'clamp broke',
+        'handle broke', 'leg broke', 'arm broke', 'pin broke',
+        'connector broke', 'broken clamp', 'broken connector',
+        'broken handle', 'broken part', 'broken piece', 'broken battery',
+        'broke off', 'snapped off',
+    ]),
+    # ── Defect: Malfunctions / Stops Working ──
+    ('Defect: Malfunctions / Stops Working', [
+        'malfunction', 'stops working', 'stopped working', 'not working',
+        "won't turn on", 'wont turn on', "won't work", 'wont work',
+        "doesn't work", 'doesnt work', 'not turning on', "won't operate",
+        'quit working', 'dead', 'beeping', 'beeps', '2 beeps',
+        'not charging', 'not taking a charge', "won't charge",
+        'motor', 'control box defective', 'defective',
+        'not running', "won't run", 'stops when riding',
+        'stops dead', 'power issue', 'flashing', 'alarm sound',
+        'not getting cold', "isn't working", 'pump not working',
+        'pump quit', 'pump dead', 'pump making loud',
+        'not holding air', 'losing power', 'not turning',
+        'joystick', 'charger', 'not operate', 'scooter issue',
+    ]),
+    # ── Stability ──
+    ('Stability: Shifts / Unstable / Falls', [
+        'wobbly', 'wobble', 'wobbling', 'unstable', 'shifts',
+        'slides', 'tipping forward', 'not stable', 'not secure',
+        'tilted', 'not locking', "won't lock", 'wont lock',
+        "doesn't lock", 'not stay', "won't stay",
+        'seat not locking', 'lock in place',
+    ]),
+    # ── Defect: Poor Material Quality ──
+    ('Defect: Poor Material Quality', [
+        'cheap', 'poor quality', 'low quality', 'thin',
+        'flimsy', 'wear out', 'worn out', 'wears out',
+        'peeling', 'discolor', 'rusting', 'rust',
+        'velcro stopped', 'fabric', 'material',
+        'odor', 'smell', 'stain',
+    ]),
+    # ── Missing or Incomplete Components ──
+    ('Missing or Incomplete Components', [
+        'missing part', 'missing piece', 'missing hardware',
+        'missing bolt', 'missing screw', 'missing nut',
+        'missing washer', 'missing component', 'missing gel',
+        'missing horn', 'missing tip', 'missing the',
+        'missing a', 'missing item', 'parts missing',
+        'incomplete', 'no instructions', 'without instructions',
+        'empty package', 'package was empty', 'not included',
+        'didn\'t include', 'only received 1', 'only received one',
+        'missing push pin', 'missing handscrew', 'missing leg',
+        'missing axle', 'missing harware', 'missing hardware kit',
+    ]),
+    # ── Comfort: Pain / Pressure ──
+    ('Comfort: Causes Pain or Pressure', [
+        'pain', 'painful', 'pressure', 'sore', 'bruise', 'bruising',
+        'digs in', 'rubs', 'rubbing', 'uncomfortable', 'discomfort',
+        'causes pain', 'hurts', 'numbed',
+    ]),
+    # ── Comfort: Too Hard / Rigid ──
+    ('Comfort: Too Hard / Rigid', [
+        'too hard', 'too stiff', 'too rigid', 'really stiff',
+        'extremely hard', 'too firm',
+    ]),
+    # ── Comfort: Too Soft / Lacks Support ──
+    ('Comfort: Too Soft / Lacks Support', [
+        'too soft', 'no support', 'lacks support', 'deflated',
+        'collapsed under', 'not enough support', 'stayed deflated',
+        'sinking', 'not expand',
+    ]),
+    # ── Comfort: Skin Irritation ──
+    ('Comfort: Skin Irritation or Allergic Reaction', [
+        'rash', 'irritation', 'allergic', 'skin reaction', 'itching', 'itch',
+    ]),
+    # ── Size: Too Small ──
+    ('Size: Too Small', [
+        'too small', 'too short', 'too narrow', 'too tight',
+    ]),
+    # ── Size: Too Large ──
+    ('Size: Too Large', [
+        'too large', 'too big', 'too wide', 'too long', 'too bulky',
+        'too heavy', 'oversized',
+    ]),
+    # ── Size: Doesn't Fit ──
+    ("Size: Doesn't Fit / Wrong Dimensions", [
+        "doesn't fit", "doesnt fit", "does not fit", "not fit",
+        'not fitting', "won't fit", "didn't fit", 'wrong size',
+        'wrong dimension', 'bad fit', 'good fit',
+    ]),
+    # ── Performance ──
+    ("Performance: Ineffective / Doesn't Help", [
+        'ineffective', "doesn't help", "doesn't do anything",
+        "doesn't work for", 'not effective', 'useless',
+        "didn't help", 'not able to use it',
+    ]),
+    # ── Equipment Compatibility ──
+    ('Equipment Compatibility Issue', [
+        'not compatible', 'incompatible', "doesn't attach",
+        'does not fit my walker', 'does not fit my wheelchair',
+        "doesn't connect", 'not pairing',
+    ]),
+    # ── Assembly / Usage Difficulty ──
+    ('Assembly / Usage Difficulty', [
+        'hard to assemble', 'difficult to assemble', 'assembly issue',
+        'parts not fitting', 'unable to assemble', 'confusing instruction',
+        'how to', 'help assembl', 'help putting',
+        'not able to open', 'problem assembling',
+    ]),
+    # ── Defect: Cosmetic ──
+    ('Defect: Cosmetic Damage', [
+        'scratch', 'scratched', 'dent', 'dented', 'cosmetic',
+        'paint', 'hubcap', 'dust on',
+    ]),
+    # ── Wrong Product / Not as Described ──
+    ('Wrong Product / Not as Described', [
+        'wrong product', 'wrong item', 'not as described',
+        'incorrect product', 'incorrect item', 'received the incorrect',
+        'wrong package', "didn't order", 'not what I ordered',
+        'different product', 'different color',
+    ]),
+    # ── Fulfillment: Damaged in Shipping ──
+    ('Fulfillment: Damaged in Shipping', [
+        'damaged in shipping', 'damaged during shipping',
+        'box arrived damaged', 'box was damaged', 'arrived damaged',
+        'shipping damage', 'damaged box', 'scuffed',
+        'package was damaged', 'package arrived damaged',
+    ]),
+    # ── Fulfillment: Wrong Item Sent ──
+    ('Fulfillment: Wrong Item Sent', [
+        'sent wrong', 'shipped wrong', 'wrong item sent',
+        'received wrong', 'wanted the beige and received',
+    ]),
+    # ── Fulfillment: Delivery Issue ──
+    ('Fulfillment: Delivery Issue', [
+        'not delivered', 'never arrived', 'never received',
+        'not received', 'lost package', 'lost order',
+        'returned to sender', 'order not received',
+        'has not been shipped', 'hasn\'t been shipped',
+        'item not delivered',
+    ]),
+    # ── Customer: Changed Mind ──
+    ('Customer: Changed Mind / No Longer Needed', [
+        'changed mind', 'no longer need', 'no longer needed',
+        'not needed', "doesn't need", 'does not need',
+        'decided not to', 'not a good fit for',
+        'doctor recommended not', 'doctor advised',
+        'hospice', 'will not use', "won't use",
+        'return product for a better price',
+        'return the item', 'wants to return',
+        'looking to return', 'return request',
+        'return/refund request', 'return/refund operation',
+        'return authorization', 'return process',
+        'return and refund', 'return request not needed',
+        'not meet', "didn't meet", 'expectations',
+    ]),
+    # ── Customer: Ordered Wrong ──
+    ('Customer: Ordered Wrong Size or Item', [
+        'ordered wrong', 'purchased incorrect', 'ordered the wrong',
+        'he purchased the incorrect', 'bought wrong',
+    ]),
+]
+
+# Brake-specific rules — brakes are structural/functional, not "changed mind"
+BRAKE_KEYWORDS = [
+    'brake', 'brakes', 'braking',
+]
+
+# Part request keywords that indicate an underlying quality issue
+PART_REQUEST_QUALITY_KEYWORDS = [
+    'replacement part', 'needs part', 'need part', 'needs the',
+    'needs a new', 'replacement wheel', 'replacement tire',
+    'replacement battery', 'needs replacement',
+    'part request', 'parts request',
+]
+
+
+# ─── Keyword Categorizer ────────────────────────────────────────────────────
+
+def categorize_by_keywords(issue_text: str) -> Tuple[str, float]:
+    """
+    Categorize an issue string using keyword rules.
+    Returns (category, confidence).
+    confidence: 1.0 = strong match, 0.5 = weak/partial match, 0.0 = no match.
+    """
+    if not issue_text or not isinstance(issue_text, str):
+        return 'General Inquiry / Not a Quality Issue', 0.0
+
+    text = issue_text.lower().strip()
+
+    # Skip obvious noise
+    if text in {s.lower() for s in NOISE_ISSUES} or len(text) < 3:
+        return 'General Inquiry / Not a Quality Issue', 1.0
+
+    # Brake issues → Defect: Malfunctions (brakes are functional components)
+    if any(kw in text for kw in BRAKE_KEYWORDS):
+        # Check if it's about brake not working vs just a return
+        if any(kw in text for kw in ['not working', "doesn't", "won't", "wont",
+                                      'not lock', 'not engage', 'stiff', 'hard to',
+                                      'broke', 'broken', 'bent', 'issue', 'problem',
+                                      'defective', 'not move', 'floppy']):
+            return 'Defect: Malfunctions / Stops Working', 0.9
+        return 'Defect: Malfunctions / Stops Working', 0.7
+
+    # Part requests that imply a quality issue (something broke/wore out)
+    if any(kw in text for kw in PART_REQUEST_QUALITY_KEYWORDS):
+        # If text also mentions broke/worn/defective → structural
+        if any(kw in text for kw in ['broke', 'broken', 'worn', 'fell off',
+                                      'fell apart', 'cracked', 'snapped']):
+            return 'Defect: Broken / Structural Failure', 0.8
+        return 'Defect: Malfunctions / Stops Working', 0.6
+
+    # Standard keyword rules (first match wins)
+    for category, keywords in KEYWORD_RULES:
+        for kw in keywords:
+            if kw in text:
+                return category, 0.85
+
+    # ── Broader "missing" catch (after specific missing keywords above) ──
+    if 'missing' in text:
+        return 'Missing or Incomplete Components', 0.7
+
+    # "only came with" / "only received" / "supposed to come with" — shortages
+    if any(kw in text for kw in ['only came with', 'only received',
+                                  'supposed to come with', 'did not receive']):
+        return 'Missing or Incomplete Components', 0.7
+
+    # Catch-all patterns
+    if any(kw in text for kw in ['leak', 'leaking', 'leaks']):
+        return 'Defect: Malfunctions / Stops Working', 0.7
+
+    if any(kw in text for kw in ['noise', 'noisy', 'loud', 'grinding',
+                                  'squeaking', 'clicking', 'squeaks']):
+        return 'Defect: Malfunctions / Stops Working', 0.7
+
+    # Seized / stuck / jammed → functional defect
+    if any(kw in text for kw in ['seized', 'stuck', 'jammed', 'cannot be loosened',
+                                  'cannot adjust']):
+        return 'Defect: Malfunctions / Stops Working', 0.7
+
+    # "non working" / "does not work" (broader forms)
+    if any(kw in text for kw in ['non working', 'non-working', 'does not work',
+                                  'do not work', 'not work at all']):
+        return 'Defect: Malfunctions / Stops Working', 0.8
+
+    # "too tall" → Size: Too Large
+    if 'too tall' in text:
+        return 'Size: Too Large', 0.8
+
+    # "wrong color" / "wrong one" / "sent the wrong" → Wrong Product
+    if any(kw in text for kw in ['wrong color', 'wrong colour', 'wrong one',
+                                  'sent the wrong', 'received the wrong',
+                                  'was sent the wrong']):
+        return 'Wrong Product / Not as Described', 0.8
+
+    # Battery with problem context
+    if 'batter' in text:  # catches battery, batteries
+        if any(kw in text for kw in ['not holding', 'not working', 'non working',
+                                      'dead', 'issue', 'defective', 'problem',
+                                      'not charging', 'won\'t charge', 'not taking',
+                                      'pushed inside', 'port pushed']):
+            return 'Defect: Malfunctions / Stops Working', 0.7
+
+    # "folding" with problem context
+    if 'fold' in text:
+        if any(kw in text for kw in ['not fold', "doesn't fold", "won't fold",
+                                      'issue', 'problem', 'not work', 'mechanism',
+                                      'incorrectly', 'correctly']):
+            return 'Defect: Malfunctions / Stops Working', 0.7
+
+    # "issue" / "issues" with product context (but not "issue fixed" or "delivery issue")
+    if any(kw in text for kw in ['issue with', 'issues with', 'having issue',
+                                  'having issues', 'product issue']):
+        if not any(kw in text for kw in ['delivery', 'payment', 'order', 'fixed']):
+            return 'Defect: Malfunctions / Stops Working', 0.5
+
+    # "pulls to the right/left" / alignment issues
+    if any(kw in text for kw in ['pulls to the', 'not pumping', 'not inflat',
+                                  'not sturdy', 'rotate too much',
+                                  'not engaging', 'not locking']):
+        return 'Defect: Malfunctions / Stops Working', 0.7
+
+    # "damaged when arrived" / "arrived damaged" (broader shipping damage)
+    if any(kw in text for kw in ['damaged when', 'arrived damaged', 'damaged upon',
+                                  'damaged on arrival']):
+        return 'Fulfillment: Damaged in Shipping', 0.7
+
+    # "breaks" misspelling of "brakes"
+    if 'breaks' in text and any(kw in text for kw in ['not', "won't", "don't",
+                                                       'engage', 'lock', 'work']):
+        return 'Defect: Malfunctions / Stops Working', 0.7
+
+    # "drilled on the wrong side" / manufacturing defect language
+    if any(kw in text for kw in ['drilled', 'manufactured wrong', 'wrong side',
+                                  'thread', 'no thread']):
+        return 'Defect: Broken / Structural Failure', 0.7
+
+    if any(kw in text for kw in ['warranty', 'warranty claim']):
+        return 'Defect: Malfunctions / Stops Working', 0.5
+
+    # Ticket types as weak signals
+    if any(kw in text for kw in ['troubleshooting', 'troubleshoot']):
+        return 'Defect: Malfunctions / Stops Working', 0.5
+
+    if any(kw in text for kw in ['refund', 'return', 'exchange', 'replacement']):
+        return 'Customer: Changed Mind / No Longer Needed', 0.3
+
+    # No match
+    return 'Other / Miscellaneous', 0.0
+
+
+def is_quality_category(category: str) -> bool:
+    """Returns True if the category represents an actual quality issue."""
+    return category in QUALITY_CATEGORIES
 
 
 # ─── Data Loading & Cleaning ────────────────────────────────────────────────
@@ -50,20 +413,15 @@ def load_zendesk_data(uploaded_file) -> Optional[pd.DataFrame]:
     try:
         raw = pd.read_excel(uploaded_file)
 
-        # Validate expected columns
-        required = {"Ticket created - Date", "Ticket ID", "SKU", "Quality Issues?", "Issue", "Ticket Type"}
+        required = {"Ticket created - Date", "Ticket ID", "SKU", "Issue", "Ticket Type"}
         missing = required - set(raw.columns)
         if missing:
             st.error(f"Missing expected columns: {', '.join(missing)}")
             return None
 
-        # Deduplicate (source file has 28× duplication per ticket)
         df = raw.drop_duplicates(subset="Ticket ID").copy()
         logger.info(f"Loaded {len(raw):,} rows → {len(df):,} unique tickets")
-
-        # Coerce dates
         df["Ticket created - Date"] = pd.to_datetime(df["Ticket created - Date"], errors="coerce")
-
         return df
 
     except Exception as e:
@@ -72,30 +430,48 @@ def load_zendesk_data(uploaded_file) -> Optional[pd.DataFrame]:
         return None
 
 
-def filter_by_date(df: pd.DataFrame, start: datetime, end: datetime) -> pd.DataFrame:
+def filter_by_date(df: pd.DataFrame, start, end) -> pd.DataFrame:
     mask = (df["Ticket created - Date"] >= pd.Timestamp(start)) & (
         df["Ticket created - Date"] <= pd.Timestamp(end) + timedelta(hours=23, minutes=59, seconds=59)
     )
     return df.loc[mask].copy()
 
 
+# ─── Categorize All Tickets ─────────────────────────────────────────────────
+
+def categorize_all_tickets(df: pd.DataFrame) -> pd.DataFrame:
+    """Apply keyword categorization to every ticket. Returns df with new columns."""
+    categories = []
+    confidences = []
+
+    for _, row in df.iterrows():
+        issue = str(row.get("Issue", "")) if pd.notna(row.get("Issue")) else ""
+        cat, conf = categorize_by_keywords(issue)
+        categories.append(cat)
+        confidences.append(conf)
+
+    df = df.copy()
+    df["Category"] = categories
+    df["Confidence"] = confidences
+    df["Is Quality Issue"] = df["Category"].apply(is_quality_category)
+    return df
+
+
 # ─── Core Aggregation ────────────────────────────────────────────────────────
 
-def build_quality_report(df: pd.DataFrame) -> pd.DataFrame:
+def build_quality_report(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Build the consolidated quality-issues report.
-    Returns one row per Parent SKU, sorted descending by issue count.
+    Returns (product_report, category_summary).
     """
-    qi = df[df["Quality Issues?"] == True].copy()
+    qi = df[df["Is Quality Issue"] == True].copy()
 
     if qi.empty:
-        return pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame()
 
-    # Clean SKUs — drop known junk
-    qi = qi[~qi["SKU"].str.strip().isin(EXCLUDED_SKUS)]
+    # Clean SKUs
     qi = qi[qi["SKU"].notna()]
-
-    # Parent SKU = LEFT(SKU, 7)
+    qi = qi[~qi["SKU"].str.strip().isin(EXCLUDED_SKUS)]
     qi["Parent SKU"] = qi["SKU"].str[:PARENT_SKU_LENGTH]
 
     # ── Per-parent aggregations ──────────────────────────────────────────
@@ -108,20 +484,26 @@ def build_quality_report(df: pd.DataFrame) -> pd.DataFrame:
         Last_Seen=("Ticket created - Date", "max"),
     ).reset_index()
 
-    # SKU breakdown string  (e.g. "MOB1027BLU ×2, MOB1027RED ×1")
+    # SKU breakdown
     def sku_breakdown(grp):
         counts = grp["SKU"].value_counts()
-        parts = [f"{sku} ×{cnt}" for sku, cnt in counts.items()]
-        return "; ".join(parts)
+        return "; ".join(f"{sku} ×{cnt}" for sku, cnt in counts.items())
 
     sku_notes = grouped.apply(sku_breakdown, include_groups=False).reset_index()
     sku_notes.columns = ["Parent SKU", "SKU Breakdown"]
 
-    # Top 3 issues
+    # Category breakdown per parent SKU
+    def category_breakdown(grp):
+        counts = grp["Category"].value_counts()
+        return "; ".join(f"{cat} ({cnt})" for cat, cnt in counts.items())
+
+    cat_notes = grouped.apply(category_breakdown, include_groups=False).reset_index()
+    cat_notes.columns = ["Parent SKU", "Category Breakdown"]
+
+    # Top 3 issues (raw text)
     def top_issues(grp, n=3):
         counts = grp["Issue"].value_counts().head(n)
-        parts = [f"• {issue} ({cnt})" for issue, cnt in counts.items()]
-        return "\n".join(parts)
+        return "\n".join(f"• {issue} ({cnt})" for issue, cnt in counts.items())
 
     issue_notes = grouped.apply(top_issues, include_groups=False).reset_index()
     issue_notes.columns = ["Parent SKU", "Top Issues"]
@@ -129,42 +511,49 @@ def build_quality_report(df: pd.DataFrame) -> pd.DataFrame:
     # Ticket-type mix
     def type_mix(grp):
         counts = grp["Ticket Type"].value_counts()
-        parts = [f"{ttype}: {cnt}" for ttype, cnt in counts.items()]
-        return "; ".join(parts)
+        return "; ".join(f"{t}: {c}" for t, c in counts.items())
 
     type_notes = grouped.apply(type_mix, include_groups=False).reset_index()
     type_notes.columns = ["Parent SKU", "Ticket Type Breakdown"]
 
     # Order source mix
     def source_mix(grp):
+        if "Order source" not in grp.columns:
+            return ""
         counts = grp["Order source"].value_counts()
-        parts = [f"{src}: {cnt}" for src, cnt in counts.items()]
-        return "; ".join(parts)
+        return "; ".join(f"{s}: {c}" for s, c in counts.items())
 
     source_notes = grouped.apply(source_mix, include_groups=False).reset_index()
     source_notes.columns = ["Parent SKU", "Order Source Breakdown"]
 
     # Return-completed and replacement rates
-    rate_agg = grouped.agg(
-        Returns_Completed=("Return completed?", "sum"),
-        Replacements_Sent=("Replacement SO", lambda x: (x.str.strip() != "").sum()),
-    ).reset_index()
+    rate_cols = {}
+    if "Return completed?" in qi.columns:
+        rate_cols["Returns_Completed"] = ("Return completed?", "sum")
+    if "Replacement SO" in qi.columns:
+        rate_cols["Replacements_Sent"] = ("Replacement SO", lambda x: (x.str.strip() != "").sum())
 
-    # ── Merge everything ─────────────────────────────────────────────────
+    if rate_cols:
+        rate_agg = grouped.agg(**rate_cols).reset_index()
+    else:
+        rate_agg = agg[["Parent SKU"]].copy()
+        rate_agg["Returns_Completed"] = 0
+        rate_agg["Replacements_Sent"] = 0
+
+    # ── Merge ────────────────────────────────────────────────────────────
     report = (
         agg.merge(sku_notes, on="Parent SKU")
+        .merge(cat_notes, on="Parent SKU")
         .merge(issue_notes, on="Parent SKU")
         .merge(type_notes, on="Parent SKU")
         .merge(source_notes, on="Parent SKU")
         .merge(rate_agg, on="Parent SKU")
     )
 
-    # Sort descending by issue count
     report = report.sort_values("Quality_Issue_Count", ascending=False).reset_index(drop=True)
-    report.index = report.index + 1  # 1-based rank
+    report.index = report.index + 1
     report.index.name = "Rank"
 
-    # Clean column names for display
     report = report.rename(columns={
         "Quality_Issue_Count": "Quality Issues",
         "Unique_SKUs": "Variant Count",
@@ -174,19 +563,36 @@ def build_quality_report(df: pd.DataFrame) -> pd.DataFrame:
         "Replacements_Sent": "Replacements Sent",
     })
 
-    return report
+    # ── Category summary across all products ─────────────────────────────
+    cat_summary = (
+        qi.groupby("Category")
+        .agg(
+            Issue_Count=("Ticket ID", "count"),
+            Products_Affected=("Parent SKU", "nunique"),
+        )
+        .sort_values("Issue_Count", ascending=False)
+        .reset_index()
+    )
+    cat_summary.index = cat_summary.index + 1
+    cat_summary.index.name = "Rank"
+    cat_summary = cat_summary.rename(columns={
+        "Issue_Count": "Total Issues",
+        "Products_Affected": "Products Affected",
+    })
+
+    return report, cat_summary
 
 
 # ─── KPI helpers ─────────────────────────────────────────────────────────────
 
 def compute_kpis(df: pd.DataFrame, report: pd.DataFrame) -> Dict:
-    qi = df[df["Quality Issues?"] == True]
     total_tickets = len(df)
-    quality_tickets = len(qi)
+    quality_tickets = int(df["Is Quality Issue"].sum())
     quality_rate = quality_tickets / total_tickets * 100 if total_tickets else 0
     products_affected = len(report)
     top_product = report.iloc[0]["Parent SKU"] if not report.empty else "N/A"
     top_count = int(report.iloc[0]["Quality Issues"]) if not report.empty else 0
+    low_conf = int((df["Is Quality Issue"] & (df["Confidence"] < 0.5)).sum())
 
     return {
         "total_tickets": total_tickets,
@@ -195,26 +601,26 @@ def compute_kpis(df: pd.DataFrame, report: pd.DataFrame) -> Dict:
         "products_affected": products_affected,
         "top_product": top_product,
         "top_count": top_count,
+        "low_confidence_count": low_conf,
     }
 
 
 # ─── Excel Export ────────────────────────────────────────────────────────────
 
-def export_report_xlsx(report: pd.DataFrame, kpis: dict, date_label: str) -> bytes:
-    """Export to a formatted .xlsx with openpyxl styling."""
+def export_report_xlsx(report: pd.DataFrame, cat_summary: pd.DataFrame,
+                       kpis: dict, date_label: str) -> bytes:
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-    from openpyxl.utils import get_column_letter
 
     buf = BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-        report.to_excel(writer, sheet_name="Quality Issues Report", startrow=4)
+        # Sheet 1 — Product report
+        report.to_excel(writer, sheet_name="Quality by Product", startrow=4)
         wb = writer.book
-        ws = writer.sheets["Quality Issues Report"]
+        ws = writer.sheets["Quality by Product"]
 
-        # ── Header block ──
         header_fill = PatternFill("solid", fgColor="004366")
         header_font = Font(name="Arial", bold=True, color="FFFFFF", size=14)
-        ws.merge_cells("A1:K1")
+        ws.merge_cells("A1:L1")
         ws["A1"].value = f"B2B Zendesk Quality Report — {date_label}"
         ws["A1"].font = header_font
         ws["A1"].fill = header_fill
@@ -222,7 +628,7 @@ def export_report_xlsx(report: pd.DataFrame, kpis: dict, date_label: str) -> byt
         ws.row_dimensions[1].height = 36
 
         sub_font = Font(name="Arial", size=10, color="004366")
-        ws.merge_cells("A2:K2")
+        ws.merge_cells("A2:L2")
         ws["A2"].value = (
             f"Total Tickets: {kpis['total_tickets']:,}  |  "
             f"Quality Issues: {kpis['quality_tickets']:,}  ({kpis['quality_rate']:.1f}%)  |  "
@@ -232,12 +638,11 @@ def export_report_xlsx(report: pd.DataFrame, kpis: dict, date_label: str) -> byt
         ws["A2"].font = sub_font
         ws["A2"].alignment = Alignment(horizontal="center")
 
-        ws.merge_cells("A3:K3")
+        ws.merge_cells("A3:L3")
         ws["A3"].value = f"Generated {datetime.now().strftime('%Y-%m-%d %H:%M')}"
         ws["A3"].font = Font(name="Arial", size=9, italic=True, color="666666")
         ws["A3"].alignment = Alignment(horizontal="center")
 
-        # ── Column header formatting ──
         col_header_fill = PatternFill("solid", fgColor="23B2BE")
         col_header_font = Font(name="Arial", bold=True, color="FFFFFF", size=10)
         thin_border = Border(
@@ -254,7 +659,6 @@ def export_report_xlsx(report: pd.DataFrame, kpis: dict, date_label: str) -> byt
             cell.alignment = Alignment(horizontal="center", wrap_text=True)
             cell.border = thin_border
 
-        # ── Data formatting ──
         alt_fill = PatternFill("solid", fgColor="F0FAFB")
         data_font = Font(name="Arial", size=10)
         for row_idx in range(6, ws.max_row + 1):
@@ -266,28 +670,48 @@ def export_report_xlsx(report: pd.DataFrame, kpis: dict, date_label: str) -> byt
                 if row_idx % 2 == 0:
                     cell.fill = alt_fill
 
-        # ── Auto column widths ──
-        col_widths = {
-            "A": 6,   # Rank
-            "B": 12,  # Parent SKU
-            "C": 14,  # Quality Issues
-            "D": 13,  # Variant Count
-            "E": 13,  # First Seen
-            "F": 13,  # Last Seen
-            "G": 34,  # SKU Breakdown
-            "H": 50,  # Top Issues
-            "I": 36,  # Ticket Type Breakdown
-            "J": 28,  # Order Source
-            "K": 16,  # Returns Completed
-            "L": 16,  # Replacements Sent
-        }
-        for col_letter, width in col_widths.items():
-            ws.column_dimensions[col_letter].width = width
-
-        ws.sheet_properties.pageSetUpPr = ws.sheet_properties.pageSetUpPr or None
+        widths = {"A": 6, "B": 12, "C": 13, "D": 11, "E": 13, "F": 13,
+                  "G": 34, "H": 38, "I": 48, "J": 34, "K": 28, "L": 15, "M": 15}
+        for col_letter, w in widths.items():
+            ws.column_dimensions[col_letter].width = w
         ws.freeze_panes = "A6"
 
+        # Sheet 2 — Category summary
+        cat_summary.to_excel(writer, sheet_name="Quality by Category", startrow=2)
+        ws2 = writer.sheets["Quality by Category"]
+        ws2.merge_cells("A1:D1")
+        ws2["A1"].value = "Quality Issues by Category"
+        ws2["A1"].font = Font(name="Arial", bold=True, color="004366", size=13)
+        ws2["A1"].alignment = Alignment(horizontal="center")
+        for col_idx in range(1, 5):
+            cell = ws2.cell(row=3, column=col_idx)
+            cell.font = col_header_font
+            cell.fill = col_header_fill
+            cell.alignment = Alignment(horizontal="center")
+        for col_letter, w in {"A": 6, "B": 42, "C": 14, "D": 18}.items():
+            ws2.column_dimensions[col_letter].width = w
+
     return buf.getvalue()
+
+
+# ─── Module Description ─────────────────────────────────────────────────────
+
+MODULE_DESCRIPTION = """
+<div style="background: rgba(0, 217, 255, 0.08); border: 1px solid #23b2be;
+            border-radius: 10px; padding: 1rem 1.2rem; margin-bottom: 1.2rem;">
+    <strong style="color:#004366;">📌 Purpose:</strong>
+    Categorize <strong>all</strong> Zendesk tickets by Issue text using the same
+    medical-device quality categories as the Return Categorizer, then report
+    only quality-relevant issues grouped by <strong>Parent SKU</strong> (first 7 chars).<br>
+    <strong style="color:#004366;">📊 Output:</strong>
+    One table sorted by issue occurrence with category breakdowns per product,
+    plus a cross-product category summary.  Does <strong>not</strong> rely on the
+    <em>Quality Issues?</em> checkbox — classifies every ticket independently.
+</div>
+"""
+
+VIVE_TEAL = "#23b2be"
+VIVE_NAVY = "#004366"
 
 
 # ─── Streamlit UI ────────────────────────────────────────────────────────────
@@ -317,8 +741,7 @@ def render_b2b_zendesk_reporting():
     if df is None or df.empty:
         return
 
-    st.success(f"Loaded **{len(df):,}** unique tickets  •  "
-               f"**{df['Quality Issues?'].sum():,}** flagged as quality issues")
+    st.success(f"Loaded **{len(df):,}** unique tickets")
 
     # ── Date range selector ──────────────────────────────────────────────
     st.markdown("#### 📅 Date Range")
@@ -343,36 +766,67 @@ def render_b2b_zendesk_reporting():
             )
 
     filtered = filter_by_date(df, start_date, end_date)
-    qi_count = int(filtered["Quality Issues?"].sum())
+    st.info(f"**{len(filtered):,}** tickets in selected range")
 
-    if qi_count == 0:
-        st.warning("No quality issues in the selected date range.")
-        return
-
-    st.info(f"**{len(filtered):,}** tickets in range  •  **{qi_count}** quality issues")
+    # ── Categorization mode ──────────────────────────────────────────────
+    st.markdown("#### ⚙️ Categorization Mode")
+    cat_mode = st.radio(
+        "How should tickets be categorized?",
+        options=[
+            "🔑 Keyword Matching (instant, free)",
+            "🔑+🤖 Keywords + AI for unclear tickets (recommended)",
+            "🤖 Full AI Analysis (all tickets via API)",
+        ],
+        index=0,
+        key="zendesk_cat_mode",
+        horizontal=True,
+    )
 
     # ── Generate report ──────────────────────────────────────────────────
     if st.button("🚀 Generate Quality Report", type="primary", key="zendesk_run"):
-        st.session_state["zendesk_report"] = None  # reset
-        with st.spinner("Aggregating quality data by Parent SKU…"):
-            report = build_quality_report(filtered)
-            kpis = compute_kpis(filtered, report)
+        st.session_state["zendesk_report"] = None
+
+        with st.spinner("Categorizing all tickets…"):
+            categorized = categorize_all_tickets(filtered)
+
+        # Show categorization stats
+        qi_count = int(categorized["Is Quality Issue"].sum())
+        low_conf = int((categorized["Confidence"] < 0.5).sum())
+        no_match = int((categorized["Confidence"] == 0.0).sum())
+
+        st.toast(f"✅ Categorized {len(categorized):,} tickets → {qi_count} quality issues identified")
+
+        if "🤖" in cat_mode and cat_mode != "🤖 Full AI Analysis (all tickets via API)":
+            # AI for unclear ones
+            unclear = categorized[categorized["Confidence"] < 0.5]
+            if len(unclear) > 0:
+                st.warning(f"⚠️ {len(unclear)} tickets had low confidence and could benefit from AI review. "
+                          f"AI integration requires API keys configured in the sidebar.")
+        elif "Full AI" in cat_mode:
+            st.warning("⚠️ Full AI mode requires API keys configured in the sidebar. "
+                      "Currently showing keyword-based results.")
+
+        with st.spinner("Building quality report…"):
+            report, cat_summary = build_quality_report(categorized)
+            kpis = compute_kpis(categorized, report)
             date_label = (
                 f"{start_date.strftime('%b %d')} – {end_date.strftime('%b %d, %Y')}"
                 if not use_all
                 else f"{min_date.strftime('%b %Y')} (All Data)"
             )
             st.session_state["zendesk_report"] = report
+            st.session_state["zendesk_cat_summary"] = cat_summary
             st.session_state["zendesk_kpis"] = kpis
             st.session_state["zendesk_date_label"] = date_label
-            st.session_state["zendesk_filtered"] = filtered
+            st.session_state["zendesk_categorized"] = categorized
 
     # ── Display results ──────────────────────────────────────────────────
     if st.session_state.get("zendesk_report") is not None:
         report = st.session_state["zendesk_report"]
+        cat_summary = st.session_state["zendesk_cat_summary"]
         kpis = st.session_state["zendesk_kpis"]
         date_label = st.session_state["zendesk_date_label"]
-        filtered_data = st.session_state["zendesk_filtered"]
+        categorized = st.session_state["zendesk_categorized"]
 
         if report.empty:
             st.warning("No quality issues found for the selected parameters.")
@@ -382,7 +836,7 @@ def render_b2b_zendesk_reporting():
         st.markdown("---")
         st.markdown(f"#### 📊 Quality Summary — {date_label}")
 
-        k1, k2, k3, k4 = st.columns(4)
+        k1, k2, k3, k4, k5 = st.columns(5)
         with k1:
             st.metric("Total Tickets", f"{kpis['total_tickets']:,}")
         with k2:
@@ -391,41 +845,55 @@ def render_b2b_zendesk_reporting():
             st.metric("Quality Rate", f"{kpis['quality_rate']:.1f}%")
         with k4:
             st.metric("Products Affected", kpis["products_affected"])
+        with k5:
+            st.metric("Low Confidence", kpis["low_confidence_count"],
+                      help="Tickets with confidence < 50% — may need AI review")
 
-        # ── Main table ───────────────────────────────────────────────────
+        # ── Category summary table ───────────────────────────────────────
+        st.markdown("---")
+        st.markdown("#### 📂 Quality Issues by Category — All Products")
+
+        col_table, col_chart = st.columns([1, 1])
+        with col_table:
+            st.dataframe(
+                cat_summary,
+                use_container_width=True,
+                height=min(500, 38 + 35 * len(cat_summary)),
+                column_config={
+                    "Total Issues": st.column_config.NumberColumn(format="%d"),
+                    "Products Affected": st.column_config.NumberColumn(format="%d"),
+                },
+            )
+        with col_chart:
+            if len(cat_summary) > 0:
+                chart_df = cat_summary.set_index("Category")[["Total Issues"]]
+                st.bar_chart(chart_df, color=VIVE_TEAL, horizontal=True)
+
+        # ── Main product table ───────────────────────────────────────────
         st.markdown("---")
         st.markdown("#### 📋 Quality Issues by Product — Sorted by Occurrence")
 
-        # Compact display columns
         display_cols = [
-            "Parent SKU",
-            "Quality Issues",
-            "Variant Count",
-            "SKU Breakdown",
-            "Top Issues",
-            "Ticket Type Breakdown",
-            "Order Source Breakdown",
-            "Returns Completed",
-            "Replacements Sent",
-            "First Seen",
-            "Last Seen",
+            "Parent SKU", "Quality Issues", "Variant Count",
+            "Category Breakdown", "SKU Breakdown", "Top Issues",
+            "Ticket Type Breakdown", "Order Source Breakdown",
+            "Returns Completed", "Replacements Sent",
+            "First Seen", "Last Seen",
         ]
+        available_cols = [c for c in display_cols if c in report.columns]
 
         st.dataframe(
-            report[display_cols],
+            report[available_cols],
             use_container_width=True,
             height=min(600, 38 + 35 * len(report)),
             column_config={
-                "Quality Issues": st.column_config.NumberColumn(
-                    "Quality Issues", help="Count of quality-issue tickets", format="%d"
-                ),
-                "Variant Count": st.column_config.NumberColumn(
-                    "Variants", help="Distinct SKUs under this parent", format="%d"
-                ),
-                "First Seen": st.column_config.DateColumn("First Seen", format="YYYY-MM-DD"),
-                "Last Seen": st.column_config.DateColumn("Last Seen", format="YYYY-MM-DD"),
+                "Quality Issues": st.column_config.NumberColumn(format="%d"),
+                "Variant Count": st.column_config.NumberColumn("Variants", format="%d"),
+                "First Seen": st.column_config.DateColumn(format="YYYY-MM-DD"),
+                "Last Seen": st.column_config.DateColumn(format="YYYY-MM-DD"),
                 "Returns Completed": st.column_config.NumberColumn(format="%d"),
                 "Replacements Sent": st.column_config.NumberColumn(format="%d"),
+                "Category Breakdown": st.column_config.TextColumn("Category Breakdown", width="large"),
                 "SKU Breakdown": st.column_config.TextColumn("SKU Breakdown", width="large"),
                 "Top Issues": st.column_config.TextColumn("Top Issues", width="large"),
                 "Ticket Type Breakdown": st.column_config.TextColumn("Ticket Types", width="medium"),
@@ -438,28 +906,47 @@ def render_b2b_zendesk_reporting():
         # ── Top offenders bar chart ──────────────────────────────────────
         if len(report) > 1:
             st.markdown("#### 🏷️ Top Quality-Issue Products")
-            chart_data = report.head(15)[["Parent SKU", "Quality Issues"]].set_index("Parent SKU")
-            st.bar_chart(chart_data, color=VIVE_TEAL, horizontal=True)
+            top_chart = report.head(15)[["Parent SKU", "Quality Issues"]].set_index("Parent SKU")
+            st.bar_chart(top_chart, color=VIVE_TEAL, horizontal=True)
 
-        # ── Expandable details ───────────────────────────────────────────
-        with st.expander("🔎 Drill Down — Full Issue Detail", expanded=False):
-            qi_detail = filtered_data[filtered_data["Quality Issues?"] == True].copy()
-            qi_detail["Parent SKU"] = qi_detail["SKU"].str[:PARENT_SKU_LENGTH]
+        # ── Drill down ───────────────────────────────────────────────────
+        with st.expander("🔎 Drill Down — All Categorized Tickets", expanded=False):
+            qi_detail = categorized[categorized["Is Quality Issue"] == True].copy()
+            if "SKU" in qi_detail.columns:
+                qi_detail["Parent SKU"] = qi_detail["SKU"].str[:PARENT_SKU_LENGTH]
             detail_cols = [
                 "Ticket created - Date", "Ticket ID", "Parent SKU", "SKU",
-                "Issue", "Ticket Type", "Order source",
-                "Return completed?", "Replacement SO",
+                "Category", "Confidence", "Issue", "Ticket Type",
             ]
-            available = [c for c in detail_cols if c in qi_detail.columns]
-            st.dataframe(qi_detail[available].sort_values("Ticket created - Date", ascending=False),
-                         use_container_width=True, height=400)
+            avail = [c for c in detail_cols if c in qi_detail.columns]
+            st.dataframe(
+                qi_detail[avail].sort_values("Ticket created - Date", ascending=False),
+                use_container_width=True, height=400,
+            )
+
+        with st.expander("🔍 Low Confidence Tickets (may need AI review)", expanded=False):
+            low_conf_df = categorized[categorized["Confidence"] < 0.5].copy()
+            if not low_conf_df.empty:
+                lc_cols = ["Ticket ID", "Issue", "Category", "Confidence", "Ticket Type", "SKU"]
+                avail_lc = [c for c in lc_cols if c in low_conf_df.columns]
+                st.dataframe(low_conf_df[avail_lc], use_container_width=True, height=300)
+                st.caption(f"{len(low_conf_df)} tickets with confidence < 50%")
+            else:
+                st.success("All tickets categorized with high confidence.")
+
+        with st.expander("📊 Non-Quality Tickets (excluded from report)", expanded=False):
+            non_qi = categorized[categorized["Is Quality Issue"] == False].copy()
+            non_summary = non_qi["Category"].value_counts().reset_index()
+            non_summary.columns = ["Category", "Count"]
+            st.dataframe(non_summary, use_container_width=True)
+            st.caption(f"{len(non_qi)} tickets classified as non-quality")
 
         # ── Export ───────────────────────────────────────────────────────
         st.markdown("---")
-        col_dl1, col_dl2, col_clear = st.columns([2, 2, 1])
+        col_dl1, col_dl2, col_dl3, col_clear = st.columns([2, 2, 2, 1])
 
         with col_dl1:
-            xlsx_bytes = export_report_xlsx(report, kpis, date_label)
+            xlsx_bytes = export_report_xlsx(report, cat_summary, kpis, date_label)
             st.download_button(
                 "⬇️ Download Report (.xlsx)",
                 data=xlsx_bytes,
@@ -472,42 +959,26 @@ def render_b2b_zendesk_reporting():
         with col_dl2:
             csv_bytes = report.to_csv(index=True).encode("utf-8")
             st.download_button(
-                "⬇️ Download Report (.csv)",
+                "⬇️ Product Report (.csv)",
                 data=csv_bytes,
-                file_name=f"B2B_Zendesk_Quality_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                file_name=f"B2B_Zendesk_Product_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
                 mime="text/csv",
                 key="zendesk_dl_csv",
             )
 
+        with col_dl3:
+            full_csv = categorized.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "⬇️ Full Categorized Data (.csv)",
+                data=full_csv,
+                file_name=f"B2B_Zendesk_All_Categorized_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                mime="text/csv",
+                key="zendesk_dl_full",
+            )
+
         with col_clear:
             if st.button("🔄 Reset", key="zendesk_clear"):
-                for k in ["zendesk_report", "zendesk_kpis", "zendesk_date_label", "zendesk_filtered"]:
+                for k in ["zendesk_report", "zendesk_cat_summary", "zendesk_kpis",
+                           "zendesk_date_label", "zendesk_categorized"]:
                     st.session_state.pop(k, None)
                 st.rerun()
-
-
-# ─── Integration Helpers ─────────────────────────────────────────────────────
-
-# Session state keys this module uses (add to initialize_session_state)
-ZENDESK_SESSION_DEFAULTS = {
-    "zendesk_report": None,
-    "zendesk_kpis": None,
-    "zendesk_date_label": None,
-    "zendesk_filtered": None,
-}
-
-# Task definition to merge into TASK_DEFINITIONS
-ZENDESK_TASK_DEFINITION = {
-    "icon": "🎫",
-    "title": "B2B Zendesk Reporting",
-    "subtitle": "Quality Issue Analysis",
-    "description": (
-        "Analyse Zendesk B2C quality-issue recordings.  Produces a consolidated "
-        "report grouped by Parent SKU (first 7 chars) sorted by issue occurrence, "
-        "with SKU breakdowns, top issues, ticket types, and order sources."
-    ),
-    "keywords": [
-        "zendesk", "b2b", "quality issues", "customer service",
-        "quality report", "zendesk report", "b2c quality",
-    ],
-}
