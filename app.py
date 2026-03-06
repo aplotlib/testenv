@@ -635,7 +635,15 @@ def initialize_session_state():
         'b2b_processing_complete': False,
         'b2b_export_data': None,
         'b2b_export_filename': None,
-        'b2b_perf_mode': 'Small (< 500 rows)',                  # Tab: B2B Zendesk Reporting         'zendesk_report': None,         'zendesk_kpis': None,         'zendesk_date_label': None,         'zendesk_filtered': None,
+        'b2b_perf_mode': 'Small (< 500 rows)',                  
+
+        # Tab: B2B Zendesk Reporting
+        'zendesk_report': None,
+        'zendesk_cat_summary': None,
+        'zendesk_kpis': None,
+        'zendesk_date_label': None,
+        'zendesk_filtered': None,
+        'zendesk_categorized': None,
         
         # Tab 3: Quality Screening - NEW
         'qc_mode': 'Lite',
