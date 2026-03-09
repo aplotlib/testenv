@@ -472,5 +472,183 @@ Thank you for your partnership.
         return report
 
 
+def render_multilingual_comms_tab():
+    """Streamlit UI for the Multilingual Vendor Communications tool."""
+    import streamlit as st
+
+    st.markdown("### 🌍 Multilingual Vendor Communications")
+    st.markdown(
+        "Generate AI-powered CAPA requests, RCA emails, and quality reports "
+        "for international vendors in their preferred language."
+    )
+
+    # Try to get communicator from session state (set up in main())
+    communicator: Optional[MultilingualVendorCommunicator] = st.session_state.get(
+        'multilingual_communicator'
+    )
+    if communicator is None:
+        communicator = MultilingualVendorCommunicator()
+
+    # ── Sidebar-like configuration in an expander ──────────────────────────
+    with st.expander("⚙️ Communication Settings", expanded=True):
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            comm_type = st.selectbox(
+                "Communication Type",
+                ["CAPA Request", "RCA Request", "Quality Report"],
+                key="ml_comm_type",
+            )
+        with col2:
+            language_names = {li["name"]: lang for lang, li in LANGUAGE_INFO.items()}
+            lang_name = st.selectbox(
+                "Target Language",
+                list(language_names.keys()),
+                key="ml_target_lang",
+            )
+            target_language = language_names[lang_name]
+        with col3:
+            eng_level = st.selectbox(
+                "Recipient English Level",
+                [e.value for e in EnglishLevel],
+                index=2,
+                key="ml_eng_level",
+            )
+            english_level = EnglishLevel(eng_level)
+
+    # ── Product / Issue Details ────────────────────────────────────────────
+    st.markdown("#### Product & Issue Details")
+
+    col_a, col_b = st.columns(2)
+    with col_a:
+        sku = st.text_input("SKU / Part Number", value="", key="ml_sku")
+        product_name = st.text_input("Product Name", value="", key="ml_product")
+        vendor_region = st.text_input("Vendor Region", value="China", key="ml_region")
+    with col_b:
+        issue_summary = st.text_area(
+            "Issue Summary", height=100, key="ml_issue",
+            placeholder="Brief description of the quality issue…"
+        )
+        defect_description = st.text_area(
+            "Defect Description", height=100, key="ml_defect",
+            placeholder="Detailed defect or failure mode…"
+        )
+
+    if comm_type in ("CAPA Request", "RCA Request"):
+        col_c, col_d = st.columns(2)
+        with col_c:
+            return_rate = st.number_input(
+                "Return / Defect Rate (%)", min_value=0.0, max_value=100.0,
+                value=5.0, step=0.1, key="ml_rate"
+            )
+        with col_d:
+            units_affected = st.number_input(
+                "Units Affected", min_value=0, value=100, key="ml_units"
+            )
+        severity = st.selectbox(
+            "Severity", ["critical", "major", "minor"], index=1, key="ml_severity"
+        )
+
+    # ── Generate button ───────────────────────────────────────────────────
+    st.markdown("---")
+    if st.button("✉️ Generate Communication", type="primary", key="ml_generate"):
+        if not sku.strip() or not product_name.strip():
+            st.warning("Please enter a SKU and Product Name before generating.")
+        else:
+            with st.spinner("Generating communication…"):
+                try:
+                    if comm_type == "CAPA Request":
+                        result = communicator.generate_capa_email(
+                            sku=sku,
+                            product_name=product_name,
+                            issue_summary=issue_summary,
+                            return_rate=return_rate / 100,
+                            defect_description=defect_description,
+                            units_affected=int(units_affected),
+                            severity=severity,
+                            english_level=english_level,
+                            target_language=target_language,
+                            vendor_region=vendor_region,
+                        )
+                    elif comm_type == "RCA Request":
+                        result = communicator.generate_rca_request(
+                            sku=sku,
+                            product_name=product_name,
+                            defect_type=defect_description,
+                            occurrence_rate=return_rate / 100,
+                            sample_complaints=[issue_summary] if issue_summary else [],
+                            english_level=english_level,
+                            target_language=target_language,
+                            vendor_region=vendor_region,
+                        )
+                    else:  # Quality Report
+                        result = communicator.generate_quality_report(
+                            products=[{
+                                'sku': sku,
+                                'name': product_name,
+                                'return_rate': return_rate / 100 if 'return_rate' in dir() else 0,
+                                'issues': issue_summary,
+                            }],
+                            english_level=english_level,
+                            target_language=target_language,
+                            vendor_region=vendor_region,
+                        )
+                    st.session_state['ml_last_result'] = result
+                except Exception as exc:
+                    st.error(f"Generation failed: {exc}")
+
+    # ── Display result ────────────────────────────────────────────────────
+    result = st.session_state.get('ml_last_result')
+    if result:
+        ref = result.get('reference', '')
+        if ref:
+            st.caption(f"Reference: **{ref}**")
+
+        subject_en = result.get('subject_english', '')
+        subject_tr = result.get('subject_translated', '')
+        body_en = result.get('body_english', result.get('english', ''))
+        body_tr = result.get('body_translated', result.get('translated', ''))
+        lang_label = result.get('language', lang_name)
+
+        if subject_en:
+            st.markdown(f"**Subject (English):** {subject_en}")
+        if subject_tr:
+            st.markdown(f"**Subject ({lang_label}):** {subject_tr}")
+
+        col_en, col_tr = st.columns(2) if body_tr else (st.container(), None)
+
+        with (col_en if body_tr else col_en):
+            st.markdown("**English**")
+            st.text_area("", value=body_en, height=300, key="ml_out_en",
+                         label_visibility="collapsed")
+
+        if body_tr and col_tr is not None:
+            with col_tr:
+                st.markdown(f"**{lang_label}**")
+                st.text_area("", value=body_tr, height=300, key="ml_out_tr",
+                             label_visibility="collapsed")
+
+        # Download buttons
+        dl_col1, dl_col2 = st.columns(2)
+        with dl_col1:
+            st.download_button(
+                "⬇️ Download English (.txt)",
+                data=f"Subject: {subject_en}\n\n{body_en}",
+                file_name=f"{ref or 'communication'}_EN.txt",
+                mime="text/plain",
+                key="ml_dl_en",
+            )
+        if body_tr:
+            with dl_col2:
+                st.download_button(
+                    f"⬇️ Download {lang_label} (.txt)",
+                    data=f"Subject: {subject_tr or subject_en}\n\n{body_tr}",
+                    file_name=f"{ref or 'communication'}_{lang_label}.txt",
+                    mime="text/plain",
+                    key="ml_dl_tr",
+                )
+
+
 # Export main class
-__all__ = ['MultilingualVendorCommunicator', 'EnglishLevel', 'TargetLanguage', 'LANGUAGE_INFO']
+__all__ = ['MultilingualVendorCommunicator', 'EnglishLevel', 'TargetLanguage',
+           'LANGUAGE_INFO', 'render_multilingual_comms_tab']
