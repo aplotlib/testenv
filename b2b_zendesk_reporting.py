@@ -1,5 +1,5 @@
 """
-B2B Zendesk Reporting Module
+B2C Zendesk Reporting Module
 ─────────────────────────────
 Categorizes ALL Zendesk tickets by Issue text using the same
 MEDICAL_DEVICE_CATEGORIES as the Return Categorizer, then reports
@@ -621,7 +621,7 @@ def export_report_xlsx(report: pd.DataFrame, cat_summary: pd.DataFrame,
         header_fill = PatternFill("solid", fgColor="004366")
         header_font = Font(name="Arial", bold=True, color="FFFFFF", size=14)
         ws.merge_cells("A1:L1")
-        ws["A1"].value = f"B2B Zendesk Quality Report — {date_label}"
+        ws["A1"].value = f"B2C Zendesk Quality Report — {date_label}"
         ws["A1"].font = header_font
         ws["A1"].fill = header_fill
         ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
@@ -719,7 +719,7 @@ VIVE_NAVY = "#004366"
 def render_b2b_zendesk_reporting():
     """Main render function — drop into app.py's task router."""
 
-    st.markdown("### 🎫 B2B Zendesk Quality Reporting")
+    st.markdown("### 🎫 B2C Zendesk Quality Reporting")
     st.markdown(MODULE_DESCRIPTION, unsafe_allow_html=True)
 
     # ── File upload ──────────────────────────────────────────────────────
@@ -950,7 +950,7 @@ def render_b2b_zendesk_reporting():
             st.download_button(
                 "⬇️ Download Report (.xlsx)",
                 data=xlsx_bytes,
-                file_name=f"B2B_Zendesk_Quality_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                file_name=f"B2C_Zendesk_Quality_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 type="primary",
                 key="zendesk_dl_xlsx",
@@ -961,7 +961,7 @@ def render_b2b_zendesk_reporting():
             st.download_button(
                 "⬇️ Product Report (.csv)",
                 data=csv_bytes,
-                file_name=f"B2B_Zendesk_Product_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                file_name=f"B2C_Zendesk_Product_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
                 mime="text/csv",
                 key="zendesk_dl_csv",
             )
@@ -971,7 +971,7 @@ def render_b2b_zendesk_reporting():
             st.download_button(
                 "⬇️ Full Categorized Data (.csv)",
                 data=full_csv,
-                file_name=f"B2B_Zendesk_All_Categorized_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                file_name=f"B2C_Zendesk_All_Categorized_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
                 mime="text/csv",
                 key="zendesk_dl_full",
             )
