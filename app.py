@@ -10129,7 +10129,14 @@ TASK_DEFINITIONS = {
         'title': 'Global Recall Surveillance',
         'subtitle': 'Worldwide Regulatory Intelligence',
         'description': 'Scan FDA, EU EMA, UK MHRA, Health Canada, ANVISA, CPSC, and global media for recalls, alerts, and safety signals affecting your products.',
-        'keywords': ['recall', 'recalls', 'surveillance', 'fda', 'mhra', 'ema', 'health canada', 'anvisa', 'cpsc', 'maude', 'adverse', 'alert', 'safety', 'global', 'worldwide'],     },     'zendesk': {         'icon': '🎫',         'title': 'B2B Zendesk Reporting',         'subtitle': 'Quality Issue Analysis',         'description': 'Analyse Zendesk B2C quality-issue recordings. Produces a consolidated report grouped by Parent SKU sorted by issue occurrence.',         'keywords': ['zendesk', 'quality issues', 'customer service', 'quality report', 'b2c quality'],
+        'keywords': ['recall', 'recalls', 'surveillance', 'fda', 'mhra', 'ema', 'health canada', 'anvisa', 'cpsc', 'maude', 'adverse', 'alert', 'safety', 'global', 'worldwide'],
+    },
+    'zendesk': {
+        'icon': '🎫',
+        'title': 'B2C Zendesk Reporting',
+        'subtitle': 'Quality Issue Analysis',
+        'description': 'Categorize and analyse all Zendesk B2C tickets by issue type using standard quality categories. Produces a consolidated report grouped by Parent SKU sorted by occurrence.',
+        'keywords': ['zendesk', 'b2c', 'tickets', 'quality issues', 'recordings', 'sku', 'zendesk reporting'],
     },
 }
 
@@ -10774,14 +10781,15 @@ def render_all_tabs(provider_map: dict, provider_selection: str):
     st.markdown("---")
 
     # Tabs - All tools
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
         "📊 Return Categorizer",
         "📑 B2B Report Generator",
         "📋 Quality Case Tracker",
         "🧪 Quality Screening",
         "📦 Inventory Integration",
         "📚 Resources",
-        "🌐 Global Recalls"
+        "🌐 Global Recalls",
+        "🎫 B2C Zendesk Reporting",
     ])
 
     with tab1:
@@ -10804,6 +10812,9 @@ def render_all_tabs(provider_map: dict, provider_selection: str):
 
     with tab7:
         render_global_recall_surveillance()
+
+    with tab8:
+        render_b2b_zendesk_reporting()
 
 
 def main():

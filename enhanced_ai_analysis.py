@@ -791,32 +791,64 @@ class EnhancedAIAnalyzer:
         return response
 
     def summarize_batch(self, items: List[Dict[str, str]]) -> List[Dict[str, str]]:
-        """Summarize a batch of tickets for B2B reports."""
-        system_prompt = (
-            "You are a customer service analyst. Summarize the return/replacement reason. "
-            "Provide an accurate, detailed description of the 'Why' (e.g., 'Product defective', "
-            "'Customer changed mind', 'Wrong item sent'). Use as many words as needed to fully "
-            "capture the issue."
-        )
+        """Summarize and categorize a batch of tickets for B2B reports."""
+        categories_list = '\n'.join(f'  - {cat}' for cat in MEDICAL_DEVICE_CATEGORIES)
+        system_prompt = f"""You are a medical device quality engineer analyzing customer service tickets.
+For each ticket, provide TWO things separated by a pipe character (|):
+1. CATEGORY: Assign exactly one category from the list below.
+2. SUMMARY: A concise but complete description of the issue.
+
+AVAILABLE CATEGORIES:
+{categories_list}
+
+DECISION RULES:
+- Size categories require directional language: "too small/tight" = Size: Too Small, "too big/large/loose" = Size: Too Large.
+- "Doesn't fit" without direction = Size: Doesn't Fit / Wrong Dimensions.
+- Physical breaks (snapped, cracked, fell apart) = Defect: Broken / Structural Failure.
+- Electronic/mechanical failures (stopped working, beeping, motor, battery dead) = Defect: Malfunctions / Stops Working.
+- Comfort complaints (pain, pressure, sores) = Comfort: Causes Pain or Pressure.
+- Missing parts/accessories from box = Missing or Incomplete Components.
+- Injury, safety hazard, hospital = Medical / Safety Concern.
+- Customer simply returning without quality issue = Customer: Changed Mind / No Longer Needed.
+- Shipping damage to box/product in transit = Fulfillment: Damaged in Shipping.
+- Wrong item received = Fulfillment: Wrong Item Sent.
+- Assembly struggles or confusing instructions = Assembly / Usage Difficulty.
+- Product wobbles, tips, shifts, slides = Stability: Shifts / Unstable / Falls.
+- No clear issue or general inquiry = Other / Miscellaneous.
+
+FORMAT YOUR RESPONSE EXACTLY AS: Category Name | Summary text here
+Example: Defect: Malfunctions / Stops Working | Scooter battery not holding charge after 3 months of use."""
 
         futures = []
         for item in items:
-            prompt = f"Subject: {item.get('subject', '')}\nDetails: {item.get('details', '')}\nSummary:"
+            prompt = f"Subject: {item.get('subject', '')}\nDetails: {item.get('details', '')}\nCATEGORY | SUMMARY:"
             future = self.executor.submit(self._call_claude, prompt, system_prompt, 'summary')
             futures.append((future, item))
 
         results = []
         for future, item in futures:
             summary = "Summary Unavailable"
+            category = "Other / Miscellaneous"
             try:
                 resp, _ = future.result(timeout=API_TIMEOUT)
                 if resp:
-                    summary = resp
+                    if '|' in resp:
+                        parts = resp.split('|', 1)
+                        raw_cat = parts[0].strip()
+                        summary = parts[1].strip() if len(parts) > 1 else resp
+                        matched = self._clean_category_response(raw_cat)
+                        if matched and matched != 'Other / Miscellaneous':
+                            category = matched
+                        else:
+                            category = raw_cat if raw_cat in MEDICAL_DEVICE_CATEGORIES else 'Other / Miscellaneous'
+                    else:
+                        summary = resp
             except Exception as e:
                 logger.error(f"Summary error: {e}")
 
             result_item = item.copy()
             result_item['summary'] = summary
+            result_item['category'] = category
             results.append(result_item)
 
         return results
