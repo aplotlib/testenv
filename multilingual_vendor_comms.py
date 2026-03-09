@@ -551,10 +551,56 @@ def render_multilingual_comms_tab():
 
     # ── Generate button ───────────────────────────────────────────────────
     st.markdown("---")
+
+    # Streaming preview toggle
+    stream_mode = st.toggle(
+        "⚡ Stream output (see text appear live)",
+        value=True,
+        key="ml_stream_toggle",
+        help="Watch the AI write the email in real time using Claude streaming API",
+    )
+
     if st.button("✉️ Generate Communication", type="primary", key="ml_generate"):
         if not sku.strip() or not product_name.strip():
             st.warning("Please enter a SKU and Product Name before generating.")
+
+        elif stream_mode and communicator.ai_analyzer and hasattr(communicator.ai_analyzer, '_call_claude_stream'):
+            # ── Streaming path ──────────────────────────────────────────────
+            system_prompt = (
+                f"You are a quality management professional writing vendor communications. "
+                f"Adjust language for {english_level.value} English proficiency and "
+                f"{vendor_region} cultural context. Write a complete, professional "
+                f"{comm_type} email with Subject line first, then full body."
+            )
+            rate_val = return_rate / 100 if 'return_rate' in dir() else 0
+            units_val = int(units_affected) if 'units_affected' in dir() else 0
+            prompt = (
+                f"Write a {comm_type} for:\n"
+                f"SKU: {sku}\nProduct: {product_name}\n"
+                f"Issue: {issue_summary}\nDefect: {defect_description}\n"
+                f"Return rate: {rate_val:.1%}\nUnits affected: {units_val}\n"
+                f"Vendor region: {vendor_region}\n\n"
+                f"Start with 'Subject: ...' then write the full email body."
+            )
+            st.markdown("**✉️ Generating…**")
+            streamed = st.write_stream(
+                communicator.ai_analyzer._call_claude_stream(prompt, system_prompt, mode='chat')
+            )
+            # Parse subject / body from streamed text and save to session
+            lines = streamed.strip().split("\n", 1)
+            subj = lines[0].replace("Subject:", "").strip() if lines else ""
+            body = lines[1].strip() if len(lines) > 1 else streamed
+            st.session_state['ml_last_result'] = {
+                'subject_english': subj,
+                'subject_translated': None,
+                'body_english': body,
+                'body_translated': None,
+                'language': 'English',
+                'reference': f"QC-{__import__('datetime').datetime.now().strftime('%Y%m%d')}-{sku}",
+            }
+
         else:
+            # ── Non-streaming path ──────────────────────────────────────────
             with st.spinner("Generating communication…"):
                 try:
                     if comm_type == "CAPA Request":

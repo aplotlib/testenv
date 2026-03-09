@@ -109,6 +109,8 @@ try:
     )
     from quality_resources import QUALITY_RESOURCES, get_total_link_count
     from b2b_zendesk_reporting import render_b2b_zendesk_reporting
+    from ai_quality_analyst import render_quality_analyst_chat, render_regulatory_watcher_sidebar
+    from corrections_memory import get_corrections_memory, render_corrections_panel
     # Import new modular components
     from advanced_analytics import (
         render_root_cause_analysis as rca_render,
@@ -1371,28 +1373,41 @@ def display_results_dashboard(df, column_mapping):
     categorized_rows = len(df[df[category_col].notna() & (df[category_col] != '')])
     
     # Key Metrics Row
-    col1, col2, col3, col4, col5 = st.columns(5)
-    
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
+
     with col1:
         st.metric("Total Rows", f"{total_rows:,}")
-    
+
     with col2:
         st.metric("Categorized", f"{categorized_rows:,}")
-    
+
     with col3:
         success_rate = categorized_rows / total_rows * 100 if total_rows > 0 else 0
         st.metric("Success Rate", f"{success_rate:.1f}%")
-    
+
     with col4:
-        quality_count = sum(count for cat, count in st.session_state.reason_summary.items() 
+        quality_count = sum(count for cat, count in st.session_state.reason_summary.items()
                           if cat in QUALITY_CATEGORIES)
         quality_rate = quality_count / categorized_rows * 100 if categorized_rows > 0 else 0
-        st.metric("Quality Issues", f"{quality_rate:.1f}%", 
+        st.metric("Quality Issues", f"{quality_rate:.1f}%",
                  help=f"{quality_count:,} quality-related returns")
-    
+
     with col5:
         cost_per_return = st.session_state.total_cost / categorized_rows if categorized_rows > 0 else 0
         st.metric("Cost/Return", f"${cost_per_return:.4f}")
+
+    with col6:
+        # Show prompt cache savings if available from analyzer
+        analyzer = st.session_state.get('analyzer')
+        cache_savings = 0.0
+        if analyzer and hasattr(analyzer, 'cost_tracker'):
+            cache_savings = analyzer.cost_tracker.estimated_cache_savings
+        if cache_savings > 0:
+            st.metric("Cache Saved", f"${cache_savings:.4f}",
+                      help="Estimated savings from prompt caching (same accuracy, lower cost)")
+        else:
+            st.metric("Cache Saved", "$0.0000",
+                      help="Prompt caching saves ~80% on repeated system prompts")
     
     # Category Distribution
     st.markdown("---")
@@ -1559,6 +1574,71 @@ def display_results_dashboard(df, column_mapping):
                 file_name=f"sku_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv"
             )
+
+    # ── AI Learning: Category Override Table ──────────────────────────────
+    st.markdown("---")
+    with st.expander("🧠 Correct AI Categories (teaches the AI for next time)", expanded=False):
+        st.caption(
+            "Override any AI-assigned category below. Corrections are saved permanently "
+            "and used as examples in future analyses — the more you correct, the smarter it gets."
+        )
+        if category_col and category_col in df.columns:
+            try:
+                from corrections_memory import get_corrections_memory
+                from enhanced_ai_analysis import MEDICAL_DEVICE_CATEGORIES
+
+                # Build editable table with complaint text + current category
+                text_col_candidates = ['complaint', 'Complaint', 'comment', 'Comment',
+                                       'text', 'Text', 'description', 'Description', 'Body']
+                text_col = next((c for c in text_col_candidates if c in df.columns), None)
+
+                edit_df = df[[text_col, category_col]].copy() if text_col else df[[category_col]].copy()
+                edit_df = edit_df.rename(columns={
+                    category_col: 'Current Category',
+                    **(  {text_col: 'Complaint Text'} if text_col else {}),
+                })
+                edit_df['Override Category'] = edit_df['Current Category']
+                edit_df = edit_df.head(200)  # cap for performance
+
+                col_cfg = {
+                    'Override Category': st.column_config.SelectboxColumn(
+                        'Override Category',
+                        options=sorted(MEDICAL_DEVICE_CATEGORIES),
+                        required=True,
+                    ),
+                    'Current Category': st.column_config.TextColumn('AI Category', disabled=True),
+                }
+                if text_col:
+                    col_cfg['Complaint Text'] = st.column_config.TextColumn(
+                        'Complaint Text', disabled=True, width='large'
+                    )
+
+                edited = st.data_editor(
+                    edit_df,
+                    column_config=col_cfg,
+                    hide_index=True,
+                    use_container_width=True,
+                    key="corrections_editor",
+                )
+
+                if st.button("💾 Save Corrections to AI Memory", type="primary", key="save_corrections"):
+                    mem = get_corrections_memory()
+                    saved = 0
+                    for _, row in edited.iterrows():
+                        old_cat = row['Current Category']
+                        new_cat = row['Override Category']
+                        complaint_text = str(row.get('Complaint Text', '')) if text_col else ''
+                        if old_cat != new_cat and complaint_text:
+                            mem.add_correction(complaint_text, old_cat, new_cat)
+                            saved += 1
+                    if saved:
+                        st.success(f"✅ Saved {saved} correction(s) — AI will use these next time.")
+                    else:
+                        st.info("No changes detected.")
+            except Exception as _ce:
+                st.info(f"Category override unavailable: {_ce}")
+        else:
+            st.info("No category column found in results.")
 
 
 # -------------------------
@@ -10234,6 +10314,13 @@ TASK_DEFINITIONS = {
         'description': 'Generate CAPA requests, RCA emails, and quality reports for international vendors in their preferred language with cultural context awareness.',
         'keywords': ['multilingual', 'vendor', 'email', 'capa', 'rca', 'translate', 'language', 'chinese', 'spanish'],
     },
+    'analyst': {
+        'icon': '🤖',
+        'title': 'AI Quality Analyst',
+        'subtitle': 'Chat with Your Data',
+        'description': 'Ask natural language questions about your loaded quality data. Claude uses tool calls to query real SKU, category, and safety data — and checks FDA MAUDE for regulatory signals.',
+        'keywords': ['analyst', 'chat', 'ask', 'ai', 'question', 'insight', 'fda', 'maude', 'signal', 'kpi'],
+    },
 }
 
 def match_task_from_input(user_input: str) -> str:
@@ -10278,7 +10365,7 @@ def render_task_selector():
 
     tasks_row1 = ['categorize', 'b2b', 'zendesk']
     tasks_row2 = ['tracker', 'screening', 'inventory']
-    tasks_row3 = ['resources', 'multilingual', None]
+    tasks_row3 = ['resources', 'multilingual', 'analyst']
 
     def render_task_card(col, task_id, featured=False):
         """Render a single task card"""
@@ -10873,6 +10960,15 @@ def render_single_tool(task_id: str, provider_map: dict, provider_selection: str
         render_b2b_zendesk_reporting()
     elif task_id == 'multilingual':
         render_multilingual_comms_tab()
+    elif task_id == 'analyst':
+        _analyst_session = {
+            'categorized_data': st.session_state.get('categorized_data'),
+            'zendesk_data': st.session_state.get('zendesk_data'),
+            'zendesk_kpis': st.session_state.get('zendesk_kpis'),
+            'b2b_report_data': st.session_state.get('b2b_report_data'),
+        }
+        _claude_key = st.session_state.get('analyzer').claude_key if st.session_state.get('analyzer') else ''
+        render_quality_analyst_chat(_claude_key, _analyst_session)
 
 
 def render_all_tabs(provider_map: dict, provider_selection: str):
@@ -10885,7 +10981,7 @@ def render_all_tabs(provider_map: dict, provider_selection: str):
     st.markdown("---")
 
     # Tabs - All tools
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
         "📊 Return Categorizer",
         "📑 B2B Report Generator",
         "📋 Quality Case Tracker",
@@ -10895,6 +10991,7 @@ def render_all_tabs(provider_map: dict, provider_selection: str):
         "🌐 Global Recalls",
         "🎫 B2C Zendesk Reporting",
         "🌍 Multilingual Comms",
+        "🤖 AI Quality Analyst",
     ])
 
     with tab1:
@@ -10923,6 +11020,16 @@ def render_all_tabs(provider_map: dict, provider_selection: str):
 
     with tab9:
         render_multilingual_comms_tab()
+
+    with tab10:
+        _analyst_session = {
+            'categorized_data': st.session_state.get('categorized_data'),
+            'zendesk_data': st.session_state.get('zendesk_data'),
+            'zendesk_kpis': st.session_state.get('zendesk_kpis'),
+            'b2b_report_data': st.session_state.get('b2b_report_data'),
+        }
+        _claude_key = st.session_state.get('analyzer').claude_key if st.session_state.get('analyzer') else ''
+        render_quality_analyst_chat(_claude_key, _analyst_session)
 
 
 def main():
@@ -11012,6 +11119,18 @@ def main():
 
         # Help guide
         render_help_guide()
+
+        st.markdown("---")
+
+        # AI Memory — corrections learned from user overrides
+        render_corrections_panel()
+
+        # Regulatory Signal Watcher
+        _reg_session = {
+            'categorized_data': st.session_state.get('categorized_data'),
+            'zendesk_data': st.session_state.get('zendesk_data'),
+        }
+        render_regulatory_watcher_sidebar(_reg_session)
 
         st.markdown("---")
 

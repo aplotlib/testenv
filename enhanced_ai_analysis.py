@@ -453,7 +453,7 @@ def detect_severity(complaint: str, category: str) -> str:
 
 
 class CostTracker:
-    """Track API costs across sessions"""
+    """Track API costs across sessions, including prompt cache savings."""
 
     def __init__(self):
         self.session_costs = []
@@ -464,6 +464,10 @@ class CostTracker:
         self.start_time = datetime.now()
         self.quick_categorizations = 0
         self.ai_categorizations = 0
+        # Prompt caching metrics
+        self.cache_read_tokens = 0       # Tokens served from cache (cheap)
+        self.cache_creation_tokens = 0   # Tokens written to cache (first call)
+        self.estimated_cache_savings = 0.0  # USD saved vs non-cached
 
     def add_cost(self, cost_estimate: CostEstimate):
         self.session_costs.append(cost_estimate)
@@ -471,6 +475,18 @@ class CostTracker:
         self.total_output_tokens += cost_estimate.output_tokens
         self.total_cost += cost_estimate.total_cost
         self.api_calls += 1
+
+    def record_cache_usage(self, model: str, cache_read: int, cache_creation: int):
+        """Record prompt cache hit/miss stats from API response usage block."""
+        self.cache_read_tokens += cache_read
+        self.cache_creation_tokens += cache_creation
+        # Cache reads cost ~10% of normal input price — calculate savings
+        pricing = PRICING.get(model, {})
+        input_price = pricing.get('input', 0)
+        if input_price and cache_read > 0:
+            normal_cost = cache_read * input_price / 1000
+            cache_cost = cache_read * input_price * 0.1 / 1000
+            self.estimated_cache_savings += (normal_cost - cache_cost)
 
     def add_quick_categorization(self):
         self.quick_categorizations += 1
@@ -489,7 +505,10 @@ class CostTracker:
             'speed_improvement': f"{self.quick_categorizations / max(1, self.quick_categorizations + self.ai_categorizations) * 100:.1f}%",
             'average_cost_per_call': round(self.total_cost / max(1, self.api_calls), 4),
             'duration_minutes': round(duration, 1),
-            'breakdown_by_provider': self._get_provider_breakdown()
+            'breakdown_by_provider': self._get_provider_breakdown(),
+            'cache_read_tokens': self.cache_read_tokens,
+            'cache_creation_tokens': self.cache_creation_tokens,
+            'estimated_cache_savings': round(self.estimated_cache_savings, 4),
         }
 
     def _get_provider_breakdown(self) -> Dict[str, Dict]:
@@ -591,9 +610,21 @@ class EnhancedAIAnalyzer:
     # Claude API call (direct HTTP — Anthropic Messages API)
     # ----------------------------------------------------------------
     def _call_claude(
-        self, prompt: str, system_prompt: str, mode: str = 'standard'
+        self,
+        prompt: str,
+        system_prompt: str,
+        mode: str = 'standard',
+        use_extended_thinking: bool = False,
+        thinking_budget: int = 8000,
     ) -> Tuple[Optional[str], Optional[CostEstimate]]:
-        """Call Anthropic Claude API with cost tracking."""
+        """
+        Call Anthropic Claude API with cost tracking.
+
+        Features:
+        - Prompt caching: system_prompt is cached after first call (saves ~90% on
+          repeated calls with the same system prompt — no accuracy change)
+        - Extended thinking: optional deep reasoning for complex analyses
+        """
         if not self.claude_configured:
             return None, None
 
@@ -604,15 +635,35 @@ class EnhancedAIAnalyzer:
         headers = {
             "Content-Type": "application/json",
             "x-api-key": self.claude_key,
-            "anthropic-version": "2023-06-01"
+            "anthropic-version": "2023-06-01",
+            # Enable prompt caching (stable, no accuracy impact)
+            "anthropic-beta": "prompt-caching-2024-07-31",
         }
 
-        payload = {
+        # System prompt as list with cache_control — eligible for caching when
+        # the text is >= 1024 tokens (Anthropic requirement). Short prompts are
+        # passed through normally; the API ignores cache_control if too short.
+        payload: Dict[str, Any] = {
             "model": model,
             "max_tokens": max_tokens,
-            "system": system_prompt,
-            "messages": [{"role": "user", "content": prompt}]
+            "system": [
+                {
+                    "type": "text",
+                    "text": system_prompt,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+            "messages": [{"role": "user", "content": prompt}],
         }
+
+        # Extended thinking — uses a compatible model and larger token budget
+        if use_extended_thinking:
+            payload["thinking"] = {
+                "type": "enabled",
+                "budget_tokens": thinking_budget,
+            }
+            # max_tokens must exceed thinking_budget
+            payload["max_tokens"] = max(max_tokens, thinking_budget + 1000)
 
         for attempt in range(MAX_RETRIES):
             try:
@@ -620,16 +671,32 @@ class EnhancedAIAnalyzer:
                     "https://api.anthropic.com/v1/messages",
                     headers=headers,
                     json=payload,
-                    timeout=API_TIMEOUT
+                    timeout=API_TIMEOUT,
                 )
 
                 if response.status_code == 200:
                     result = response.json()
-                    content = result["content"][0]["text"].strip()
+
+                    # Extract text from content blocks (may include thinking blocks)
+                    content_blocks = result.get("content", [])
+                    text_parts = [
+                        b["text"] for b in content_blocks if b.get("type") == "text"
+                    ]
+                    content = " ".join(text_parts).strip()
+                    if not content:
+                        content = ""
 
                     usage = result.get("usage", {})
                     actual_input = usage.get("input_tokens", input_tokens)
                     actual_output = usage.get("output_tokens", len(content.split()))
+
+                    # Track prompt cache stats
+                    cache_read = usage.get("cache_read_input_tokens", 0)
+                    cache_creation = usage.get("cache_creation_input_tokens", 0)
+                    if cache_read or cache_creation:
+                        self.cost_tracker.record_cache_usage(
+                            model, cache_read, cache_creation
+                        )
 
                     cost = calculate_cost(model, actual_input, actual_output)
                     self.cost_tracker.add_cost(cost)
@@ -641,13 +708,14 @@ class EnhancedAIAnalyzer:
                     time.sleep(wait_time)
 
                 elif response.status_code == 529:
-                    # Anthropic overloaded
                     wait_time = min(2 ** attempt * 2, 20)
                     logger.warning(f"Claude overloaded, waiting {wait_time}s")
                     time.sleep(wait_time)
 
                 else:
-                    logger.error(f"Claude API error {response.status_code}: {response.text[:200]}")
+                    logger.error(
+                        f"Claude API error {response.status_code}: {response.text[:200]}"
+                    )
                     return None, None
 
             except Exception as e:
@@ -657,6 +725,82 @@ class EnhancedAIAnalyzer:
                 time.sleep(1)
 
         return None, None
+
+    def _call_claude_stream(
+        self,
+        prompt: str,
+        system_prompt: str,
+        mode: str = 'chat',
+    ):
+        """
+        Stream Claude response via Server-Sent Events.
+        Yields text chunks as they arrive — use with st.write_stream().
+
+        Uses prompt caching on the system prompt automatically.
+        """
+        if not self.claude_configured:
+            yield "AI not configured."
+            return
+
+        model = MODELS['claude'].get(mode, MODELS['claude']['chat'])
+        max_tokens = max(TOKEN_LIMITS.get(mode, 1500), 1500)
+
+        headers = {
+            "Content-Type": "application/json",
+            "x-api-key": self.claude_key,
+            "anthropic-version": "2023-06-01",
+            "anthropic-beta": "prompt-caching-2024-07-31",
+        }
+
+        payload = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "stream": True,
+            "system": [
+                {
+                    "type": "text",
+                    "text": system_prompt,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+            "messages": [{"role": "user", "content": prompt}],
+        }
+
+        try:
+            with (self.session or requests).post(
+                "https://api.anthropic.com/v1/messages",
+                headers=headers,
+                json=payload,
+                timeout=90,
+                stream=True,
+            ) as response:
+                if response.status_code != 200:
+                    yield f"API error {response.status_code}"
+                    return
+
+                for raw_line in response.iter_lines():
+                    if not raw_line:
+                        continue
+                    line = (
+                        raw_line.decode("utf-8")
+                        if isinstance(raw_line, bytes)
+                        else raw_line
+                    )
+                    if not line.startswith("data: "):
+                        continue
+                    data_str = line[6:]
+                    if data_str.strip() == "[DONE]":
+                        break
+                    try:
+                        data = json.loads(data_str)
+                        if data.get("type") == "content_block_delta":
+                            delta = data.get("delta", {})
+                            if delta.get("type") == "text_delta":
+                                yield delta.get("text", "")
+                    except json.JSONDecodeError:
+                        continue
+        except Exception as exc:
+            yield f"\nStreaming error: {exc}"
 
     # ----------------------------------------------------------------
     # OpenAI API call — optional fallback
@@ -856,20 +1000,41 @@ Example: Defect: Malfunctions / Stops Working | Scooter battery not holding char
     def categorize_return(
         self, complaint: str, fba_reason: str = None, mode: str = 'standard'
     ) -> Tuple[str, float, str, str]:
-        """Categorize return with speed optimization."""
+        """Categorize return with speed optimization and learned corrections."""
         if not complaint or not complaint.strip():
             return 'Other/Miscellaneous', 0.1, 'none', 'en'
 
-        # Quick pattern match first
+        # 1. Check persistent corrections memory — exact match = instant, free
+        try:
+            from corrections_memory import get_corrections_memory
+            mem = get_corrections_memory()
+            direct = mem.get_direct_match(complaint)
+            if direct:
+                self.cost_tracker.add_quick_categorization()
+                severity = detect_severity(complaint, direct)
+                return direct, 1.0, severity, 'en'
+        except Exception:
+            mem = None
+
+        # 2. Quick pattern match
         quick_category = quick_categorize(complaint, fba_reason)
         if quick_category:
             self.cost_tracker.add_quick_categorization()
             severity = detect_severity(complaint, quick_category)
             return quick_category, 0.9, severity, 'en'
 
+        # 3. AI categorization
         self.cost_tracker.add_ai_categorization()
 
-        system_prompt = """You are a medical device quality engineer with 15+ years of experience in returns analysis and CAPA investigations. Your job is to assign EXACTLY ONE category from the provided list to a customer return complaint.
+        # Build few-shot block from corrections memory (injected into system prompt)
+        few_shot_block = ""
+        try:
+            if mem is not None:
+                few_shot_block = mem.build_few_shot_block()
+        except Exception:
+            pass
+
+        system_prompt = f"""You are a medical device quality engineer with 15+ years of experience in returns analysis and CAPA investigations. Your job is to assign EXACTLY ONE category from the provided list to a customer return complaint.
 
 DECISION RULES — read carefully before categorizing:
 1. SIZE categories require a clear directional statement. "Too small" and "too tight" = "Size: Too Small". "Too big", "too loose", "too large", "too wide" = "Size: Too Large". Only use "Size: Doesn't Fit / Wrong Dimensions" when direction is ambiguous or it's a shape/dimension mismatch with equipment.
@@ -897,6 +1062,10 @@ EXAMPLES (use these to calibrate your judgment):
 - "Arrived with the frame bent from the box being crushed" → Fulfillment: Damaged in Shipping
 
 Respond with ONLY the exact category name from the list. No explanation, no punctuation, no quotes."""
+
+        # Append learned corrections block if available
+        if few_shot_block:
+            system_prompt = system_prompt + f"\n\n{few_shot_block}"
 
         categories_list = '\n'.join(f'  {cat}' for cat in MEDICAL_DEVICE_CATEGORIES)
         user_prompt = (
