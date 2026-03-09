@@ -93,7 +93,8 @@ try:
         InventoryConfiguration, InventoryCalculator, IntegratedAnalyzer
     )
     from multilingual_vendor_comms import (
-        MultilingualVendorCommunicator, EnglishLevel, TargetLanguage, LANGUAGE_INFO
+        MultilingualVendorCommunicator, EnglishLevel, TargetLanguage, LANGUAGE_INFO,
+        render_multilingual_comms_tab
     )
     from product_matching import ProductMatcher
     from regulatory_compliance import RegulatoryComplianceAnalyzer, REGULATORY_MARKETS
@@ -1099,8 +1100,25 @@ def render_connection_modal():
 # TAB 1 LOGIC: Categorizer (PRESERVED)
 # -------------------------
 
+def _fuzzy_find_column(cols: list, candidates: list, threshold: int = 70) -> Optional[str]:
+    """Use RapidFuzz to find the best-matching column name from a list of candidates."""
+    try:
+        from rapidfuzz import process as rfprocess, fuzz
+        col_lower = [c.lower() for c in cols]
+        best_col, best_score = None, 0
+        for candidate in candidates:
+            result = rfprocess.extractOne(candidate.lower(), col_lower, scorer=fuzz.partial_ratio)
+            if result and result[1] > best_score and result[1] >= threshold:
+                best_score = result[1]
+                best_col = cols[col_lower.index(result[0])]
+        return best_col
+    except ImportError:
+        return None
+
+
 def process_file_preserve_structure(file_content, filename):
-    """Process file while preserving original structure"""
+    """Process file while preserving original structure.
+    Uses fuzzy column matching to detect complaint/SKU columns automatically."""
     try:
         if filename.endswith('.csv'):
             df = pd.read_csv(io.BytesIO(file_content), dtype=str)
@@ -1110,22 +1128,52 @@ def process_file_preserve_structure(file_content, filename):
             df = pd.read_csv(io.BytesIO(file_content), sep='\t', dtype=str)
         else:
             return None, None
-        
+
         column_mapping = {}
         cols = df.columns.tolist()
-        
-        if len(cols) >= 11:
-            if len(cols) > 8: column_mapping['complaint'] = cols[8]
-            if len(cols) > 1: column_mapping['sku'] = cols[1]
-            
-            while len(df.columns) < 11:
-                df[f'Column_{len(df.columns)}'] = ''
-            column_mapping['category'] = df.columns[10]
-            df[column_mapping['category']] = ''
-        else:
+
+        # ── Fuzzy-detect complaint column ─────────────────────────────────
+        complaint_candidates = [
+            'complaint', 'customer complaint', 'return reason', 'reason',
+            'issue', 'description', 'comments', 'feedback', 'notes',
+            'customer feedback', 'problem', 'defect description',
+        ]
+        complaint_col = _fuzzy_find_column(cols, complaint_candidates)
+
+        # Fallback: position-based (column I = index 8)
+        if complaint_col is None and len(cols) > 8:
+            complaint_col = cols[8]
+
+        # ── Fuzzy-detect SKU column ───────────────────────────────────────
+        sku_candidates = [
+            'sku', 'asin', 'product sku', 'item sku', 'product code',
+            'item number', 'model', 'part number', 'product id',
+        ]
+        sku_col = _fuzzy_find_column(cols, sku_candidates)
+        if sku_col is None and len(cols) > 1:
+            sku_col = cols[1]
+
+        if complaint_col:
+            column_mapping['complaint'] = complaint_col
+        if sku_col:
+            column_mapping['sku'] = sku_col
+
+        # ── Category column — always column K or append ────────────────────
+        while len(df.columns) < 11:
+            df[f'Column_{len(df.columns)}'] = ''
+        column_mapping['category'] = df.columns[10]
+        df[column_mapping['category']] = ''
+
+        # ── Inform user of detected columns ───────────────────────────────
+        if complaint_col:
+            detected_msg = f"Auto-detected: Complaint = **{complaint_col}**"
+            if sku_col:
+                detected_msg += f", SKU = **{sku_col}**"
+            st.info(f"🔍 {detected_msg}")
+        elif len(cols) < 11:
             st.error("File structure not recognized. Need at least 11 columns (A-K).")
             return None, None
-            
+
         return df, column_mapping
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
@@ -1649,9 +1697,10 @@ def generate_b2b_report(df, analyzer, batch_size):
             'Display Name': item['subject'],
             'Description': item['full_description'],
             'SKU': item['sku'],
+            'Category': item.get('category', ''),
             'Reason': item.get('summary', 'Summary Unavailable')
         })
-        
+
     return pd.DataFrame(final_rows)
 
 
@@ -10059,8 +10108,48 @@ def render_b2b_tool(provider_map=None, provider_selection=None):
             unique_skus = df_res[df_res['SKU'] != 'Unknown']['SKU'].nunique()
             st.metric("Unique Products", unique_skus)
 
-        st.markdown("#### Preview (Top 10)")
-        st.dataframe(df_res.head(10), width="stretch")
+        st.markdown("#### 📋 Report Preview")
+
+        # Filters
+        with st.expander("🔧 Filter Options", expanded=False):
+            bf1, bf2 = st.columns(2)
+            with bf1:
+                b2b_sku_filter = st.text_input("SKU contains", key="b2b_sku_filter",
+                                               placeholder="e.g. MOB1027")
+            with bf2:
+                if 'Category' in df_res.columns:
+                    b2b_cat_opts = ["All"] + sorted(df_res['Category'].dropna().unique().tolist())
+                    b2b_cat_filter = st.selectbox("Category", b2b_cat_opts, key="b2b_cat_filter")
+                else:
+                    b2b_cat_filter = "All"
+
+        df_display = df_res.copy()
+        if b2b_sku_filter:
+            df_display = df_display[df_display['SKU'].str.contains(b2b_sku_filter, case=False, na=False)]
+        if b2b_cat_filter != "All" and 'Category' in df_display.columns:
+            df_display = df_display[df_display['Category'] == b2b_cat_filter]
+
+        if 'Category' in df_display.columns:
+            cat_counts = df_display['Category'].value_counts()
+            st.dataframe(
+                df_display,
+                use_container_width=True,
+                height=min(500, 38 + 35 * len(df_display)),
+                column_config={
+                    "Category": st.column_config.TextColumn("Category", width="medium"),
+                    "Reason": st.column_config.TextColumn("AI Summary", width="large"),
+                    "SKU": st.column_config.TextColumn("SKU", width="small"),
+                },
+            )
+            # Category breakdown bar
+            if not cat_counts.empty:
+                st.markdown("**Category Distribution:**")
+                st.bar_chart(cat_counts, color="#23b2be", horizontal=True)
+        else:
+            st.dataframe(df_display, use_container_width=True,
+                         height=min(500, 38 + 35 * len(df_display)))
+
+        st.caption(f"Showing **{len(df_display)}** of **{len(df_res)}** rows. Click column headers to sort.")
 
         col1, col2 = st.columns(2)
         with col1:
@@ -10138,6 +10227,13 @@ TASK_DEFINITIONS = {
         'description': 'Categorize and analyse all Zendesk B2C tickets by issue type using standard quality categories. Produces a consolidated report grouped by Parent SKU sorted by occurrence.',
         'keywords': ['zendesk', 'b2c', 'tickets', 'quality issues', 'recordings', 'sku', 'zendesk reporting'],
     },
+    'multilingual': {
+        'icon': '🌍',
+        'title': 'Multilingual Vendor Comms',
+        'subtitle': 'AI-Generated Vendor Emails',
+        'description': 'Generate CAPA requests, RCA emails, and quality reports for international vendors in their preferred language with cultural context awareness.',
+        'keywords': ['multilingual', 'vendor', 'email', 'capa', 'rca', 'translate', 'language', 'chinese', 'spanish'],
+    },
 }
 
 def match_task_from_input(user_input: str) -> str:
@@ -10175,13 +10271,14 @@ def render_task_selector():
     </div>
     """, unsafe_allow_html=True)
 
-    # Task cards - 3x2 grid + Featured surveillance tool
+    # Task cards - 3x3 grid + Featured surveillance tool
     row1 = st.columns(3)
     row2 = st.columns(3)
+    row3 = st.columns(3)
 
     tasks_row1 = ['categorize', 'b2b', 'zendesk']
     tasks_row2 = ['tracker', 'screening', 'inventory']
-    tasks_row3 = ['resources']
+    tasks_row3 = ['resources', 'multilingual', None]
 
     def render_task_card(col, task_id, featured=False):
         """Render a single task card"""
@@ -10227,6 +10324,11 @@ def render_task_selector():
     # Row 2
     for i, task_id in enumerate(tasks_row2):
         render_task_card(row2[i], task_id)
+
+    # Row 3
+    for i, task_id in enumerate(tasks_row3):
+        if task_id:
+            render_task_card(row3[i], task_id)
 
     # Featured Row - Global Recall Surveillance (full width)
     st.markdown("---")
@@ -10769,6 +10871,8 @@ def render_single_tool(task_id: str, provider_map: dict, provider_selection: str
         render_global_recall_surveillance()
     elif task_id == 'zendesk':
         render_b2b_zendesk_reporting()
+    elif task_id == 'multilingual':
+        render_multilingual_comms_tab()
 
 
 def render_all_tabs(provider_map: dict, provider_selection: str):
@@ -10781,7 +10885,7 @@ def render_all_tabs(provider_map: dict, provider_selection: str):
     st.markdown("---")
 
     # Tabs - All tools
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
         "📊 Return Categorizer",
         "📑 B2B Report Generator",
         "📋 Quality Case Tracker",
@@ -10790,6 +10894,7 @@ def render_all_tabs(provider_map: dict, provider_selection: str):
         "📚 Resources",
         "🌐 Global Recalls",
         "🎫 B2C Zendesk Reporting",
+        "🌍 Multilingual Comms",
     ])
 
     with tab1:
@@ -10815,6 +10920,9 @@ def render_all_tabs(provider_map: dict, provider_selection: str):
 
     with tab8:
         render_b2b_zendesk_reporting()
+
+    with tab9:
+        render_multilingual_comms_tab()
 
 
 def main():
@@ -10904,6 +11012,21 @@ def main():
 
         # Help guide
         render_help_guide()
+
+        st.markdown("---")
+
+        # Clear All session state
+        if st.button("🗑️ Clear All & Reset", help="Reset all uploaded data, results, and selections", key="sidebar_clear_all"):
+            keys_to_clear = [
+                'categorized_data', 'column_mapping', 'b2b_report_data',
+                'zendesk_data', 'zendesk_report', 'zendesk_cat_summary', 'zendesk_categorized',
+                'screening_results', 'inventory_data', 'quality_cases',
+                'ml_last_result', 'selected_task',
+            ]
+            for k in keys_to_clear:
+                st.session_state.pop(k, None)
+            st.success("✅ All data cleared.")
+            st.rerun()
 
     # === TASK-BASED ROUTING ===
     selected = st.session_state.selected_task
