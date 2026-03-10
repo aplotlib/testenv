@@ -563,9 +563,12 @@ class QualityAnalystAgent:
         return labels.get(name, f"Running {name}")
 
     def _build_system_prompt(self) -> str:
-        from corrections_memory import get_corrections_memory
-        mem = get_corrections_memory()
-        few_shot = mem.build_few_shot_block()
+        try:
+            from corrections_memory import get_corrections_memory
+            few_shot = get_corrections_memory().build_few_shot_block()
+        except Exception as exc:
+            logger.debug(f"Could not load corrections memory: {exc}")
+            few_shot = ""
 
         base = (
             "You are an expert Quality Analyst AI embedded in a medical device quality "
@@ -679,9 +682,14 @@ def render_quality_analyst_chat(claude_key: str, session_data: Dict[str, Any]):
                 )
             )
 
+        # Strip tool-progress markers before saving to history — they are UI
+        # artifacts (🔧 *Querying…*) and must not be sent back to the API.
+        import re as _re
+        clean_response = _re.sub(r"\n*🔧 \*[^*]+…\*\n*", "\n", response_text or "").strip()
+
         # Save assistant response
         st.session_state.analyst_messages.append(
-            {"role": "assistant", "content": response_text}
+            {"role": "assistant", "content": clean_response or response_text}
         )
 
     # ── Footer controls ─────────────────────────────────────────────────────
@@ -692,13 +700,16 @@ def render_quality_analyst_chat(claude_key: str, session_data: Dict[str, Any]):
             st.session_state.analyst_messages = []
             st.rerun()
     with col_info:
-        from corrections_memory import get_corrections_memory
-        s = get_corrections_memory().stats()
-        st.caption(
-            f"🧠 AI Memory: **{s['total_corrections']}** corrections stored "
-            f"({s['high_confidence']} high-confidence) — "
-            "the more you correct, the smarter it gets."
-        )
+        try:
+            from corrections_memory import get_corrections_memory
+            s = get_corrections_memory().stats()
+            st.caption(
+                f"🧠 AI Memory: **{s['total_corrections']}** corrections stored "
+                f"({s['high_confidence']} high-confidence) — "
+                "the more you correct, the smarter it gets."
+            )
+        except Exception:
+            st.caption("🧠 AI Memory active — correct categories to improve accuracy over time.")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -737,9 +748,7 @@ def render_regulatory_watcher_sidebar(session_data: Dict[str, Any]):
                 st.warning("No data loaded — can't auto-detect keyword.")
             else:
                 with st.spinner(f"Querying FDA MAUDE for '{keyword}'…"):
-                    agent = QualityAnalystAgent.__new__(QualityAnalystAgent)
-                    agent._session = session_data
-                    result = agent._t_regulatory(keyword, limit=5)
+                    result = _query_fda_maude(keyword, limit=5)
                 st.session_state["reg_last_result"] = (keyword, result)
 
         if "reg_last_result" in st.session_state:
@@ -751,6 +760,36 @@ def render_regulatory_watcher_sidebar(session_data: Dict[str, Any]):
 # ──────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────────────────────────────────────
+
+def _query_fda_maude(keyword: str, limit: int = 5) -> str:
+    """Standalone FDA MAUDE query — no class instance needed."""
+    try:
+        import requests as req
+        url = (
+            f"https://api.fda.gov/device/event.json"
+            f"?search=device.generic_name:{keyword.replace(' ', '+')}"
+            f"&limit={limit}&sort=date_received:desc"
+        )
+        resp = req.get(url, timeout=10)
+        if resp.status_code != 200:
+            return f"FDA MAUDE query failed (status {resp.status_code})."
+        data = resp.json()
+        results = data.get("results", [])
+        if not results:
+            return f"No FDA MAUDE adverse events found for '{keyword}'."
+        total = data.get("meta", {}).get("results", {}).get("total", "?")
+        lines = [f"FDA MAUDE: {total} total events for '{keyword}'. Most recent {len(results)}:"]
+        for r in results:
+            date = r.get("date_received", "?")
+            event_type = r.get("event_type", "?")
+            device = r.get("device", [{}])
+            device_name = device[0].get("generic_name", "?") if device else "?"
+            mfr = device[0].get("manufacturer_d_name", "?") if device else "?"
+            lines.append(f"  [{date}] {event_type} — {device_name} by {mfr}")
+        return "\n".join(lines)
+    except Exception as exc:
+        return f"FDA MAUDE query error: {exc}"
+
 
 def _empty(df) -> bool:
     try:

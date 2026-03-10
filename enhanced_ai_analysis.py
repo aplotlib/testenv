@@ -781,23 +781,26 @@ class EnhancedAIAnalyzer:
                 for raw_line in response.iter_lines():
                     if not raw_line:
                         continue
-                    line = (
-                        raw_line.decode("utf-8")
-                        if isinstance(raw_line, bytes)
-                        else raw_line
-                    )
-                    if not line.startswith("data: "):
-                        continue
-                    data_str = line[6:]
-                    if data_str.strip() == "[DONE]":
-                        break
                     try:
+                        line = (
+                            raw_line.decode("utf-8", errors="replace")
+                            if isinstance(raw_line, bytes)
+                            else raw_line
+                        )
+                        if not line.startswith("data: "):
+                            continue
+                        data_str = line[6:].strip()
+                        if data_str == "[DONE]":
+                            break
                         data = json.loads(data_str)
                         if data.get("type") == "content_block_delta":
                             delta = data.get("delta", {})
                             if delta.get("type") == "text_delta":
                                 yield delta.get("text", "")
-                    except json.JSONDecodeError:
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        continue
+                    except Exception as parse_exc:
+                        logger.debug(f"SSE parse error: {parse_exc}")
                         continue
         except Exception as exc:
             yield f"\nStreaming error: {exc}"
