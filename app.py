@@ -10967,7 +10967,8 @@ def render_single_tool(task_id: str, provider_map: dict, provider_selection: str
             'zendesk_kpis': st.session_state.get('zendesk_kpis'),
             'b2b_report_data': st.session_state.get('b2b_report_data'),
         }
-        _claude_key = st.session_state.get('analyzer').claude_key if st.session_state.get('analyzer') else ''
+        _az = st.session_state.get('analyzer')
+        _claude_key = _az.claude_key if _az is not None else ''
         render_quality_analyst_chat(_claude_key, _analyst_session)
 
 
@@ -11028,7 +11029,8 @@ def render_all_tabs(provider_map: dict, provider_selection: str):
             'zendesk_kpis': st.session_state.get('zendesk_kpis'),
             'b2b_report_data': st.session_state.get('b2b_report_data'),
         }
-        _claude_key = st.session_state.get('analyzer').claude_key if st.session_state.get('analyzer') else ''
+        _az = st.session_state.get('analyzer')
+        _claude_key = _az.claude_key if _az is not None else ''
         render_quality_analyst_chat(_claude_key, _analyst_session)
 
 
