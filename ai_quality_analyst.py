@@ -639,7 +639,7 @@ def render_quality_analyst_chat(claude_key: str, session_data: Dict[str, Any]):
         ("📋 KPI Summary", "Give me a full KPI summary of the current data and highlight anything urgent."),
     ]
     for col, (label, question) in zip(qcols, quick_questions):
-        if col.button(label, key=f"quick_{label}", use_container_width=True):
+        if col.button(label, key=f"quick_{label}", width='stretch'):
             st.session_state.analyst_messages.append(
                 {"role": "user", "content": question}
             )

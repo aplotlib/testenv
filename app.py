@@ -1650,7 +1650,7 @@ def display_results_dashboard(df, column_mapping):
                     edit_df,
                     column_config=col_cfg,
                     hide_index=True,
-                    use_container_width=True,
+                    width='stretch',
                     key="corrections_editor",
                 )
 
@@ -10246,7 +10246,7 @@ def render_b2b_tool(provider_map=None, provider_selection=None):
             cat_counts = df_display['Category'].value_counts()
             st.dataframe(
                 df_display,
-                use_container_width=True,
+                width='stretch',
                 height=min(500, 38 + 35 * len(df_display)),
                 column_config={
                     "Category": st.column_config.TextColumn("Category", width="medium"),
@@ -10259,7 +10259,7 @@ def render_b2b_tool(provider_map=None, provider_selection=None):
                 st.markdown("**Category Distribution:**")
                 st.bar_chart(cat_counts, color="#23b2be", horizontal=True)
         else:
-            st.dataframe(df_display, use_container_width=True,
+            st.dataframe(df_display, width='stretch',
                          height=min(500, 38 + 35 * len(df_display)))
 
         st.caption(f"Showing **{len(df_display)}** of **{len(df_res)}** rows. Click column headers to sort.")
