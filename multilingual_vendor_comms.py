@@ -572,8 +572,9 @@ def render_multilingual_comms_tab():
                 f"{vendor_region} cultural context. Write a complete, professional "
                 f"{comm_type} email with Subject line first, then full body."
             )
-            rate_val = return_rate / 100 if 'return_rate' in dir() else 0
-            units_val = int(units_affected) if 'units_affected' in dir() else 0
+            # return_rate and units_affected are conditional widgets — default safely
+            rate_val = (return_rate / 100) if comm_type in ("CAPA Request", "RCA Request") else 0
+            units_val = int(units_affected) if comm_type in ("CAPA Request", "RCA Request") else 0
             prompt = (
                 f"Write a {comm_type} for:\n"
                 f"SKU: {sku}\nProduct: {product_name}\n"
@@ -632,7 +633,7 @@ def render_multilingual_comms_tab():
                             products=[{
                                 'sku': sku,
                                 'name': product_name,
-                                'return_rate': return_rate / 100 if 'return_rate' in dir() else 0,
+                                'return_rate': 0,  # not applicable for quality report type
                                 'issues': issue_summary,
                             }],
                             english_level=english_level,

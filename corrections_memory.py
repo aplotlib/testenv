@@ -21,7 +21,11 @@ logger = logging.getLogger(__name__)
 # ──────────────────────────────────────────────────────────────────────────────
 # Config
 # ──────────────────────────────────────────────────────────────────────────────
-MEMORY_DIR = Path(os.path.expanduser("~/.quality_app"))
+# Prefer ~/.quality_app; fall back to app directory if home isn't writable
+# (e.g. Streamlit Cloud container — corrections persist within a deployment)
+_HOME_DIR = Path(os.path.expanduser("~/.quality_app"))
+_APP_DIR = Path(__file__).parent / ".quality_app"
+MEMORY_DIR = _HOME_DIR if os.access(str(_HOME_DIR.parent), os.W_OK) else _APP_DIR
 CORRECTIONS_FILE = MEMORY_DIR / "corrections.json"
 MAX_FEW_SHOT = 20        # Max corrections injected into prompt
 MIN_COUNT_TO_USE = 2     # Corrections seen at least N times get priority
