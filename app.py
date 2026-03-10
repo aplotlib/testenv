@@ -143,6 +143,39 @@ except ImportError as e:
     THEME_AVAILABLE = False
     print(f"Module Missing: {e}")
 
+    # ── Fallback stubs so the app runs even with missing modules ──────────
+    # These prevent NameError when sidebar/routing calls these functions
+    import streamlit as _st
+
+    def render_quality_analyst_chat(*a, **kw):
+        _st.warning("⚠️ AI Quality Analyst unavailable — module failed to load.")
+
+    def render_regulatory_watcher_sidebar(*a, **kw):
+        pass  # Silent — regulatory watcher is optional
+
+    def render_corrections_panel(*a, **kw):
+        pass  # Silent — corrections panel is optional
+
+    def get_corrections_memory():
+        class _NullMemory:
+            def build_few_shot_block(self): return ""
+            def get_direct_match(self, *a): return None
+            def add_correction(self, *a): pass
+            def stats(self): return {"total_corrections": 0, "high_confidence": 0, "categories_covered": 0, "storage_path": "N/A"}
+        return _NullMemory()
+
+    def render_b2b_zendesk_reporting(*a, **kw):
+        _st.warning("⚠️ B2C Zendesk Reporting unavailable — module failed to load.")
+
+    def render_multilingual_comms_tab(*a, **kw):
+        _st.warning("⚠️ Multilingual Comms unavailable — module failed to load.")
+
+    def inject_theme_css(*a, **kw): pass
+    def render_theme_toggle(*a, **kw): pass
+    def get_current_theme(*a, **kw): return "dark"
+    def get_color(*a, **kw): return "#ffffff"
+    def get_status_color(*a, **kw): return "#ffffff"
+
 # Check optional imports
 try:
     import xlsxwriter
@@ -11122,17 +11155,18 @@ def main():
         # Help guide
         render_help_guide()
 
-        st.markdown("---")
+        if AI_AVAILABLE:
+            st.markdown("---")
 
-        # AI Memory — corrections learned from user overrides
-        render_corrections_panel()
+            # AI Memory — corrections learned from user overrides
+            render_corrections_panel()
 
-        # Regulatory Signal Watcher
-        _reg_session = {
-            'categorized_data': st.session_state.get('categorized_data'),
-            'zendesk_data': st.session_state.get('zendesk_data'),
-        }
-        render_regulatory_watcher_sidebar(_reg_session)
+            # Regulatory Signal Watcher
+            _reg_session = {
+                'categorized_data': st.session_state.get('categorized_data'),
+                'zendesk_data': st.session_state.get('zendesk_data'),
+            }
+            render_regulatory_watcher_sidebar(_reg_session)
 
         st.markdown("---")
 
