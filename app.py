@@ -1431,7 +1431,7 @@ def display_results_dashboard(df, column_mapping):
 
     with col6:
         # Show prompt cache savings if available from analyzer
-        analyzer = st.session_state.get('analyzer')
+        analyzer = st.session_state.get('ai_analyzer')
         cache_savings = 0.0
         if analyzer and hasattr(analyzer, 'cost_tracker'):
             cache_savings = analyzer.cost_tracker.estimated_cache_savings
@@ -11000,7 +11000,7 @@ def render_single_tool(task_id: str, provider_map: dict, provider_selection: str
             'zendesk_kpis': st.session_state.get('zendesk_kpis'),
             'b2b_report_data': st.session_state.get('b2b_report_data'),
         }
-        _az = st.session_state.get('analyzer')
+        _az = st.session_state.get('ai_analyzer')
         _claude_key = _az.claude_key if _az is not None else ''
         render_quality_analyst_chat(_claude_key, _analyst_session)
 
@@ -11062,7 +11062,7 @@ def render_all_tabs(provider_map: dict, provider_selection: str):
             'zendesk_kpis': st.session_state.get('zendesk_kpis'),
             'b2b_report_data': st.session_state.get('b2b_report_data'),
         }
-        _az = st.session_state.get('analyzer')
+        _az = st.session_state.get('ai_analyzer')
         _claude_key = _az.claude_key if _az is not None else ''
         render_quality_analyst_chat(_claude_key, _analyst_session)
 

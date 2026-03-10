@@ -602,11 +602,29 @@ def render_quality_analyst_chat(claude_key: str, session_data: Dict[str, Any]):
     """
     import streamlit as st
 
+    # ── Resolve API key — try passed key, then secrets, then env var ───────
+    if not claude_key:
+        try:
+            for _k in ["ANTHROPIC_API_KEY", "anthropic_api_key", "claude_api_key", "claude"]:
+                if _k in st.secrets:
+                    claude_key = str(st.secrets[_k]).strip()
+                    if claude_key:
+                        break
+        except Exception:
+            pass
+    if not claude_key:
+        import os as _os
+        claude_key = _os.environ.get("ANTHROPIC_API_KEY", "")
+
     # ── Init session state ─────────────────────────────────────────────────
     if "analyst_messages" not in st.session_state:
         st.session_state.analyst_messages = []
     if "analyst_thinking" not in st.session_state:
         st.session_state.analyst_thinking = False
+
+    if not claude_key:
+        st.error("❌ No Anthropic API key found. Add `ANTHROPIC_API_KEY` to your Streamlit secrets.")
+        return
 
     agent = QualityAnalystAgent(claude_key)
 
