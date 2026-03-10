@@ -978,7 +978,7 @@ def render_b2b_zendesk_reporting():
         with col_table:
             st.dataframe(
                 cat_summary.sort_values("Total Issues", ascending=False),
-                use_container_width=True,
+                width='stretch',
                 height=min(500, 38 + 35 * len(cat_summary)),
                 column_config={
                     "Total Issues": st.column_config.NumberColumn(format="%d"),
@@ -1043,7 +1043,7 @@ def render_b2b_zendesk_reporting():
 
         st.dataframe(
             display_report[available_cols].sort_values("Quality Issues", ascending=False),
-            use_container_width=True,
+            width='stretch',
             height=min(600, 38 + 35 * len(display_report)),
             column_config={
                 "Parent SKU Display": st.column_config.TextColumn("Parent SKU"),
@@ -1110,7 +1110,7 @@ def render_b2b_zendesk_reporting():
                         axis=1
                     )
                     cross = cross.sort_values("Match?")
-                    st.dataframe(cross, use_container_width=True)
+                    st.dataframe(cross, width='stretch')
                     matches = (cross["Match?"] == "✅ Match").sum()
                     st.caption(
                         f"{matches}/{len(cross)} SKUs have matching top categories between Zendesk and Returns data."
@@ -1133,14 +1133,15 @@ def render_b2b_zendesk_reporting():
                 "Conf Badge", "Category", "Confidence", "Issue", "Ticket Type",
             ]
             avail = [c for c in detail_cols if c in qi_detail.columns]
-            # Sort by safety first, then date
-            qi_detail_sorted = qi_detail[avail].sort_values(
-                ["Safety Flag", "Ticket created - Date"],
-                ascending=[False, False]
-            ) if "Safety Flag" in qi_detail.columns else qi_detail[avail].sort_values(
-                "Ticket created - Date", ascending=False
-            )
-            st.dataframe(qi_detail_sorted, use_container_width=True, height=400,
+            # Sort BEFORE subsetting columns so sort keys don't need to be in avail
+            _sort_cols = [c for c in ["Safety Flag", "Ticket created - Date"] if c in qi_detail.columns]
+            if _sort_cols:
+                qi_detail_sorted = qi_detail.sort_values(
+                    _sort_cols, ascending=[False] * len(_sort_cols)
+                )[avail]
+            else:
+                qi_detail_sorted = qi_detail[avail]
+            st.dataframe(qi_detail_sorted, width='stretch', height=400,
                          column_config={
                              "Conf Badge": st.column_config.TextColumn("Conf", width="small"),
                              "Confidence": st.column_config.NumberColumn(format="%.2f"),
@@ -1152,7 +1153,7 @@ def render_b2b_zendesk_reporting():
                 lc_cols = ["Ticket ID", "Issue", "Conf Badge", "Category", "Confidence", "Ticket Type", "SKU"]
                 avail_lc = [c for c in lc_cols if c in low_conf_df.columns]
                 st.dataframe(low_conf_df[avail_lc].sort_values("Confidence"),
-                             use_container_width=True, height=300,
+                             width='stretch', height=300,
                              column_config={
                                  "Conf Badge": st.column_config.TextColumn("Conf", width="small"),
                                  "Confidence": st.column_config.NumberColumn(format="%.2f"),
@@ -1165,7 +1166,7 @@ def render_b2b_zendesk_reporting():
             non_qi = categorized[categorized["Is Quality Issue"] == False].copy()
             non_summary = non_qi["Category"].value_counts().reset_index()
             non_summary.columns = ["Category", "Count"]
-            st.dataframe(non_summary, use_container_width=True)
+            st.dataframe(non_summary, width='stretch')
             st.caption(f"{len(non_qi)} tickets classified as non-quality")
 
         # ── Export ────────────────────────────────────────────────────────
