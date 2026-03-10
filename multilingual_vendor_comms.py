@@ -482,12 +482,21 @@ def render_multilingual_comms_tab():
         "for international vendors in their preferred language."
     )
 
-    # Try to get communicator from session state (set up in main())
+    # Get communicator — prefer session state, otherwise build one with the live analyzer
     communicator: Optional[MultilingualVendorCommunicator] = st.session_state.get(
         'multilingual_communicator'
     )
-    if communicator is None:
-        communicator = MultilingualVendorCommunicator()
+    if communicator is None or communicator.ai_analyzer is None:
+        ai_analyzer = st.session_state.get('ai_analyzer')
+        communicator = MultilingualVendorCommunicator(ai_analyzer)
+        if ai_analyzer:
+            st.session_state['multilingual_communicator'] = communicator
+
+    if communicator.ai_analyzer is None:
+        st.warning(
+            "⚠️ No AI configured — outputs will use basic templates. "
+            "Add `ANTHROPIC_API_KEY` to Streamlit secrets for AI-generated communications."
+        )
 
     # ── Sidebar-like configuration in an expander ──────────────────────────
     with st.expander("⚙️ Communication Settings", expanded=True):
