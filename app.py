@@ -232,9 +232,9 @@ AI_PROVIDER_OPTIONS = {
     '🚀 GPT-4o-mini (Fast & Efficient)': AIProvider.OPENAI_FAST,
     '⚡ GPT-4o (Standard - Recommended)': AIProvider.OPENAI,
     '🧠 o1-preview (Most Powerful OpenAI)': AIProvider.OPENAI_POWERFUL,
-    '🏃 Claude 3.5 Haiku (Fastest)': AIProvider.CLAUDE_FAST,
-    '🎯 Claude 3.5 Sonnet (Balanced)': AIProvider.CLAUDE,
-    '💎 Claude Opus (Most Powerful)': AIProvider.CLAUDE_POWERFUL,
+    '🏃 Claude Haiku 4.5 (Fastest)': AIProvider.CLAUDE_FAST,
+    '🎯 Claude Sonnet 4.6 (Balanced)': AIProvider.CLAUDE,
+    '💎 Claude Opus 4.6 (Most Powerful)': AIProvider.CLAUDE_POWERFUL,
     '🔄 Both GPT-4o + Claude (Consensus)': AIProvider.BOTH
 }
 
@@ -649,7 +649,7 @@ def initialize_session_state():
     defaults = {
         # General AI
         'ai_analyzer': None,
-        'ai_provider': AIProvider.OPENAI,  # Default to OpenAI for Tab 3
+        'ai_provider': AIProvider.FASTEST,  # Default to fastest available (Claude-first)
         
         # Tab 1: Categorizer
         'categorized_data': None,
@@ -939,17 +939,17 @@ def render_connected_data_import():
                     if connector:
                         df = connector.read_sheet(sheet_id, worksheet_name if worksheet_name else None)
                         if not df.empty:
+                            st.session_state.connected_import_df = df
                             st.success(f"✓ Imported {len(df)} rows from Google Sheets")
                             st.dataframe(df.head(10), width="stretch")
-
-                            # Process button
-                            if st.button("🔍 Run Screening on Imported Data"):
-                                process_screening(df, 'Pro', include_claude=False)
-                                st.rerun()
                         else:
                             st.error("No data found or import failed")
                     else:
                         st.error("Connection failed. Check credentials.")
+            if st.session_state.get('connected_import_df') is not None:
+                if st.button("🔍 Run Screening on Imported Data", key="screen_sheets"):
+                    process_screening(st.session_state.connected_import_df, 'Pro', include_claude=False)
+                    st.rerun()
 
     elif conn_type == 'database':
         st.markdown("#### Database Query")
@@ -972,18 +972,18 @@ def render_connected_data_import():
                     if connector:
                         df = connector.query(query)
                         if not df.empty:
+                            st.session_state.connected_import_df = df
                             st.success(f"✓ Retrieved {len(df)} rows from database")
                             st.dataframe(df.head(10), width="stretch")
-
-                            # Process button
-                            if st.button("🔍 Run Screening on Query Results"):
-                                process_screening(df, 'Pro', include_claude=False)
-                                st.rerun()
                         else:
                             st.error("Query returned no results")
                         connector.close()
                     else:
                         st.error("Connection failed")
+            if st.session_state.get('connected_import_df') is not None:
+                if st.button("🔍 Run Screening on Query Results", key="screen_db"):
+                    process_screening(st.session_state.connected_import_df, 'Pro', include_claude=False)
+                    st.rerun()
 
     elif conn_type == 'smartsheet':
         st.markdown("#### Smartsheet Import")
@@ -1007,15 +1007,15 @@ def render_connected_data_import():
                     with st.spinner("Importing data from Smartsheet..."):
                         df = connector.read_sheet(sheet_id)
                         if not df.empty:
+                            st.session_state.connected_import_df = df
                             st.success(f"✓ Imported {len(df)} rows from Smartsheet")
                             st.dataframe(df.head(10), width="stretch")
-
-                            # Process button
-                            if st.button("🔍 Run Screening on Imported Data"):
-                                process_screening(df, 'Pro', include_claude=False)
-                                st.rerun()
                         else:
                             st.error("No data found or import failed")
+                if st.session_state.get('connected_import_df') is not None:
+                    if st.button("🔍 Run Screening on Imported Data", key="screen_smart"):
+                        process_screening(st.session_state.connected_import_df, 'Pro', include_claude=False)
+                        st.rerun()
             else:
                 st.warning("No sheets found in Smartsheet account")
 
@@ -1895,7 +1895,7 @@ def render_root_cause_analysis(tracker):
         selected_case = st.selectbox(
             "Select Case for 5-Why Analysis",
             options=range(len(tracker.cases)),
-            format_func=lambda i: f"{tracker.cases[i].product_name} ({tracker.cases[i].sku}) - {tracker.cases[i].top_issues[:50]}..."
+            format_func=lambda i: f"{tracker.cases[i].product_name} ({tracker.cases[i].sku}) - {(tracker.cases[i].top_issues or '')[:50]}..."
         )
 
         case = tracker.cases[selected_case]
@@ -1903,7 +1903,7 @@ def render_root_cause_analysis(tracker):
         st.markdown(f"""
         **Problem Statement:** {case.top_issues}
         **Product:** {case.product_name} ({case.sku})
-        **Return Rate:** {case.return_rate_amazon*100:.1f}%
+        **Return Rate:** {f"{case.return_rate_amazon*100:.1f}%" if case.return_rate_amazon is not None else "N/A"}
         """)
 
         st.markdown("---")
@@ -1933,7 +1933,7 @@ def render_root_cause_analysis(tracker):
 
 Product: {case.product_name}
 Issue: {case.top_issues}
-Return Rate: {case.return_rate_amazon*100:.1f}%
+Return Rate: {f"{case.return_rate_amazon*100:.1f}%" if case.return_rate_amazon is not None else "N/A"}
 Additional Context: {case.notification_notes}
 
 Provide 5 progressive "why" questions that drill down to the root cause. Format as:
@@ -1975,7 +1975,7 @@ End with "Root Cause:" and the fundamental issue."""
         selected_case = st.selectbox(
             "Select Case for Fishbone Analysis",
             options=range(len(tracker.cases)),
-            format_func=lambda i: f"{tracker.cases[i].product_name} ({tracker.cases[i].sku}) - {tracker.cases[i].top_issues[:50]}...",
+            format_func=lambda i: f"{tracker.cases[i].product_name} ({tracker.cases[i].sku}) - {(tracker.cases[i].top_issues or '')[:50]}...",
             key="fishbone_case"
         )
 
@@ -2348,7 +2348,7 @@ def render_risk_analysis_fmea(tracker):
         risk_data.append({
             'Product': case.product_name,
             'SKU': case.sku,
-            'Failure Mode': case.top_issues[:50] + '...' if len(case.top_issues) > 50 else case.top_issues,
+            'Failure Mode': (case.top_issues or '')[:50] + ('...' if len(case.top_issues or '') > 50 else ''),
             'Severity (S)': severity,
             'Occurrence (O)': occurrence,
             'Detection (D)': detection,
@@ -2691,13 +2691,13 @@ Include specific dollar amounts and percentages."""
         selected_case_idx = st.selectbox(
             "Select Product for Forecast",
             options=range(len(tracker.cases)),
-            format_func=lambda i: f"{tracker.cases[i].product_name} ({tracker.cases[i].sku}) - RR: {tracker.cases[i].return_rate_amazon*100:.1f}%"
+            format_func=lambda i: f"{tracker.cases[i].product_name} ({tracker.cases[i].sku}) - RR: {f'{tracker.cases[i].return_rate_amazon*100:.1f}%' if tracker.cases[i].return_rate_amazon is not None else 'N/A'}"
         )
 
         case = tracker.cases[selected_case_idx]
 
         st.markdown(f"**Product:** {case.product_name}")
-        st.markdown(f"**Current Return Rate:** {case.return_rate_amazon*100:.1f}%")
+        st.markdown(f"**Current Return Rate:** {f'{case.return_rate_amazon*100:.1f}%' if case.return_rate_amazon is not None else 'N/A'}")
         st.markdown(f"**Issue:** {case.top_issues}")
 
         if st.button("🤖 Generate Product Forecast", type="primary"):
@@ -2705,7 +2705,7 @@ Include specific dollar amounts and percentages."""
                 prompt = f"""Product Quality Forecast:
 
 Product: {case.product_name} ({case.sku})
-Current Return Rate: {case.return_rate_amazon*100:.1f}%
+Current Return Rate: {f"{case.return_rate_amazon*100:.1f}%" if case.return_rate_amazon is not None else "N/A"}
 Issue: {case.top_issues}
 Action Taken: {case.action_taken if case.action_taken else 'None yet'}
 Sales Channel: {case.main_sales_channel}
@@ -3655,7 +3655,8 @@ Be specific and actionable."""
                 **Cost Impact:** ${data.get('cost_of_refunds', 0):,.0f}
                 """)
 
-            st.markdown(f"**Top Issues:** {data.get('top_issues', 'Not specified')[:200]}...")
+            _issues_preview = data.get('top_issues') or 'Not specified'
+            st.markdown(f"**Top Issues:** {_issues_preview[:200]}{'...' if len(_issues_preview) > 200 else ''}")
 
             # AI recommendation
             if not should_add:
@@ -6694,7 +6695,7 @@ def render_pro_mode():
 
                                 with col1:
                                     st.metric("Total Returns", latest.total_orders)
-                                    st.metric("Defect Rate", f"{latest.return_rate*100:.1f}%")
+                                    st.metric("Defect Rate", f"{latest.return_rate*100:.1f}%" if latest.return_rate is not None else "N/A")
 
                                 with col2:
                                     st.metric("Period", latest.period_name)
@@ -6828,7 +6829,7 @@ def render_pro_mode():
                                             # Single period - show comparison to threshold
                                             fig_gauge = go.Figure(go.Indicator(
                                                 mode="gauge+number+delta",
-                                                value=latest.return_rate * 100,
+                                                value=(latest.return_rate * 100) if latest.return_rate is not None else 0,
                                                 domain={'x': [0, 1], 'y': [0, 1]},
                                                 title={'text': "Return Rate vs Amazon Threshold"},
                                                 delta={'reference': analysis.amazon_threshold * 100},
@@ -6968,7 +6969,7 @@ def render_pro_mode():
                                         'SKU': sku,
                                         'Period': latest.period_name,
                                         'Total Returns': latest.total_orders,
-                                        'Defect Rate': f"{latest.return_rate*100:.1f}%",
+                                        'Defect Rate': f"{latest.return_rate*100:.1f}%" if latest.return_rate is not None else "N/A",
                                         'Priority': analysis.priority_level,
                                         'Risk Flags': ' | '.join(analysis.risk_flags)
                                     }
@@ -7058,7 +7059,7 @@ def render_pro_mode():
                 # Clean up temp file
                 try:
                     os.unlink(tmp_path)
-                except:
+                except OSError:
                     pass
 
             except Exception as e:
@@ -7449,6 +7450,8 @@ def process_screening(df: pd.DataFrame, analysis_type: str = "ANOVA", include_cl
                 axis=1
             )
         else:
+            if 'Category' not in df.columns:
+                df['Category'] = 'All Others'
             df['Category_Threshold'] = df['Category'].apply(
                 lambda x: active_thresholds.get(x, active_thresholds.get('All Others', 0.10))
             )
@@ -7468,7 +7471,7 @@ def process_screening(df: pd.DataFrame, analysis_type: str = "ANOVA", include_cl
             st.session_state.manova_result = manova_result
             log_process(f"MANOVA p-value: {manova_result.p_value:.4f}")
         
-        elif analysis_type in ["ANOVA", "Auto"] and len(df) > 5:
+        elif analysis_type in ["ANOVA", "Auto", "Auto (AI Recommended)", "ANOVA (Analysis of Variance)"] and len(df) > 5:
             anova_result = QualityStatistics.perform_anova(df, 'Category', 'Return_Rate')
             st.session_state.anova_result = anova_result
             log_process(f"ANOVA F={anova_result.statistic:.2f}, p={anova_result.p_value:.4f}")
@@ -9386,7 +9389,7 @@ def render_help_guide():
                         width="stretch"
                     )
                     st.caption("✨ **Advanced Demo includes:** Products from actual catalog, realistic return scenarios, safety risks, multilingual support testing, fuzzy matching against 231 historical products")
-            except Exception as e:
+            except Exception:
                 pass  # Silently fail if advanced demo not available
 
 
@@ -10778,7 +10781,7 @@ def render_global_recall_surveillance():
             else:
                 df_sorted = df
 
-            for idx, row in df_sorted.iterrows():
+            for _, row in df_sorted.iterrows():
                 risk = row.get('Risk_Level', 'Medium')
                 risk_icon = "🔴" if risk == "High" else "🟠" if risk == "Medium" else "🟢"
                 source = row.get('Source', 'Unknown')
@@ -11094,7 +11097,7 @@ def main():
     <div class="main-header" style="background: linear-gradient(135deg, {header_bg} 0%, {COLORS['secondary']} 100%); padding: 2rem; border-radius: 10px; margin-bottom: 2rem;">
         <h1 class="main-title" style="color: {header_text}; margin: 0;">🏥 VIVE HEALTH QUALITY SUITE</h1>
         <p style="color: {header_text}; margin: 0.5rem 0; font-size: 1.1rem;">
-            <strong>Enterprise Quality Management System v25.0</strong>
+            <strong>Enterprise Quality Management System v{APP_CONFIG.get('version', '25.0')}</strong>
         </p>
         <p style="color: rgba(255,255,255,0.95); margin: 0; font-size: 0.9rem;">
             🤖 <strong>AI-Powered:</strong> GPT-4o, o1-preview, Claude 3.5 Sonnet/Opus | TQM Methodology<br/>
@@ -11105,8 +11108,7 @@ def main():
     """, unsafe_allow_html=True)
 
     if not AI_AVAILABLE:
-        st.error("❌ AI Modules Missing. Please check deployment.")
-        st.stop()
+        st.warning("⚠️ AI Modules Missing. Some AI features may be unavailable. Please check deployment.")
 
     # Add AI status indicator
     keys = check_api_keys()

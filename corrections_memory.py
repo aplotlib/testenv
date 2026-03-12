@@ -155,7 +155,7 @@ class CorrectionsMemory:
         category immediately (no AI call needed).
         """
         entry = self.corrections.get(self._make_key(complaint_text))
-        return entry["new_category"] if entry else None
+        return entry.get("new_category") if entry else None
 
     # ── Stats / admin ───────────────────────────────────────────────────────
 
