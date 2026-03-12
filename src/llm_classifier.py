@@ -29,7 +29,7 @@ def classify_hit(sku: str, product_name: str, hit: Dict[str, Any]) -> Dict[str, 
         "hit": hit
     }
     resp = client.responses.create(
-        model="gpt-4.1-mini",
+        model="gpt-4o-mini",
         input=[
             {"role":"system","content":SYSTEM},
             {"role":"user","content":f"Classify:\n{user}"}

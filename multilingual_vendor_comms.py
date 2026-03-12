@@ -322,11 +322,17 @@ Generate the email with subject line.
                 if response:
                     # Extract subject and body
                     if "Subject:" in response:
-                        parts = response.split("\n", 1)
-                        subject = parts[0].replace("Subject:", "").strip()
-                        body = parts[1].strip() if len(parts) > 1 else response
+                        lines_r = response.split("\n")
+                        subject = "Quality Matter - Product Quality Review"
+                        body_start = 0
+                        for i, line in enumerate(lines_r):
+                            if "Subject:" in line:
+                                subject = line.replace("Subject:", "").strip()
+                                body_start = i + 1
+                                break
+                        body = "\n".join(lines_r[body_start:]).strip() or response
                     else:
-                        subject = f"Quality Matter - Product Quality Review"
+                        subject = "Quality Matter - Product Quality Review"
                         body = response
 
                     return {'subject': subject, 'body': body}

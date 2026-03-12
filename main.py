@@ -252,6 +252,8 @@ def init_session() -> None:
             with open("config.yaml", "r", encoding="utf-8") as config_file:
                 config = yaml.safe_load(config_file) or {}
             st.session_state.model_overrides = config.get("ai_models", {})
+        else:
+            st.session_state.model_overrides = {}
 
     if "ai_service" not in st.session_state:
         if st.session_state.provider == "openai":
@@ -305,20 +307,20 @@ def sidebar_controls() -> tuple[date, date, List[str], str, int]:
     regions: List[str] = []
     c1, c2 = st.sidebar.columns(2)
     with c1:
-        if st.checkbox("🇺🇸 US", value=True):
+        if st.checkbox("🇺🇸 US", value=True, key="region_us"):
             regions.append("US")
-        if st.checkbox("🇪🇺 EU", value=True):
+        if st.checkbox("🇪🇺 EU", value=True, key="region_eu"):
             regions.append("EU")
     with c2:
-        if st.checkbox("🇬🇧 UK", value=True):
+        if st.checkbox("🇬🇧 UK", value=True, key="region_uk"):
             regions.append("UK")
-        if st.checkbox("🇨🇦 Canada", value=True):
+        if st.checkbox("🇨🇦 Canada", value=True, key="region_ca"):
             regions.append("CA")
 
-    if st.sidebar.checkbox("🌎 LATAM (BR/MX/CO)", value=True):
+    if st.sidebar.checkbox("🌎 LATAM (BR/MX/CO)", value=True, key="region_latam"):
         regions.append("LATAM")
 
-    if st.sidebar.checkbox("🌏 APAC", value=False):
+    if st.sidebar.checkbox("🌏 APAC", value=False, key="region_apac"):
         regions.append("APAC")
 
     mode_select = st.sidebar.radio(

@@ -439,9 +439,11 @@ class QualityAnalystAgent:
 
         cat_col = _find_col(df, ["category", "ai_category"])
         if cat_col and not df[cat_col].empty:
-            top_cat = df[cat_col].mode()[0]
-            top_cnt = int(df[cat_col].value_counts().iloc[0])
-            lines.append(f"Top category: {top_cat} ({top_cnt} occurrences)")
+            mode_vals = df[cat_col].dropna().mode()
+            if not mode_vals.empty:
+                top_cat = mode_vals.iloc[0]
+                top_cnt = int(df[cat_col].value_counts().iloc[0])
+                lines.append(f"Top category: {top_cat} ({top_cnt} occurrences)")
 
         safety_col = _find_col(
             df, ["has_safety_concern", "safety_flag", "injury"]
@@ -533,8 +535,8 @@ class QualityAnalystAgent:
                 date = r.get("date_received", "?")
                 event_type = r.get("event_type", "?")
                 device = r.get("device", [{}])
-                device_name = device[0].get("generic_name", "?") if device else "?"
-                mfr = device[0].get("manufacturer_d_name", "?") if device else "?"
+                device_name = device[0].get("generic_name", "?") if device and len(device) > 0 else "?"
+                mfr = device[0].get("manufacturer_d_name", "?") if device and len(device) > 0 else "?"
                 lines.append(f"  [{date}] {event_type} — {device_name} by {mfr}")
             return "\n".join(lines)
         except Exception as exc:
@@ -801,8 +803,8 @@ def _query_fda_maude(keyword: str, limit: int = 5) -> str:
             date = r.get("date_received", "?")
             event_type = r.get("event_type", "?")
             device = r.get("device", [{}])
-            device_name = device[0].get("generic_name", "?") if device else "?"
-            mfr = device[0].get("manufacturer_d_name", "?") if device else "?"
+            device_name = device[0].get("generic_name", "?") if device and len(device) > 0 else "?"
+            mfr = device[0].get("manufacturer_d_name", "?") if device and len(device) > 0 else "?"
             lines.append(f"  [{date}] {event_type} — {device_name} by {mfr}")
         return "\n".join(lines)
     except Exception as exc:
