@@ -226,8 +226,6 @@ def _normalize_gemini_key(api_key: str | None) -> tuple[str | None, str | None]:
 
 
 def init_session() -> None:
-    if "openai_api_key" not in st.session_state:
-        st.session_state.openai_api_key = _safe_secret("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
     if "gemini_api_key" not in st.session_state:
         gemini_api_key = (
             _safe_secret("GEMINI_API_KEY")
@@ -240,12 +238,10 @@ def init_session() -> None:
         st.session_state.gemini_key_warning = gemini_warning
 
     if "provider" not in st.session_state:
-        if st.session_state.openai_api_key and st.session_state.gemini_api_key:
-            st.session_state.provider = "both"
-        elif st.session_state.gemini_api_key:
+        if st.session_state.gemini_api_key:
             st.session_state.provider = "gemini"
         else:
-            st.session_state.provider = "openai"
+            st.session_state.provider = "claude"
 
     if "model_overrides" not in st.session_state:
         if os.path.exists("config.yaml"):
@@ -256,12 +252,14 @@ def init_session() -> None:
             st.session_state.model_overrides = {}
 
     if "ai_service" not in st.session_state:
-        if st.session_state.provider == "openai":
-            st.session_state.api_key = st.session_state.openai_api_key
-        elif st.session_state.provider == "gemini":
+        if st.session_state.provider == "gemini":
             st.session_state.api_key = st.session_state.gemini_api_key
         else:
-            st.session_state.api_key = st.session_state.openai_api_key
+            st.session_state.api_key = (
+                _safe_secret("ANTHROPIC_API_KEY")
+                or _safe_secret("anthropic_api_key")
+                or os.getenv("ANTHROPIC_API_KEY", "")
+            )
         get_ai_service()
 
     st.session_state.setdefault("recall_hits", pd.DataFrame())
@@ -274,14 +272,14 @@ def sidebar_controls() -> tuple[date, date, List[str], str, int]:
     st.sidebar.caption("Configure providers, time windows, and coverage zones.")
 
     provider_label_map = {
-        "openai": "OpenAI",
+        "claude": "Claude (Anthropic)",
         "gemini": "Gemini",
-        "both": "OpenAI + Gemini",
     }
+    current_provider = st.session_state.provider if st.session_state.provider in provider_label_map else "claude"
     provider_choice = st.sidebar.selectbox(
         "AI Provider",
         list(provider_label_map.values()),
-        index=list(provider_label_map.keys()).index(st.session_state.provider),
+        index=list(provider_label_map.keys()).index(current_provider),
     )
     selected_provider = {v: k for k, v in provider_label_map.items()}[provider_choice]
     if selected_provider != st.session_state.provider:
@@ -334,9 +332,7 @@ def sidebar_controls() -> tuple[date, date, List[str], str, int]:
     result_limit = st.sidebar.slider("Max results per search", min_value=100, max_value=800, value=300, step=50)
 
     st.sidebar.header("Key Status")
-    if st.session_state.provider in {"openai", "both"} and not st.session_state.openai_api_key:
-        st.sidebar.warning("OpenAI API key not found in Streamlit secrets.")
-    if st.session_state.provider in {"gemini", "both"} and not st.session_state.gemini_api_key:
+    if st.session_state.provider == "gemini" and not st.session_state.gemini_api_key:
         if st.session_state.get("gemini_key_warning"):
             st.sidebar.warning(st.session_state.gemini_key_warning)
         else:

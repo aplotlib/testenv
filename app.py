@@ -19,8 +19,8 @@ COMPLIANCE: ISO 13485 | FDA 21 CFR 820 | EU MDR | UK MDR
 
 Features:
 - Task-based landing page with intuitive tool selection
-- 🆕 v25.0: Latest AI models (GPT-4o, o1-preview, Claude 3.5 Sonnet/Opus)
-- 🆕 v25.0: Fast/Powerful model selection (GPT-4o-mini vs o1-preview)
+- 🆕 v31.0: Claude-only AI (Haiku 4.5 / Sonnet 4.6 / Opus 4.6)
+- 🆕 v31.0: Removed all OpenAI dependencies
 - 🆕 v25.0: Light/Dark theme switcher for optimal legibility
 - 🆕 v25.0: WCAG AAA compliant color contrast (7:1 ratio)
 - 🆕 v25.0: Enhanced UI/UX with improved formatting
@@ -227,15 +227,11 @@ QUALITY_CATEGORIES = [
     'Medical/Health Concerns'
 ]
 
-# AI Provider options - Latest models with Fast/Powerful choice
+# AI Provider options — Claude (Anthropic) only
 AI_PROVIDER_OPTIONS = {
-    '🚀 GPT-4o-mini (Fast & Efficient)': AIProvider.OPENAI_FAST,
-    '⚡ GPT-4o (Standard - Recommended)': AIProvider.OPENAI,
-    '🧠 o1-preview (Most Powerful OpenAI)': AIProvider.OPENAI_POWERFUL,
     '🏃 Claude Haiku 4.5 (Fastest)': AIProvider.CLAUDE_FAST,
     '🎯 Claude Sonnet 4.6 (Balanced)': AIProvider.CLAUDE,
     '💎 Claude Opus 4.6 (Most Powerful)': AIProvider.CLAUDE_POWERFUL,
-    '🔄 Both GPT-4o + Claude (Consensus)': AIProvider.BOTH
 }
 
 # Source of Flag options for tracking how issues came to attention
@@ -735,20 +731,10 @@ def initialize_session_state():
 
 
 def check_api_keys():
-    """Check for API keys and set environment variables"""
+    """Check for Anthropic API key and set environment variable."""
     keys_found = {}
     try:
         if hasattr(st, 'secrets'):
-            # Check OpenAI
-            for key in ['OPENAI_API_KEY', 'openai_api_key', 'openai']:
-                if key in st.secrets:
-                    val = str(st.secrets[key]).strip()
-                    if val:
-                        keys_found['openai'] = val
-                        os.environ['OPENAI_API_KEY'] = val
-                        break
-            
-            # Check Claude
             for key in ['ANTHROPIC_API_KEY', 'anthropic_api_key', 'claude_api_key', 'claude']:
                 if key in st.secrets:
                     val = str(st.secrets[key]).strip()
@@ -758,7 +744,6 @@ def check_api_keys():
                         break
     except Exception as e:
         logger.warning(f"Error checking secrets: {e}")
-    
     return keys_found
 
 
@@ -833,19 +818,10 @@ def render_api_health_check():
 
     st.sidebar.markdown("### 🔌 API Status")
 
-    col1, col2 = st.sidebar.columns(2)
-
-    with col1:
-        if keys.get('openai'):
-            st.success("OpenAI ✓")
-        else:
-            st.error("OpenAI ✗")
-
-    with col2:
-        if keys.get('claude'):
-            st.success("Claude ✓")
-        else:
-            st.warning("Claude ✗")
+    if keys.get('claude'):
+        st.sidebar.success("✅ Claude (Anthropic) Connected")
+    else:
+        st.sidebar.error("❌ Claude API key missing — add ANTHROPIC_API_KEY to Streamlit secrets")
 
     return keys
 
@@ -5138,12 +5114,12 @@ def render_quality_screening_tab():
             st.session_state.qc_mode = "Pro"
     
     with col2:
-        # AI Provider selection - OpenAI default
+        # AI Model selection — Claude (Anthropic)
         ai_provider = st.selectbox(
-            "AI Provider",
+            "AI Model",
             options=list(AI_PROVIDER_OPTIONS.keys()),
-            index=0,  # OpenAI default
-            help="Select AI provider. OpenAI is default. Claude available for additional review."
+            index=0,
+            help="Select Claude model for AI-powered analysis."
         )
         st.session_state.ai_provider = AI_PROVIDER_OPTIONS[ai_provider]
     
@@ -5601,7 +5577,7 @@ def _process_ai_chat(user_question: str):
 
 **About This Application:**
 This app extensively uses AI for:
-- AI-powered return categorization (Tab 1) using OpenAI/Claude
+- AI-powered return categorization (Tab 1) using Claude (Anthropic)
 - Multilingual vendor email generation with translation
 - Product similarity matching and benchmarking
 - Deep dive quality analysis and root cause recommendations
@@ -9276,7 +9252,7 @@ def render_help_guide():
         **This application extensively uses AI/ML for quality management:**
 
         #### 1️⃣ **AI Return Categorization (Tab 1)**
-        - **Technology:** OpenAI GPT-3.5 / Claude Haiku/Sonnet
+        - **Technology:** Claude Haiku 4.5 / Claude Sonnet 4.6 (Anthropic)
         - **What it does:** Automatically categorizes customer complaints into standardized quality categories
         - **How it helps:** Eliminates manual categorization, processes thousands of complaints in minutes
 
@@ -10083,7 +10059,7 @@ def render_categorizer_tool(provider_map=None, provider_selection=None):
     st.markdown("""
     <div style="background: rgba(255, 183, 0, 0.1); border: 1px solid var(--accent);
                 border-radius: 8px; padding: 0.8rem; margin-bottom: 1rem;">
-        <strong>🤖 AI-Powered:</strong> Uses OpenAI/Claude LLMs to automatically categorize customer complaints<br/>
+        <strong>🤖 AI-Powered:</strong> Uses Claude (Anthropic) to automatically categorize customer complaints<br/>
         <strong>📌 Goal:</strong> Convert unstructured complaint text into standardized Quality Categories<br/>
         <strong>⚡ Speed:</strong> Processes thousands of complaints in minutes (vs hours manually)
     </div>
@@ -11100,7 +11076,7 @@ def main():
             <strong>Enterprise Quality Management System v{APP_CONFIG.get('version', '25.0')}</strong>
         </p>
         <p style="color: rgba(255,255,255,0.95); margin: 0; font-size: 0.9rem;">
-            🤖 <strong>AI-Powered:</strong> GPT-4o, o1-preview, Claude 3.5 Sonnet/Opus | TQM Methodology<br/>
+            🤖 <strong>AI-Powered:</strong> Claude Haiku 4.5 | Claude Sonnet 4.6 | Claude Opus 4.6 | TQM Methodology<br/>
             🌐 <strong>Global Intelligence:</strong> FDA | EU EMA | UK MHRA | Health Canada | 20+ International Sources<br/>
             📊 <strong>Compliance:</strong> ISO 13485 | FDA 21 CFR 820 | EU MDR | UK MDR
         </p>
@@ -11112,16 +11088,10 @@ def main():
 
     # Add AI status indicator
     keys = check_api_keys()
-    ai_status = []
-    if keys.get('openai'):
-        ai_status.append("✅ OpenAI Active")
     if keys.get('claude'):
-        ai_status.append("✅ Claude Active")
-
-    if ai_status:
-        st.success(f"🤖 AI Status: {' | '.join(ai_status)}")
+        st.success("🤖 AI Status: ✅ Claude (Anthropic) Active")
     else:
-        st.warning("⚠️ No AI API keys configured. Some features will be limited.")
+        st.warning("⚠️ Claude API key not configured. Add ANTHROPIC_API_KEY to Streamlit secrets.")
 
     # Connection configuration modal
     if st.session_state.get('show_connection_modal', False):
@@ -11136,17 +11106,16 @@ def main():
 
         # AI Provider selection
         provider_selection = st.selectbox(
-            "🤖 AI Provider",
-            options=['Fastest (Claude Haiku)', 'OpenAI GPT-3.5', 'Claude Sonnet', 'Both (Consensus)'],
+            "🤖 AI Model",
+            options=['Fastest (Claude Haiku 4.5)', 'Claude Sonnet 4.6', 'Claude Opus 4.6'],
             index=0,
-            help="Select AI model for AI-powered tools"
+            help="Select Claude model for AI-powered tools"
         )
 
         provider_map = {
-            'Fastest (Claude Haiku)': AIProvider.FASTEST,
-            'OpenAI GPT-3.5': AIProvider.OPENAI,
-            'Claude Sonnet': AIProvider.CLAUDE,
-            'Both (Consensus)': AIProvider.BOTH
+            'Fastest (Claude Haiku 4.5)': AIProvider.FASTEST,
+            'Claude Sonnet 4.6': AIProvider.CLAUDE,
+            'Claude Opus 4.6': AIProvider.CLAUDE_POWERFUL,
         }
 
         # API Health Check

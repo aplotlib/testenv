@@ -1,21 +1,14 @@
 """
-Enhanced AI Analysis Module - Claude-Primary with Speed Optimization
-Version 16.0 - Claude API Migration
+Enhanced AI Analysis Module — Claude (Anthropic) Only
+Version 32.0
 
 Key Features:
-- Claude (Anthropic) as primary AI provider
-- Dual AI support with intelligent routing
-- Batch processing for speed
-- Claude Haiku for fast categorization/summarization
-- Claude Sonnet/Opus for complex cases
-- Parallel API calls
-- Dynamic Worker Scaling
-
-Migration Notes:
-- Migrated from OpenAI to Anthropic Claude as primary provider
-- All Claude API calls use direct HTTP requests (requests library)
-- Claude model strings updated to current Claude 4.x / 4.5 family
-- OpenAI kept as optional fallback if key is present
+- Claude (Anthropic) as sole AI provider
+- Claude Haiku 4.5 for fast categorization/summarization
+- Claude Sonnet 4.6 / Opus 4.6 for complex cases
+- Batch processing with parallel API calls
+- Prompt caching and extended thinking support
+- Dynamic worker scaling
 """
 
 import logging
@@ -70,16 +63,6 @@ MODELS = {
         'powerful':  'claude-opus-4-6',               # Alias for extreme
         'chat':      'claude-sonnet-4-6',             # Conversational
         'summary':   'claude-haiku-4-5-20251001'      # Fast summaries
-    },
-    # OpenAI kept as optional fallback
-    'openai': {
-        'fast':      'gpt-4o-mini',
-        'standard':  'gpt-4o',
-        'enhanced':  'gpt-4o',
-        'extreme':   'gpt-4o',
-        'powerful':  'gpt-4o',
-        'chat':      'gpt-4o',
-        'summary':   'gpt-4o-mini'
     }
 }
 
@@ -93,10 +76,6 @@ PRICING = {
     'claude-3-5-haiku-20241022':  {'input': 0.00100, 'output': 0.00500},
     'claude-3-5-sonnet-20241022': {'input': 0.00300, 'output': 0.01500},
     'claude-3-opus-20240229':     {'input': 0.01500, 'output': 0.07500},
-    # OpenAI — optional fallback
-    'gpt-4o-mini':   {'input': 0.00015, 'output': 0.00060},
-    'gpt-4o':        {'input': 0.00250, 'output': 0.01000},
-    'gpt-3.5-turbo': {'input': 0.00050, 'output': 0.00150},
 }
 
 # Medical Device Return Categories — granular taxonomy for actionable QA analysis
@@ -335,14 +314,10 @@ COMPILED_PATTERNS = {
 
 
 class AIProvider(Enum):
-    OPENAI = "openai"
-    OPENAI_FAST = "openai_fast"
-    OPENAI_POWERFUL = "openai_powerful"
     CLAUDE = "claude"
     CLAUDE_FAST = "claude_fast"
     CLAUDE_POWERFUL = "claude_powerful"
-    BOTH = "both"
-    FASTEST = "fastest"  # Auto-select fastest available (Claude-first)
+    FASTEST = "fastest"  # Auto-select fastest available model
 
 
 @dataclass
@@ -384,7 +359,7 @@ def calculate_cost(model: str, input_tokens: int, output_tokens: int) -> CostEst
     output_cost = (output_tokens / 1000) * pricing['output']
     total_cost = input_cost + output_cost
 
-    provider = 'claude' if 'claude' in model else 'openai'
+    provider = 'claude'
 
     return CostEstimate(
         provider=provider,
@@ -512,7 +487,7 @@ class CostTracker:
         }
 
     def _get_provider_breakdown(self) -> Dict[str, Dict]:
-        breakdown = {'openai': {'calls': 0, 'cost': 0}, 'claude': {'calls': 0, 'cost': 0}}
+        breakdown = {'claude': {'calls': 0, 'cost': 0}}
         for cost in self.session_costs:
             provider = cost.provider
             if provider in breakdown:
@@ -523,20 +498,18 @@ class CostTracker:
 
 class EnhancedAIAnalyzer:
     """
-    Main AI analyzer — Claude (Anthropic) primary, OpenAI optional fallback.
-    Uses direct HTTP requests (requests library) for both providers.
+    Main AI analyzer — Claude (Anthropic) only.
+    Uses direct HTTP requests (requests library).
     """
 
     def __init__(self, provider: AIProvider = AIProvider.CLAUDE, max_workers: int = 5):
         self.provider = provider
         self.max_workers = max_workers
         self.claude_key = self._get_api_key('claude')
-        self.openai_key = self._get_api_key('openai')
 
         self.cost_tracker = CostTracker()
 
         self.claude_configured = bool(self.claude_key and has_requests)
-        self.openai_configured = bool(self.openai_key and has_requests)
 
         self.executor = ThreadPoolExecutor(max_workers=self.max_workers)
 
@@ -546,7 +519,7 @@ class EnhancedAIAnalyzer:
 
         logger.info(
             f"AI Analyzer initialized — Claude: {self.claude_configured}, "
-            f"OpenAI: {self.openai_configured}, Mode: {provider.value}, Workers: {self.max_workers}"
+            f"Mode: {provider.value}, Workers: {self.max_workers}"
         )
 
     def _get_api_key(self, provider: str) -> Optional[str]:
@@ -555,55 +528,38 @@ class EnhancedAIAnalyzer:
         try:
             import streamlit as st
             if hasattr(st, 'secrets'):
-                if provider == 'claude':
-                    for key_name in ["ANTHROPIC_API_KEY", "anthropic_api_key", "claude_api_key", "claude"]:
-                        if key_name in st.secrets:
-                            key_value = str(st.secrets[key_name]).strip()
-                            if key_value:
-                                logger.info(f"Found Claude key in Streamlit secrets ({key_name})")
-                                return key_value
-                elif provider == 'openai':
-                    for key_name in ["OPENAI_API_KEY", "openai_api_key", "openai"]:
-                        if key_name in st.secrets:
-                            key_value = str(st.secrets[key_name]).strip()
-                            if key_value and key_value.startswith('sk-'):
-                                logger.info(f"Found OpenAI key in Streamlit secrets")
-                                return key_value
+                for key_name in ["ANTHROPIC_API_KEY", "anthropic_api_key", "claude_api_key", "claude"]:
+                    if key_name in st.secrets:
+                        key_value = str(st.secrets[key_name]).strip()
+                        if key_value:
+                            logger.info(f"Found Claude key in Streamlit secrets ({key_name})")
+                            return key_value
         except Exception as e:
             logger.debug(f"Streamlit secrets not available: {e}")
 
         # Environment variables fallback
-        env_vars = {
-            'claude': ["ANTHROPIC_API_KEY", "CLAUDE_API_KEY"],
-            'openai': ["OPENAI_API_KEY", "OPENAI_API"],
-        }
-        for env_name in env_vars.get(provider, []):
+        for env_name in ["ANTHROPIC_API_KEY", "CLAUDE_API_KEY"]:
             api_key = os.environ.get(env_name, '').strip()
             if api_key:
-                logger.info(f"Found {provider} key in environment ({env_name})")
+                logger.info(f"Found Claude key in environment ({env_name})")
                 return api_key
 
-        logger.warning(f"No {provider} API key found")
+        logger.warning("No Anthropic API key found")
         return None
 
     def get_api_status(self) -> Dict[str, Any]:
         status = {
-            'available': self.claude_configured or self.openai_configured,
+            'available': self.claude_configured,
             'claude_configured': self.claude_configured,
-            'openai_configured': self.openai_configured,
             'primary_provider': 'claude',
             'provider': self.provider.value,
             'cost_summary': self.cost_tracker.get_summary(),
             'message': ''
         }
-        if self.claude_configured and self.openai_configured:
-            status['message'] = 'Claude (primary) and OpenAI (fallback) both configured'
-        elif self.claude_configured:
+        if self.claude_configured:
             status['message'] = 'Claude API configured'
-        elif self.openai_configured:
-            status['message'] = 'OpenAI API configured (Claude key missing — add ANTHROPIC_API_KEY to secrets)'
         else:
-            status['message'] = 'No APIs configured — add ANTHROPIC_API_KEY to Streamlit secrets'
+            status['message'] = 'No API configured — add ANTHROPIC_API_KEY to Streamlit secrets'
         return status
 
     # ----------------------------------------------------------------
@@ -806,127 +762,24 @@ class EnhancedAIAnalyzer:
             yield f"\nStreaming error: {exc}"
 
     # ----------------------------------------------------------------
-    # OpenAI API call — optional fallback
-    # ----------------------------------------------------------------
-    def _call_openai(
-        self, prompt: str, system_prompt: str, mode: str = 'standard'
-    ) -> Tuple[Optional[str], Optional[CostEstimate]]:
-        """Call OpenAI API (optional fallback) with cost tracking."""
-        if not self.openai_configured:
-            return None, None
-
-        model = MODELS['openai'].get(mode, MODELS['openai']['standard'])
-        max_tokens = TOKEN_LIMITS.get(mode, TOKEN_LIMITS['standard'])
-        input_tokens = estimate_tokens(system_prompt + prompt)
-
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.openai_key}"
-        }
-
-        payload = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt}
-            ],
-            "temperature": 0.1,
-            "max_tokens": max_tokens
-        }
-
-        for attempt in range(MAX_RETRIES):
-            try:
-                response = (self.session or requests).post(
-                    "https://api.openai.com/v1/chat/completions",
-                    headers=headers,
-                    json=payload,
-                    timeout=API_TIMEOUT
-                )
-
-                if response.status_code == 200:
-                    result = response.json()
-                    content = result["choices"][0]["message"]["content"].strip()
-
-                    usage = result.get("usage", {})
-                    actual_input = usage.get("prompt_tokens", input_tokens)
-                    actual_output = usage.get("completion_tokens", len(content.split()))
-
-                    cost = calculate_cost(model, actual_input, actual_output)
-                    self.cost_tracker.add_cost(cost)
-                    return content, cost
-
-                elif response.status_code == 429:
-                    wait_time = min(2 ** attempt, 10)
-                    logger.warning(f"OpenAI rate limited, waiting {wait_time}s")
-                    time.sleep(wait_time)
-
-                else:
-                    logger.error(f"OpenAI API error {response.status_code}")
-                    return None, None
-
-            except Exception as e:
-                logger.error(f"OpenAI call error: {e}")
-                if attempt == MAX_RETRIES - 1:
-                    return None, None
-                time.sleep(1)
-
-        return None, None
-
-    # ----------------------------------------------------------------
     # Internal routing helper
     # ----------------------------------------------------------------
     def _route_call(
         self, prompt: str, system_prompt: str, mode: str
     ) -> Tuple[Optional[str], Optional[CostEstimate]]:
-        """Route API call to the configured provider, Claude-first."""
+        """Route API call to Claude."""
         p = self.provider
 
-        if p in (AIProvider.CLAUDE, AIProvider.CLAUDE_FAST):
-            eff_mode = 'fast' if p == AIProvider.CLAUDE_FAST else mode
-            return self._call_claude(prompt, system_prompt, eff_mode)
+        if p == AIProvider.CLAUDE_FAST:
+            return self._call_claude(prompt, system_prompt, 'fast')
 
         if p == AIProvider.CLAUDE_POWERFUL:
             return self._call_claude(prompt, system_prompt, 'powerful')
 
-        if p in (AIProvider.OPENAI, AIProvider.OPENAI_FAST):
-            eff_mode = 'fast' if p == AIProvider.OPENAI_FAST else mode
-            return self._call_openai(prompt, system_prompt, eff_mode)
-
-        if p == AIProvider.OPENAI_POWERFUL:
-            return self._call_openai(prompt, system_prompt, 'powerful')
-
         if p == AIProvider.FASTEST:
-            # Claude-first
-            if self.claude_configured:
-                result, cost = self._call_claude(prompt, system_prompt, 'fast')
-                if result:
-                    return result, cost
-            if self.openai_configured:
-                return self._call_openai(prompt, system_prompt, 'fast')
-            return None, None
+            return self._call_claude(prompt, system_prompt, 'fast')
 
-        if p == AIProvider.BOTH:
-            # Parallel calls, take longer/better response
-            futures = []
-            if self.claude_configured:
-                futures.append(self.executor.submit(self._call_claude, prompt, system_prompt, mode))
-            if self.openai_configured:
-                futures.append(self.executor.submit(self._call_openai, prompt, system_prompt, mode))
-
-            results = []
-            for future in as_completed(futures, timeout=API_TIMEOUT):
-                try:
-                    resp, cost = future.result()
-                    if resp:
-                        results.append((resp, cost))
-                except Exception as e:
-                    logger.error(f"Parallel call failed: {e}")
-
-            if results:
-                return max(results, key=lambda x: len(x[0]))
-            return None, None
-
-        # Default: Claude
+        # Default: Claude standard
         return self._call_claude(prompt, system_prompt, mode)
 
     # ----------------------------------------------------------------
