@@ -962,7 +962,7 @@ def render_b2b_zendesk_reporting():
         with trend_col2:
             trend_freq = st.selectbox("Group by", ["Weekly", "Monthly"],
                                       key="zendesk_trend_freq")
-        freq_code = "W" if trend_freq == "Weekly" else "ME"
+        freq_code = "W" if trend_freq == "Weekly" else "M"
         trend_data = build_trend_data(categorized, freq=freq_code)
         with trend_col1:
             if not trend_data.empty:
