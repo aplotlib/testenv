@@ -221,7 +221,7 @@ def _normalize_gemini_key(api_key: str | None) -> tuple[str | None, str | None]:
     if not api_key:
         return None, None
     if api_key.startswith("sk-"):
-        return None, "Gemini API key appears to be an OpenAI key. Check GEMINI_API_KEY/GOOGLE_API_KEY."
+        return None, "Gemini API key appears to be a Claude/Anthropic key (sk- prefix). Check GEMINI_API_KEY/GOOGLE_API_KEY."
     return api_key, None
 
 
