@@ -121,7 +121,7 @@ class AIServiceBase:
         try:
             import openai as _openai  # type: ignore
             if api_key and api_key.startswith("sk-"):
-                logger.warning("Gemini provider selected but key looks like an OpenAI key.")
+                logger.warning("Gemini provider selected but key looks like a Claude/Anthropic key (sk- prefix).")
             gemini_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY", "")
             self._gemini_client = _openai.OpenAI(
                 api_key=gemini_key,
