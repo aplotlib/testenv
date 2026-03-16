@@ -955,21 +955,50 @@ def render_b2b_zendesk_reporting():
         with k6: st.metric("Safety Concerns", kpis.get("injury_count", 0),
                            help="Medical / Safety Concern tickets")
 
-        # ── Trend chart ───────────────────────────────────────────────────
+        # ── Safety concern detail table ───────────────────────────────────
+        if kpis.get("injury_count", 0) > 0:
+            st.markdown("---")
+            st.markdown(
+                "<div style='background:#fff0f0;border:2px solid #cc0000;"
+                "border-radius:8px;padding:0.8rem 1rem;margin-bottom:0.5rem'>"
+                "<span style='color:#cc0000;font-size:1.1rem;font-weight:700'>"
+                f"🚨 {kpis['injury_count']} Medical / Safety Concern Ticket(s) — Requires Immediate Action"
+                "</span></div>",
+                unsafe_allow_html=True,
+            )
+            safety_tickets = categorized[
+                categorized["Category"] == "Medical / Safety Concern"
+            ].copy()
+            safety_cols = [c for c in [
+                "Ticket ID", "Ticket created - Date", "Parent SKU", "SKU",
+                "Issue", "Category", "Confidence",
+                "Ticket Type", "Order Source",
+            ] if c in safety_tickets.columns]
+            st.dataframe(
+                safety_tickets[safety_cols].sort_values(
+                    "Ticket created - Date", ascending=False
+                ) if "Ticket created - Date" in safety_cols else safety_tickets[safety_cols],
+                width="stretch",
+                height=min(400, 38 + 35 * len(safety_tickets)),
+                column_config={
+                    "Ticket created - Date": st.column_config.DateColumn("Date", format="YYYY-MM-DD"),
+                    "Confidence": st.column_config.NumberColumn("Confidence", format="%.0%%"),
+                    "Issue": st.column_config.TextColumn("Issue", width="large"),
+                },
+            )
+            st.caption("⬆ These tickets must be reviewed and a Quality Issue opened in Odoo.")
+
+        # ── Top products by total issues ──────────────────────────────────
         st.markdown("---")
-        st.markdown("#### 📈 Quality Issue Trend")
-        trend_col1, trend_col2 = st.columns([3, 1])
-        with trend_col2:
-            trend_freq = st.selectbox("Group by", ["Weekly", "Monthly"],
-                                      key="zendesk_trend_freq")
-        freq_code = "W" if trend_freq == "Weekly" else "M"
-        trend_data = build_trend_data(categorized, freq=freq_code)
-        with trend_col1:
-            if not trend_data.empty:
-                st.line_chart(trend_data, color=[VIVE_TEAL, "#FF6B35"])
-                st.caption("Blue = Quality Issues | Orange = Safety Concerns")
-            else:
-                st.info("Not enough date data for trend chart.")
+        st.markdown("#### 🏆 Top Products by Quality Issue Volume")
+        top_n = min(15, len(report))
+        top_sorted = (
+            report.sort_values("Quality Issues", ascending=True)
+            .tail(top_n)
+            .set_index("Parent SKU Display")[["Quality Issues"]]
+        )
+        st.bar_chart(top_sorted, color=VIVE_TEAL, horizontal=True)
+        st.caption("Sorted by total quality issues — longest bar = most problems.")
 
         # ── Category summary ──────────────────────────────────────────────
         st.markdown("---")
@@ -987,8 +1016,11 @@ def render_b2b_zendesk_reporting():
                 },
             )
         with col_chart:
-            chart_df = cat_summary.set_index("Category")[["Total Issues"]]
-            st.bar_chart(chart_df, color=VIVE_TEAL, horizontal=True)
+            cat_chart_df = (
+                cat_summary.sort_values("Total Issues", ascending=True)
+                .set_index("Category")[["Total Issues"]]
+            )
+            st.bar_chart(cat_chart_df, color=VIVE_TEAL, horizontal=True)
 
         # ── Product table with filters ────────────────────────────────────
         st.markdown("---")
@@ -1065,14 +1097,17 @@ def render_b2b_zendesk_reporting():
             "Click any column header to sort. 🚨 = Safety Concern flagged."
         )
 
-        if len(report) > 1:
-            st.markdown("#### 🏷️ Top Quality-Issue Products")
-            top_n = min(15, len(display_report))
-            top_chart = (
-                display_report.head(top_n)
+        if len(display_report) > 1:
+            st.markdown("#### 🏷️ Filtered View — Top Products by Issue Count")
+            top_n_filtered = min(15, len(display_report))
+            top_chart_filtered = (
+                display_report
+                .sort_values("Quality Issues", ascending=True)
+                .tail(top_n_filtered)
                 .set_index("Parent SKU Display")[["Quality Issues"]]
             )
-            st.bar_chart(top_chart, color=VIVE_TEAL, horizontal=True)
+            st.bar_chart(top_chart_filtered, color=VIVE_TEAL, horizontal=True)
+            st.caption("Reflects active filters above.")
 
         # ── Cross-reference with Return Categorizer ───────────────────────
         with st.expander("🔗 Cross-Reference with Return Categorizer Data", expanded=False):
