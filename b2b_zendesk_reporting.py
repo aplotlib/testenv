@@ -1124,7 +1124,7 @@ def render_b2b_zendesk_reporting():
                     ret_summary = (
                         ret[ret[cat_col].notna() & (ret[cat_col] != "")]
                         .groupby("Parent SKU")[cat_col]
-                        .agg(lambda x: x.value_counts().index[0] if len(x) > 0 else "")
+                        .agg(lambda x: x.dropna().value_counts().index[0] if len(x.dropna()) > 0 else "")
                         .reset_index()
                         .rename(columns={cat_col: "Top Return Category"})
                     )
@@ -1135,7 +1135,7 @@ def render_b2b_zendesk_reporting():
                     zen_top["Parent SKU"] = zen_top["SKU"].str[:PARENT_SKU_LENGTH]
                     zen_summary = (
                         zen_top.groupby("Parent SKU")["Category"]
-                        .agg(lambda x: x.value_counts().index[0] if len(x) > 0 else "")
+                        .agg(lambda x: x.dropna().value_counts().index[0] if len(x.dropna()) > 0 else "")
                         .reset_index()
                         .rename(columns={"Category": "Top Zendesk Category"})
                     )

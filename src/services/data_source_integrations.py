@@ -212,7 +212,7 @@ class GoogleSheetsConnector:
                     worksheet = spreadsheet.worksheet(worksheet_name)
                 else:
                     worksheet = spreadsheet.sheet1
-            except:
+            except Exception:
                 worksheet = spreadsheet.add_worksheet(title=worksheet_name, rows=1000, cols=26)
 
             # Clear if requested
@@ -388,7 +388,7 @@ class ConnectionManager:
             try:
                 with open(self.config_file, 'r') as f:
                     self.connections = json.load(f)
-            except:
+            except Exception:
                 self.connections = {}
 
     def save_connections(self):
