@@ -6764,7 +6764,7 @@ def render_pro_mode():
                                             fig_trend.add_trace(
                                                 go.Scatter(
                                                     x=[p.period_name for p in periods_sorted],
-                                                    y=[p.return_rate * 100 for p in periods_sorted],
+                                                    y=[(p.return_rate * 100) if p.return_rate is not None else 0 for p in periods_sorted],
                                                     mode='lines+markers',
                                                     name='Return Rate %',
                                                     line=dict(color='red', width=3),
@@ -7110,7 +7110,8 @@ def render_pro_mode():
                         for analysis in analyses_list:
                             if analysis.periods:
                                 products.append(analysis.product_name[:30] + "..." if len(analysis.product_name) > 30 else analysis.product_name)
-                                return_rates.append(analysis.periods[0].return_rate * 100)
+                                rr = analysis.periods[0].return_rate
+                                return_rates.append((rr * 100) if rr is not None else 0)
                                 priorities.append(analysis.priority_level)
 
                         bar_colors = [colors_map.get(p, "gray") for p in priorities]
@@ -7926,7 +7927,11 @@ def render_screening_results():
                 if st.session_state.multilingual_communicator is None:
                     st.warning("AI communicator not initialized. Generating basic email...")
                     # Fallback to old generator
-                    row = action_items[action_items['SKU'] == selected_sku].iloc[0]
+                    _filtered_sku = action_items[action_items['SKU'] == selected_sku]
+                    if _filtered_sku.empty:
+                        st.error(f"SKU {selected_sku} not found in data.")
+                        st.stop()
+                    row = _filtered_sku.iloc[0]
                     if email_type == "CAPA Request":
                         email = VendorEmailGenerator.generate_capa_request(
                             sku=row['SKU'],
@@ -7939,7 +7944,11 @@ def render_screening_results():
                         st.text_area("Generated Email", email, height=400)
                 else:
                     with st.spinner("🤖 AI is generating your customized email..."):
-                        row = action_items[action_items['SKU'] == selected_sku].iloc[0]
+                        _filtered_sku2 = action_items[action_items['SKU'] == selected_sku]
+                        if _filtered_sku2.empty:
+                            st.error(f"SKU {selected_sku} not found in data.")
+                            st.stop()
+                        row = _filtered_sku2.iloc[0]
 
                         try:
                             if email_type == "CAPA Request":
@@ -8026,8 +8035,12 @@ def render_screening_results():
             )
             
             if st.button("Generate Plan", key="gen_plan"):
-                row = action_items[action_items['SKU'] == plan_sku].iloc[0]
-                
+                _plan_filtered = action_items[action_items['SKU'] == plan_sku]
+                if _plan_filtered.empty:
+                    st.error(f"SKU {plan_sku} not found in data.")
+                    st.stop()
+                row = _plan_filtered.iloc[0]
+
                 plan = InvestigationPlanGenerator.generate_plan(
                     sku=row['SKU'],
                     product_name=row.get('Name', row['SKU']),
@@ -8964,7 +8977,11 @@ def render_screening_results():
                     key="rework_sku"
                 )
 
-                row = action_items[action_items['SKU'] == rework_sku].iloc[0]
+                _rework_filtered = action_items[action_items['SKU'] == rework_sku]
+                if _rework_filtered.empty:
+                    st.error(f"SKU {rework_sku} not found in data.")
+                    st.stop()
+                row = _rework_filtered.iloc[0]
 
                 # Create form for rework questions
                 with st.form("rework_questions_form"):
