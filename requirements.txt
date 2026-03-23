@@ -1,13 +1,13 @@
 # requirements.txt
 
 # UI / app
-streamlit==1.52.2
+streamlit==1.55.0
 
 # Data + stats (ANOVA, MANOVA, post-hoc Tukey, trend analysis, SPC math)
-pandas==2.3.3
-numpy==2.4.1
-scipy==1.17.0
-statsmodels==0.14.6
+pandas==2.2.3
+numpy==2.2.3
+scipy==1.15.2
+statsmodels==0.14.4
 python-dateutil==2.9.0.post0
 
 # Visualization (heatmaps, dashboards)
@@ -22,9 +22,9 @@ pdfplumber==0.11.9
 PyPDF2==3.0.1
 
 # HTTP (if you have a requests-based module)
-requests==2.32.5
+requests==2.32.3
 
-# AI providers (OpenAI + Anthropic)
+# AI providers (Anthropic only; openai kept for optional Gemini-via-compatible-endpoint)
 openai==2.15.0
 anthropic==0.75.0
 
@@ -32,4 +32,4 @@ anthropic==0.75.0
 RapidFuzz==3.14.3
 
 # Reliability (retry w/ exponential backoff)
-tenacity==9.1.2
+tenacity==9.1.4
