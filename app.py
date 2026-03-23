@@ -64,7 +64,7 @@ from typing import Dict, List, Any, Optional, Tuple
 import time
 from collections import Counter, defaultdict
 import re
-import os
+import os 
 import gc
 import json
 
@@ -7970,7 +7970,7 @@ def render_screening_results():
                                     product_name=row.get('Name', row['SKU']),
                                     defect_type=row['Action'],
                                     occurrence_rate=row['Return_Rate'],
-                                    sample_complaints=str(row.get('Complaint_Text', '')).split(',')[:5],
+                                    sample_complaints=(row.get('Complaint_Text') or '').split(',')[:5],
                                     english_level=english_level_map[english_level],
                                     target_language=target_lang_map[target_lang],
                                     vendor_region=vendor_region
@@ -8307,7 +8307,7 @@ def render_screening_results():
                                             product_name=row.get('Name', row['SKU']),
                                             defect_type=row['Action'],
                                             occurrence_rate=row['Return_Rate'],
-                                            sample_complaints=str(row.get('Complaint_Text', '')).split(',')[:5],
+                                            sample_complaints=(row.get('Complaint_Text') or '').split(',')[:5],
                                             english_level=english_level_map[bulk_english_level],
                                             target_language=target_lang_map[bulk_target_lang],
                                             vendor_region=bulk_vendor_region
@@ -9991,9 +9991,10 @@ def render_inventory_integration_tab():
 
                         with col1:
                             st.markdown("**Quality Metrics**")
-                            return_rate = row.get('Return_Rate', 0) * 100 if row.get('Return_Rate', 0) < 1 else row.get('Return_Rate', 0)
+                            _rr = row.get('Return_Rate') or 0
+                            return_rate = _rr * 100 if _rr < 1 else _rr
                             st.metric("Return Rate", f"{return_rate:.2f}%")
-                            if 'Risk_Score' in row:
+                            if 'Risk_Score' in row and pd.notna(row['Risk_Score']):
                                 st.metric("Risk Score", f"{row['Risk_Score']:.0f}")
                             if 'Action_Required' in row:
                                 st.write(f"**Action:** {row['Action_Required']}")
@@ -10009,9 +10010,9 @@ def render_inventory_integration_tab():
 
                         with col3:
                             st.markdown("**Financial Impact**")
-                            if 'AtRiskDollars' in row:
+                            if 'AtRiskDollars' in row and pd.notna(row['AtRiskDollars']):
                                 st.metric("At Risk", f"${row['AtRiskDollars']:,.0f}")
-                            if 'AtRiskUnits' in row:
+                            if 'AtRiskUnits' in row and pd.notna(row['AtRiskUnits']):
                                 st.metric("Units at Risk", f"{row['AtRiskUnits']:,}")
 
                         # Recommendation box
@@ -10019,7 +10020,7 @@ def render_inventory_integration_tab():
                         <div style="background: #f0f9ff; border-left: 4px solid #0284c7;
                                     padding: 1rem; margin-top: 1rem; border-radius: 4px;">
                             <strong>📋 Recommendation:</strong><br>
-                            {row['Recommendation']}
+                            {row.get('Recommendation', 'No recommendation available')}
                         </div>
                         """, unsafe_allow_html=True)
 
