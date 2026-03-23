@@ -1,35 +1,35 @@
-# requirements.txt
+# requirements.txt — Vive Health Quality Suite
 
 # UI / app
 streamlit==1.55.0
 
-# Data + stats (ANOVA, MANOVA, post-hoc Tukey, trend analysis, SPC math)
+# Data + stats
 pandas==2.2.3
 numpy==2.2.3
 scipy==1.15.2
 statsmodels==0.14.4
 python-dateutil==2.9.0.post0
 
-# Visualization (heatmaps, dashboards)
+# Visualization
 altair==6.0.0
+plotly==5.24.1
 
-# Excel I/O + exports (incl. metadata sheet)
+# Excel I/O + exports
 openpyxl==3.1.5
 xlsxwriter==3.2.9
 
-# PDF ingestion
-pdfplumber==0.11.9
-PyPDF2==3.0.1
+# Document generation
+python-docx==1.2.0
 
-# HTTP (if you have a requests-based module)
+# HTTP
 requests==2.32.3
 
-# AI providers (Anthropic only; openai kept for optional Gemini-via-compatible-endpoint)
-openai==2.15.0
+# AI providers
 anthropic==0.75.0
+openai==2.15.0
 
-# Fuzzy matching for product-name/category logic
+# Fuzzy matching
 RapidFuzz==3.14.3
 
-# Reliability (retry w/ exponential backoff)
+# Reliability
 tenacity==9.1.4
