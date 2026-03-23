@@ -141,7 +141,9 @@ except ImportError as e:
     AI_AVAILABLE = False
     MODULAR_IMPORTS = False
     THEME_AVAILABLE = False
-    print(f"Module Missing: {e}")
+    # Log to stderr so it shows in Streamlit Cloud logs
+    import sys as _sys
+    print(f"[STARTUP ERROR] Module import failed: {e}", file=_sys.stderr)
 
     # ── Fallback stubs so the app runs even with missing modules ──────────
     # These prevent NameError when sidebar/routing calls these functions
@@ -262,9 +264,16 @@ try:
 except ImportError:
     EXCEL_AVAILABLE = False
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging — structured format so Streamlit Cloud logs are readable
+import sys as _sys
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[logging.StreamHandler(_sys.stdout)],
+)
 logger = logging.getLogger(__name__)
+logger.info("Vive Health Quality Suite starting — AI_AVAILABLE=%s", AI_AVAILABLE)
 
 # --- App Configuration ---
 st.set_page_config(
@@ -810,35 +819,52 @@ def initialize_session_state():
 
 
 def check_api_keys():
-    """Check for Anthropic API key and set environment variable."""
+    """Check for Anthropic API key — Streamlit secrets first, then env vars."""
     keys_found = {}
     try:
+        # 1. Streamlit secrets (Streamlit Cloud deployment)
         if hasattr(st, 'secrets'):
             for key in ['ANTHROPIC_API_KEY', 'anthropic_api_key', 'claude_api_key', 'claude']:
-                if key in st.secrets:
-                    val = str(st.secrets[key]).strip()
-                    if val:
-                        keys_found['claude'] = val
-                        os.environ['ANTHROPIC_API_KEY'] = val
-                        break
+                try:
+                    if key in st.secrets:
+                        val = str(st.secrets[key]).strip()
+                        if val and val.startswith('sk-ant-'):
+                            keys_found['claude'] = val
+                            os.environ['ANTHROPIC_API_KEY'] = val
+                            break
+                except Exception:
+                    pass
+        # 2. Environment variables (local dev / Docker)
+        if 'claude' not in keys_found:
+            env_val = os.environ.get('ANTHROPIC_API_KEY', '').strip()
+            if env_val and env_val.startswith('sk-ant-'):
+                keys_found['claude'] = env_val
     except Exception as e:
-        logger.warning(f"Error checking secrets: {e}")
+        logger.warning(f"Error checking API keys: {e}")
+    if 'claude' not in keys_found:
+        logger.warning("ANTHROPIC_API_KEY not found — AI features will be disabled")
     return keys_found
 
 
 def get_ai_analyzer(provider=None, max_workers: int = 5):
-    """Get or create AI analyzer instance"""
+    """Get or create AI analyzer instance — returns None if AI unavailable."""
+    if not AI_AVAILABLE:
+        return None
     if provider is None:
         provider = st.session_state.ai_provider
-    
-    if st.session_state.ai_analyzer is None or st.session_state.ai_analyzer.provider != provider:
-        try:
-            check_api_keys()
-            st.session_state.ai_analyzer = EnhancedAIAnalyzer(provider, max_workers=max_workers)
-            logger.info(f"Created AI analyzer: {provider.value}, Workers: {max_workers}")
-        except Exception as e:
-            st.error(f"Error initializing AI: {str(e)}")
-    
+    existing = st.session_state.get('ai_analyzer')
+    if existing is not None and getattr(existing, 'provider', None) == provider:
+        return existing
+    try:
+        keys = check_api_keys()
+        if not keys.get('claude'):
+            logger.warning("AI analyzer requested but no API key found")
+            return None
+        st.session_state.ai_analyzer = EnhancedAIAnalyzer(provider, max_workers=max_workers)
+        logger.info("AI analyzer ready: provider=%s workers=%d", provider.value, max_workers)
+    except Exception as e:
+        logger.error("AI analyzer init failed: %s", e, exc_info=True)
+        st.session_state.ai_analyzer = None
     return st.session_state.ai_analyzer
 
 
@@ -11145,6 +11171,25 @@ def render_all_tabs(provider_map: dict, provider_selection: str):
 
 def main():
     initialize_session_state()
+
+    # ── Startup diagnostics (shown once per session) ──────────────────────
+    if not AI_AVAILABLE and not st.session_state.get('_startup_warned'):
+        st.session_state['_startup_warned'] = True
+        st.warning(
+            "⚠️ **AI modules failed to load.** Some features are disabled. "
+            "Check Streamlit Cloud logs for the import error details.",
+            icon="⚠️",
+        )
+    elif AI_AVAILABLE and not st.session_state.get('_api_key_checked'):
+        st.session_state['_api_key_checked'] = True
+        keys = check_api_keys()
+        if not keys.get('claude'):
+            st.error(
+                "🔑 **Anthropic API key not found.** AI features will not work. "
+                "Add `ANTHROPIC_API_KEY` to your Streamlit secrets "
+                "(**Settings → Secrets** in the Streamlit Cloud dashboard).",
+                icon="🔑",
+            )
 
     # Inject theme CSS first (replaces inject_custom_css())
     if THEME_AVAILABLE:
