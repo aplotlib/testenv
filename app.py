@@ -146,6 +146,20 @@ except ImportError as e:
     # ── Fallback stubs so the app runs even with missing modules ──────────
     # These prevent NameError when sidebar/routing calls these functions
     import streamlit as _st
+    from enum import Enum as _Enum
+
+    # Stub AIProvider so module-level references don't raise NameError
+    class AIProvider(_Enum):
+        CLAUDE = "claude"
+        CLAUDE_FAST = "claude_fast"
+        CLAUDE_POWERFUL = "claude_powerful"
+        FASTEST = "fastest"
+
+    class FBA_REASON_MAP: pass
+    class MEDICAL_DEVICE_CATEGORIES: pass
+    class DeepDiveAnalyzer: pass
+    class BulkOperationsManager: pass
+    class EnhancedAIAnalyzer: pass
 
     def render_quality_analyst_chat(*a, **kw):
         _st.warning("⚠️ AI Quality Analyst unavailable — module failed to load.")
@@ -165,7 +179,7 @@ except ImportError as e:
         return _NullMemory()
 
     def render_b2b_zendesk_reporting(*a, **kw):
-        _st.warning("⚠️ B2C Zendesk Reporting unavailable — module failed to load.")
+        _st.warning("⚠️ B2B Zendesk Reporting unavailable — module failed to load.")
 
     def render_multilingual_comms_tab(*a, **kw):
         _st.warning("⚠️ Multilingual Comms unavailable — module failed to load.")
@@ -175,6 +189,71 @@ except ImportError as e:
     def get_current_theme(*a, **kw): return "dark"
     def get_color(*a, **kw): return "#ffffff"
     def get_status_color(*a, **kw): return "#ffffff"
+
+    # Stub analytics renderers
+    def rca_render(*a, **kw): _st.warning("Module unavailable.")
+    def capa_render(*a, **kw): _st.warning("Module unavailable.")
+    def fmea_render(*a, **kw): _st.warning("Module unavailable.")
+    def predictive_render(*a, **kw): _st.warning("Module unavailable.")
+    def wizard_render(*a, **kw): _st.warning("Module unavailable.")
+    PRODUCT_CATEGORIES = {}
+    SCREENING_THRESHOLDS = {}
+    PRIORITY_WEIGHTS = {}
+    def get_category_options(): return []
+    def get_subcategory_options(*a): return []
+    def get_threshold_for_product(*a): return 0.1
+    def get_all_thresholds_flat(): return {}
+
+    # Stub VoC classes
+    class VoCAnalysisService: pass
+    class ProductTrendAnalysis: pass
+    AMAZON_RETURN_RATE_THRESHOLDS = {}
+    class EnhancedVoCAnalysisService: pass
+    class MultiPeriodTrendAnalysis: pass
+
+    # Stub quality modules
+    class QualityAnalytics: pass
+    class QualityStatistics: pass
+    class SPCAnalysis: pass
+    class TrendAnalysis: pass
+    class RiskScoring: pass
+    class ActionDetermination: pass
+    class VendorEmailGenerator: pass
+    class InvestigationPlanGenerator: pass
+    class DataValidation: pass
+    SOP_THRESHOLDS = {}
+    def parse_numeric(*a): return 0
+    def parse_percentage(*a): return 0
+    def fuzzy_match_category(*a): return None
+    def generate_methodology_markdown(*a): return ""
+
+    # Stub inventory classes
+    class OdooInventoryParser: pass
+    class PivotReturnReportParser: pass
+    class InventoryConfiguration: pass
+    class InventoryCalculator: pass
+    class IntegratedAnalyzer: pass
+
+    # Stub other classes
+    class MultilingualVendorCommunicator: pass
+    class EnglishLevel(_Enum): NATIVE="native"
+    class TargetLanguage(_Enum): ENGLISH="en"
+    LANGUAGE_INFO = {}
+    class ProductMatcher: pass
+    class RegulatoryComplianceAnalyzer: pass
+    REGULATORY_MARKETS = []
+    class QualityCase: pass
+    class QualityCasesDashboard: pass
+    REPORT_CRITERIA = {}
+    def generate_demo_cases(): return []
+    class QualityTrackerManager: pass
+    class QualityTrackerCase: pass
+    ALL_COLUMNS_LEADERSHIP = []
+    ALL_COLUMNS_COMPANY_WIDE = []
+    LEADERSHIP_ONLY_COLUMNS = []
+    def generate_demo_tracker_cases(): return []
+    QUALITY_RESOURCES = {}
+    def get_total_link_count(): return 0
 
 # Check optional imports
 try:
@@ -747,7 +826,7 @@ def check_api_keys():
     return keys_found
 
 
-def get_ai_analyzer(provider: AIProvider = None, max_workers: int = 5):
+def get_ai_analyzer(provider=None, max_workers: int = 5):
     """Get or create AI analyzer instance"""
     if provider is None:
         provider = st.session_state.ai_provider
