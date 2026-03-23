@@ -47,6 +47,16 @@ Thumbs.db
 *.log
 logs/
 
-# Data files (optional — remove lines below if you want CSVs tracked)
-# *.csv
-# *.xlsx
+# Data files — never commit business data or test uploads
+*.csv
+*.xlsx
+*.xls
+*.pdf
+*.docx
+
+# Dev/local tools
+.devcontainer/
+.claude/
+
+# PowerShell scripts
+*.ps1
