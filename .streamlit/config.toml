@@ -1,22 +1,30 @@
-# .streamlit/config.toml
+# .streamlit/config.toml — Vive Health Quality Suite
 
 [server]
 maxUploadSize = 500
 maxMessageSize = 500
-enableXsrfProtection = false
+enableXsrfProtection = true
 fileWatcherType = "none"
+headless = true
 
 [runner]
 fastReruns = true
 enforceSerializableSessionState = false
+magicEnabled = false
+
+[logger]
+level = "info"
+
+[client]
+showErrorDetails = false
 
 [browser]
 gatherUsageStats = false
 
 [theme]
 base = "dark"
-primaryColor = "#00F3FF" # Neon Cyan for high visibility
-backgroundColor = "#0B0E14" # Deep Space
-secondaryBackgroundColor = "#151922" # Panel Background
-textColor = "#E0E6ED" # High contrast text
+primaryColor = "#00F3FF"
+backgroundColor = "#0B0E14"
+secondaryBackgroundColor = "#151922"
+textColor = "#E0E6ED"
 font = "sans serif"
