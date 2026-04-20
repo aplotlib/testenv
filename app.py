@@ -5492,12 +5492,14 @@ def _process_ai_chat(user_question: str):
         df = st.session_state.qc_results_df
         high_risk = df[df['Risk_Score'] >= 70] if 'Risk_Score' in df.columns else pd.DataFrame()
         context_parts.append(f"Screening batch: {len(df)} products total, {len(high_risk)} high-risk (score ≥70).")
-        context_parts.append(f"Average return rate: {df['Return_Rate'].mean():.1%}.")
-        if 'Category' in df.columns:
+        if 'Return_Rate' in df.columns:
+            context_parts.append(f"Average return rate: {df['Return_Rate'].mean():.1%}.")
+        if 'Category' in df.columns and 'Return_Rate' in df.columns:
             top_cats = df.groupby('Category')['Return_Rate'].mean().nlargest(3)
             context_parts.append(f"Highest avg return rate categories: {', '.join([f'{c} ({r:.1%})' for c,r in top_cats.items()])}.")
-        if len(high_risk) > 0:
-            top5 = high_risk.nlargest(5, 'Risk_Score')[['Name','SKU','Category','Return_Rate','Risk_Score','Action']]
+        if len(high_risk) > 0 and 'Risk_Score' in high_risk.columns:
+            avail_cols = [c for c in ['Name','SKU','Category','Return_Rate','Risk_Score','Action'] if c in high_risk.columns]
+            top5 = high_risk.nlargest(5, 'Risk_Score')[avail_cols]
             screening_data_block = f"\n\nTop high-risk products in current screening:\n{top5.to_string(index=False)}"
 
     context_parts.append(f"Active threshold profile: {st.session_state.active_profile}.")
@@ -7466,7 +7468,8 @@ def process_screening(df: pd.DataFrame, analysis_type: str = "ANOVA", include_cl
             for idx, row in high_risk_items.head(10).iterrows():
                 cat = row.get('Category', 'Unknown')
                 cat_avg = row.get('cat_avg_rate', None)
-                cat_n = int(row.get('cat_count', 0))
+                _raw_count = row.get('cat_count', 0)
+                cat_n = int(_raw_count) if _raw_count == _raw_count else 0  # guard NaN
                 complaint_text = str(row.get('Complaint_Text', ''))
                 found_safety_kws = [kw for kw in safety_kws if kw.lower() in complaint_text.lower()]
                 vs_avg = ""
