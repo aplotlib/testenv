@@ -19,8 +19,8 @@ COMPLIANCE: ISO 13485 | FDA 21 CFR 820 | EU MDR | UK MDR
 
 Features:
 - Task-based landing page with intuitive tool selection
-- 🆕 v25.0: Latest AI models (GPT-4o, o1-preview, Claude 3.5 Sonnet/Opus)
-- 🆕 v25.0: Fast/Powerful model selection (GPT-4o-mini vs o1-preview)
+- 🆕 v33.0: Claude-only AI (Sonnet / Haiku / Opus)
+- 🆕 v33.0: B2C Zendesk Reporting module restored
 - 🆕 v25.0: Light/Dark theme switcher for optimal legibility
 - 🆕 v25.0: WCAG AAA compliant color contrast (7:1 ratio)
 - 🆕 v25.0: Enhanced UI/UX with improved formatting
@@ -107,6 +107,7 @@ try:
         LEADERSHIP_ONLY_COLUMNS, generate_demo_cases as generate_demo_tracker_cases
     )
     from quality_resources import QUALITY_RESOURCES, get_total_link_count
+    from b2b_zendesk_reporting import render_b2b_zendesk_reporting
     # Import new modular components
     from advanced_analytics import (
         render_root_cause_analysis as rca_render,
@@ -138,6 +139,8 @@ except ImportError as e:
     MODULAR_IMPORTS = False
     THEME_AVAILABLE = False
     print(f"Module Missing: {e}")
+    def render_b2b_zendesk_reporting(*a, **kw):
+        st.error("b2b_zendesk_reporting module not available")
 
 # Check optional imports
 try:
@@ -160,24 +163,33 @@ st.set_page_config(
 
 APP_CONFIG = {
     'title': 'Vive Health Quality Suite',
-    'version': '29.0',
+    'version': '33.0',
     'chunk_sizes': [100, 250, 500, 1000],
     'default_chunk': 500,
 }
 
 # Colors - Vive Health Brand Guide
 COLORS = {
-    'primary': '#23b2be',      # Vive Turquoise (Pantone P 121-6 C)
-    'secondary': '#004366',    # Navy Blue (Pantone P 111-16 C)
-    'accent': '#EB3300',       # Red/Orange (Pantone P 2028 C)
-    'success': '#23b2be',      # Using Vive Turquoise for success
-    'warning': '#F0B323',      # Yellow/Gold (Pantone 7409 C)
-    'danger': '#EB3300',       # Red/Orange for alerts
-    'dark': '#004366',         # Navy for dark elements
-    'light': '#1A1A2E',        # Keep original for backgrounds
-    'text': '#E0E0E0',         # Keep original for readability
-    'muted': '#777473',        # Gray (Pantone P 172-9 C)
-    'cost': '#23b2be'          # Vive Turquoise
+    'primary': '#23b2be',      # Vive Turquoise
+    'secondary': '#004366',    # Navy Blue
+    'accent': '#EB3300',       # Red/Orange
+    'success': '#23b2be',
+    'warning': '#F0B323',
+    'danger': '#EB3300',
+    'dark': '#004366',
+    'light': '#1A1A2E',
+    'text': '#E0E0E0',
+    'muted': '#777473',
+    'cost': '#23b2be'
+}
+
+# Per-module accent colors for visual identity
+MODULE_COLORS = {
+    'categorize': {'accent': '#23b2be', 'bg': 'rgba(35,178,190,0.08)', 'border': 'rgba(35,178,190,0.4)', 'label': 'Turquoise'},
+    'b2b':        {'accent': '#004366', 'bg': 'rgba(0,67,102,0.10)',   'border': 'rgba(0,67,102,0.5)',    'label': 'Navy'},
+    'zendesk':    {'accent': '#7B5EA7', 'bg': 'rgba(123,94,167,0.08)', 'border': 'rgba(123,94,167,0.4)', 'label': 'Violet'},
+    'screening':  {'accent': '#F0B323', 'bg': 'rgba(240,179,35,0.08)', 'border': 'rgba(240,179,35,0.4)', 'label': 'Gold'},
+    'recalls':    {'accent': '#EB3300', 'bg': 'rgba(235,51,0,0.08)',   'border': 'rgba(235,51,0,0.4)',   'label': 'Red'},
 }
 
 # Quality categories (For Tab 1 Analysis)
@@ -192,13 +204,9 @@ QUALITY_CATEGORIES = [
 
 # AI Provider options - Latest models with Fast/Powerful choice
 AI_PROVIDER_OPTIONS = {
-    '🚀 GPT-4o-mini (Fast & Efficient)': AIProvider.OPENAI_FAST,
-    '⚡ GPT-4o (Standard - Recommended)': AIProvider.OPENAI,
-    '🧠 o1-preview (Most Powerful OpenAI)': AIProvider.OPENAI_POWERFUL,
-    '🏃 Claude 3.5 Haiku (Fastest)': AIProvider.CLAUDE_FAST,
-    '🎯 Claude 3.5 Sonnet (Balanced)': AIProvider.CLAUDE,
+    '🎯 Claude Sonnet (Recommended)': AIProvider.CLAUDE,
+    '🏃 Claude Haiku (Fast)': AIProvider.CLAUDE_FAST,
     '💎 Claude Opus (Most Powerful)': AIProvider.CLAUDE_POWERFUL,
-    '🔄 Both GPT-4o + Claude (Consensus)': AIProvider.BOTH
 }
 
 # Source of Flag options for tracking how issues came to attention
@@ -607,12 +615,78 @@ def inject_custom_css():
     """, unsafe_allow_html=True)
 
 
+def inject_keepalive():
+    """Inject JS keepalive ping (every 5 min) + inactivity popup at 6 min."""
+    st.components.v1.html("""
+    <script>
+    (function() {
+        // --- Keepalive: send a dummy fetch every 5 minutes to prevent server-side timeout ---
+        setInterval(function() {
+            try { fetch(window.location.href, { method: 'HEAD', cache: 'no-cache' }); } catch(e) {}
+        }, 300000);
+
+        // --- Inactivity popup after 6 minutes (360 000 ms) ---
+        var INACTIVITY_MS = 360000;
+        var timer;
+        var overlay = null;
+
+        function createOverlay() {
+            if (overlay) return;
+            overlay = document.createElement('div');
+            overlay.id = 'keepalive-overlay';
+            overlay.style.cssText = [
+                'position:fixed','top:0','left:0','width:100%','height:100%',
+                'background:rgba(0,0,0,0.65)','z-index:99999',
+                'display:flex','align-items:center','justify-content:center'
+            ].join(';');
+            overlay.innerHTML = `
+              <div style="background:#004366;border:2px solid #23b2be;border-radius:14px;
+                          padding:2.5rem 3rem;text-align:center;max-width:420px;
+                          box-shadow:0 8px 40px rgba(0,0,0,0.5);">
+                <div style="font-size:2.5rem;margin-bottom:0.5rem;">⏱️</div>
+                <h2 style="color:#23b2be;margin:0 0 0.75rem 0;font-family:sans-serif;">Still there?</h2>
+                <p style="color:#e0e0e0;margin:0 0 1.5rem 0;font-family:sans-serif;font-size:0.95rem;">
+                  Your session has been idle for 6 minutes.<br/>
+                  Click below to keep the app live and avoid losing your progress.
+                </p>
+                <button id="keepalive-btn"
+                  style="background:#23b2be;color:#fff;border:none;border-radius:8px;
+                         padding:0.75rem 2rem;font-size:1rem;cursor:pointer;font-family:sans-serif;
+                         font-weight:600;letter-spacing:0.03em;">
+                  ✅ Yes, keep me active
+                </button>
+              </div>`;
+            document.body.appendChild(overlay);
+            document.getElementById('keepalive-btn').addEventListener('click', function() {
+                resetTimer();
+                try { fetch(window.location.href, { method: 'HEAD', cache: 'no-cache' }); } catch(e) {}
+                overlay.remove();
+                overlay = null;
+            });
+        }
+
+        function resetTimer() {
+            clearTimeout(timer);
+            if (overlay) { overlay.remove(); overlay = null; }
+            timer = setTimeout(createOverlay, INACTIVITY_MS);
+        }
+
+        ['mousemove','keydown','click','scroll','touchstart'].forEach(function(evt) {
+            document.addEventListener(evt, resetTimer, { passive: true });
+        });
+
+        resetTimer();
+    })();
+    </script>
+    """, height=0)
+
+
 def initialize_session_state():
     """Initialize session state variables for all tabs"""
     defaults = {
         # General AI
         'ai_analyzer': None,
-        'ai_provider': AIProvider.OPENAI,  # Default to OpenAI for Tab 3
+        'ai_provider': AIProvider.CLAUDE,  # Default to Claude Sonnet
         
         # Tab 1: Categorizer
         'categorized_data': None,
@@ -682,6 +756,15 @@ def initialize_session_state():
 
         # Task-based navigation (Landing Page)
         'selected_task': None,  # None = show landing, string = show specific tool
+
+        # Zendesk B2C Reporting
+        'zendesk_data': None,
+        'zendesk_report': None,
+        'zendesk_cat_summary': None,
+        'zendesk_kpis': None,
+        'zendesk_date_label': None,
+        'zendesk_filtered': None,
+        'zendesk_categorized': None,
     }
     
     for key, value in defaults.items():
@@ -788,19 +871,10 @@ def render_api_health_check():
 
     st.sidebar.markdown("### 🔌 API Status")
 
-    col1, col2 = st.sidebar.columns(2)
-
-    with col1:
-        if keys.get('openai'):
-            st.success("OpenAI ✓")
-        else:
-            st.error("OpenAI ✗")
-
-    with col2:
-        if keys.get('claude'):
-            st.success("Claude ✓")
-        else:
-            st.warning("Claude ✗")
+    if keys.get('claude'):
+        st.sidebar.success("Claude ✓ Connected")
+    else:
+        st.sidebar.warning("⚠️ Claude API key not found")
 
     return keys
 
@@ -4966,12 +5040,12 @@ def render_quality_screening_tab():
             st.session_state.qc_mode = "Pro"
     
     with col2:
-        # AI Provider selection - OpenAI default
+        # AI Provider selection - Claude only
         ai_provider = st.selectbox(
-            "AI Provider",
+            "Claude Model",
             options=list(AI_PROVIDER_OPTIONS.keys()),
-            index=0,  # OpenAI default
-            help="Select AI provider. OpenAI is default. Claude available for additional review."
+            index=0,
+            help="Select Claude model. Sonnet is recommended for most tasks."
         )
         st.session_state.ai_provider = AI_PROVIDER_OPTIONS[ai_provider]
     
@@ -5410,39 +5484,35 @@ def _process_ai_chat(user_question: str):
         'content': user_question
     })
     
-    # Build context-aware prompt
+    # Build context-aware prompt with actual screening data
     context_parts = []
-    
-    # Add current results context if available
+    screening_data_block = ""
+
     if st.session_state.qc_results_df is not None:
         df = st.session_state.qc_results_df
-        context_parts.append(f"Current screening has {len(df)} products.")
-        high_risk = len(df[df['Risk_Score'] >= 70]) if 'Risk_Score' in df.columns else 0
-        context_parts.append(f"High risk items: {high_risk}")
-    
-    # Add active profile context
-    context_parts.append(f"Active threshold profile: {st.session_state.active_profile}")
-    
+        high_risk = df[df['Risk_Score'] >= 70] if 'Risk_Score' in df.columns else pd.DataFrame()
+        context_parts.append(f"Screening batch: {len(df)} products total, {len(high_risk)} high-risk (score ≥70).")
+        context_parts.append(f"Average return rate: {df['Return_Rate'].mean():.1%}.")
+        if 'Category' in df.columns:
+            top_cats = df.groupby('Category')['Return_Rate'].mean().nlargest(3)
+            context_parts.append(f"Highest avg return rate categories: {', '.join([f'{c} ({r:.1%})' for c,r in top_cats.items()])}.")
+        if len(high_risk) > 0:
+            top5 = high_risk.nlargest(5, 'Risk_Score')[['Name','SKU','Category','Return_Rate','Risk_Score','Action']]
+            screening_data_block = f"\n\nTop high-risk products in current screening:\n{top5.to_string(index=False)}"
+
+    context_parts.append(f"Active threshold profile: {st.session_state.active_profile}.")
     context = " ".join(context_parts)
-    
-    system_prompt = f"""You are an AI-powered medical device quality management expert assistant integrated into the Vive Health Quality Suite.
 
-**About This Application:**
-This app extensively uses AI for:
-- AI-powered return categorization (Tab 1) using OpenAI/Claude
-- Multilingual vendor email generation with translation
-- Product similarity matching and benchmarking
-- Deep dive quality analysis and root cause recommendations
-- Fuzzy product matching across 231 historical products
-- Semantic analysis of customer complaints
+    system_prompt = f"""You are a medical device quality expert assistant for Vive Health, integrated into their Quality Suite.
 
-**Your Role:**
-Help users understand how to use the AI features, interpret results, set thresholds, and make quality decisions.
-Be concise but helpful. Use bullet points for clarity.
+**Your role:** Help interpret screening results, recommend actions, and answer quality management questions.
+Always reference the actual product data and numbers provided below — never give generic advice.
+Be concise. Use bullet points. Reference specific SKUs and return rates when available.
 
-Current context: {context}
+**Current Screening Context:**
+{context}{screening_data_block}
 
-When asked about AI capabilities, ALWAYS explain that this is an AI-powered quality management system with extensive ML/LLM integration, NOT a rules-based system."""
+When answering questions about specific products, reference their actual return rate, threshold, and risk score from the data above."""
     
     try:
         analyzer = get_ai_analyzer()
@@ -7380,27 +7450,53 @@ def process_screening(df: pd.DataFrame, analysis_type: str = "ANOVA", include_cl
         
         analyzer = get_ai_analyzer()
         
+        # Build category-level benchmark stats from uploaded batch
+        cat_stats = results_df.groupby('Category')['Return_Rate'].agg(['mean', 'std', 'count']).reset_index()
+        cat_stats.columns = ['Category', 'cat_avg_rate', 'cat_std_rate', 'cat_count']
+        results_df = results_df.merge(cat_stats, on='Category', how='left')
+
+        # Safety keyword list for AI context
+        safety_kws = ['injury', 'fall', 'collapse', 'shock', 'burn', 'cut', 'pinch', 'unsafe', 'hazard', 'dangerous', 'instable', 'unstable', 'brake', 'trap']
+
         # AI analysis for high-risk items
         high_risk_items = results_df[results_df['Risk_Score'] >= 50]
-        
+
         if len(high_risk_items) > 0 and analyzer:
             ai_recommendations = []
-            for idx, row in high_risk_items.head(10).iterrows():  # Limit to top 10
-                prompt = f"""Analyze this medical device quality issue:
-Product: {row.get('Name', row.get('SKU', 'Unknown'))} (SKU: {row.get('SKU', 'N/A')})
-Category: {row.get('Category', 'Unknown')}
-Return Rate: {row['Return_Rate']:.1%} (Category threshold: {row['Category_Threshold']:.1%})
-Risk Score: {row['Risk_Score']:.0f}/100
-Main Complaints: {row.get('Complaint_Text', 'N/A')}
-Safety Concern: {row.get('Safety Risk', 'No')}
+            for idx, row in high_risk_items.head(10).iterrows():
+                cat = row.get('Category', 'Unknown')
+                cat_avg = row.get('cat_avg_rate', None)
+                cat_n = int(row.get('cat_count', 0))
+                complaint_text = str(row.get('Complaint_Text', ''))
+                found_safety_kws = [kw for kw in safety_kws if kw.lower() in complaint_text.lower()]
+                vs_avg = ""
+                if cat_avg is not None and cat_avg > 0:
+                    pct_above = (row['Return_Rate'] - cat_avg) / cat_avg * 100
+                    vs_avg = f"{pct_above:+.0f}% vs. category average of {cat_avg:.1%} (n={cat_n} products in batch)"
 
-Based on ISO 13485 and FDA QSR requirements, provide:
-1. Brief assessment (2-3 sentences)
-2. Primary investigation area
-3. Recommended immediate action"""
-                
-                system_prompt = "You are a medical device quality expert. Be concise and action-oriented."
-                
+                prompt = f"""Analyze this medical device quality issue using the actual uploaded screening data:
+
+Product: {row.get('Name', row.get('SKU', 'Unknown'))} (SKU: {row.get('SKU', 'N/A')})
+Category: {cat}
+Return Rate: {row['Return_Rate']:.1%} | SOP Threshold: {row['Category_Threshold']:.1%} | Variance: {row['Return_Rate'] - row['Category_Threshold']:.1%} above threshold
+Category Benchmark (this screening batch): {vs_avg if vs_avg else 'insufficient data'}
+Risk Score: {row['Risk_Score']:.0f}/100
+Complaint Text: {complaint_text[:300] if complaint_text else 'N/A'}
+Safety Keywords Detected: {', '.join(found_safety_kws) if found_safety_kws else 'None'}
+Safety Flag: {row.get('Safety Risk', 'No')}
+
+You MUST reference the specific return rate, threshold variance, and complaint text above in your response.
+Based on ISO 13485 and FDA 21 CFR 820, provide:
+1. Brief assessment referencing the actual data (2-3 sentences)
+2. Primary investigation area based on complaint text
+3. Recommended immediate action (be specific to this product/category)"""
+
+                system_prompt = (
+                    "You are a medical device quality expert for Vive Health. "
+                    "Always ground your response in the specific numbers and complaint text provided. "
+                    "Never give generic advice — reference the product name, return rate, and threshold values."
+                )
+
                 try:
                     recommendation = analyzer.generate_text(prompt, system_prompt, mode='chat')
                     ai_recommendations.append({
@@ -7413,44 +7509,46 @@ Based on ISO 13485 and FDA QSR requirements, provide:
                         'SKU': row.get('SKU', 'Unknown'),
                         'AI_Recommendation': f"Error: {str(e)}"
                     })
-            
-            # Merge AI recommendations
+
             if ai_recommendations:
                 ai_df = pd.DataFrame(ai_recommendations)
                 results_df = results_df.merge(ai_df, on='SKU', how='left')
-        
-        progress.progress(80)
-        
-        # Step 6: Claude Review (if requested)
-        if include_claude and st.session_state.ai_provider != AIProvider.CLAUDE:
-            status_text.text("Step 6/6: Running Claude review...")
-            log_process("Requesting Claude AI additional review...")
-            
-            try:
-                claude_analyzer = EnhancedAIAnalyzer(AIProvider.CLAUDE, max_workers=3)
-                
-                # Get Claude's overall assessment
-                summary_prompt = f"""Review this quality screening batch:
-- Total products: {len(results_df)}
-- Products requiring action: {len(results_df[results_df['Action'].str.contains('Escalat|Case')])}
-- Highest risk score: {results_df['Risk_Score'].max():.0f}
-- Categories with issues: {', '.join(results_df[results_df['Risk_Score'] > 50]['Category'].unique()[:5])}
 
-Provide a brief executive summary and any patterns you notice."""
-                
-                claude_review = claude_analyzer.generate_text(
-                    summary_prompt,
-                    "You are a senior quality director reviewing screening results.",
-                    mode='chat'
-                )
-                
-                st.session_state.ai_chat_history.append({
-                    'role': 'claude_review',
-                    'content': claude_review
-                })
-                log_process("Claude review completed")
-            except Exception as e:
-                log_process(f"Claude review error: {e}", 'error')
+        progress.progress(80)
+
+        # Step 6: Executive summary via Claude
+        status_text.text("Step 6/6: Generating executive summary...")
+        log_process("Generating AI executive summary...")
+        try:
+            action_count = len(results_df[results_df['Action'].str.contains('Escalat|Case', na=False)])
+            top_cats = ', '.join(results_df[results_df['Risk_Score'] > 50]['Category'].value_counts().head(3).index.tolist()) or 'None'
+            summary_prompt = f"""You are reviewing a quality screening batch for Vive Health medical devices.
+
+Screening Data Summary:
+- Total products screened: {len(results_df)}
+- Products requiring action: {action_count}
+- Highest risk score: {results_df['Risk_Score'].max():.0f}/100
+- Average return rate: {results_df['Return_Rate'].mean():.1%}
+- Top flagged categories: {top_cats}
+- Safety flags: {results_df['Safety Risk'].eq('Yes').sum() if 'Safety Risk' in results_df.columns else 0}
+
+Top 5 highest-risk products:
+{results_df.nlargest(5, 'Risk_Score')[['Name','SKU','Category','Return_Rate','Risk_Score']].to_string(index=False) if len(results_df) > 0 else 'None'}
+
+Provide a 3-5 sentence executive summary referencing the actual products and categories above. Then list 2-3 priority actions."""
+
+            exec_summary = analyzer.generate_text(
+                summary_prompt,
+                "You are a senior quality director. Reference specific product names, SKUs, and numbers from the data provided.",
+                mode='chat'
+            )
+            st.session_state.ai_chat_history.append({
+                'role': 'claude_review',
+                'content': exec_summary
+            })
+            log_process("Executive summary generated")
+        except Exception as e:
+            log_process(f"Executive summary error: {e}", 'error')
         
         progress.progress(100)
         status_text.text("Analysis complete!")
@@ -9102,7 +9200,7 @@ def render_help_guide():
         **This application extensively uses AI/ML for quality management:**
 
         #### 1️⃣ **AI Return Categorization (Tab 1)**
-        - **Technology:** OpenAI GPT-3.5 / Claude Haiku/Sonnet
+        - **Technology:** Claude (Haiku / Sonnet / Opus)
         - **What it does:** Automatically categorizes customer complaints into standardized quality categories
         - **How it helps:** Eliminates manual categorization, processes thousands of complaints in minutes
 
@@ -9909,7 +10007,7 @@ def render_categorizer_tool(provider_map=None, provider_selection=None):
     st.markdown("""
     <div style="background: rgba(255, 183, 0, 0.1); border: 1px solid var(--accent);
                 border-radius: 8px; padding: 0.8rem; margin-bottom: 1rem;">
-        <strong>🤖 AI-Powered:</strong> Uses OpenAI/Claude LLMs to automatically categorize customer complaints<br/>
+        <strong>🤖 AI-Powered:</strong> Uses Claude to automatically categorize customer complaints<br/>
         <strong>📌 Goal:</strong> Convert unstructured complaint text into standardized Quality Categories<br/>
         <strong>⚡ Speed:</strong> Processes thousands of complaints in minutes (vs hours manually)
     </div>
@@ -10087,33 +10185,19 @@ TASK_DEFINITIONS = {
         'description': 'Convert Odoo Helpdesk exports into compliant B2B reports with AI-generated summaries.',
         'keywords': ['b2b', 'report', 'odoo', 'helpdesk', 'sku'],
     },
-    'tracker': {
-        'icon': '📋',
-        'title': 'Quality Case Tracker',
-        'subtitle': 'Manage & Export Cases',
-        'description': 'Track quality cases, import from Smartsheet, and export with Leadership or Company-Wide formats.',
-        'keywords': ['tracker', 'cases', 'smartsheet', 'export', 'leadership', 'track'],
+    'zendesk': {
+        'icon': '🎫',
+        'title': 'B2C Zendesk Reporting',
+        'subtitle': 'Quality Issue Analysis',
+        'description': 'Analyze Zendesk support tickets — AI categorization, safety flagging, trend charts, and export.',
+        'keywords': ['zendesk', 'b2c', 'tickets', 'quality issues', 'support', 'sku', 'zendesk reporting'],
     },
     'screening': {
         'icon': '🧪',
         'title': 'Screen Products',
         'subtitle': 'Flag Quality Issues',
-        'description': 'Screen products for quality issues using AI analysis, statistical methods, and SOP thresholds.',
+        'description': 'Screen products for quality issues using AI analysis, return rate thresholds, and safety keyword detection.',
         'keywords': ['screen', 'screening', 'quality', 'flag', 'sop', 'threshold', 'anova'],
-    },
-    'inventory': {
-        'icon': '📦',
-        'title': 'Inventory Analysis',
-        'subtitle': 'DOI & Reorder Planning',
-        'description': 'Analyze Days of Inventory, reorder points, and integrate quality data with inventory planning.',
-        'keywords': ['inventory', 'doi', 'reorder', 'days of inventory', 'stock'],
-    },
-    'resources': {
-        'icon': '📚',
-        'title': 'Resources',
-        'subtitle': 'Regulatory Links & Guides',
-        'description': 'Access FDA, EU MDR, UK MDR, and international regulatory resources and quality guides.',
-        'keywords': ['resources', 'fda', 'regulatory', 'links', 'mdr', 'iso'],
     },
     'recalls': {
         'icon': '🌐',
@@ -10151,45 +10235,46 @@ def render_task_selector():
     """Render the task selector landing page"""
 
     st.markdown("""
-    <div style="text-align: center; margin: 1.5rem 0 2rem 0;">
-        <h2 style="color: #004366; font-family: 'Poppins', sans-serif; margin-bottom: 0.5rem;">
-            📋 What are you trying to do?
+    <div style="text-align: center; margin: 1rem 0 1.75rem 0;">
+        <h2 style="color: #004366; font-family: 'Poppins', sans-serif; margin-bottom: 0.35rem; font-size: 1.5rem;">
+            Select a Tool
         </h2>
-        <p style="color: #666; font-size: 1rem;">Select a tool below or type what you need</p>
+        <p style="color: #777; font-size: 0.9rem; margin: 0;">Each tool is color-coded — click to open or use Quick Search below</p>
     </div>
     """, unsafe_allow_html=True)
 
-    # Task cards - 3x2 grid + Featured surveillance tool
+    # Task cards - 3+1 grid + Featured surveillance tool
     row1 = st.columns(3)
-    row2 = st.columns(3)
+    _, row2_center, _ = st.columns([1, 1, 1])
 
-    tasks_row1 = ['categorize', 'b2b', 'tracker']
-    tasks_row2 = ['screening', 'inventory', 'resources']
+    tasks_row1 = ['categorize', 'b2b', 'zendesk']
 
     def render_task_card(col, task_id, featured=False):
-        """Render a single task card"""
+        """Render a single task card with module-specific color identity"""
         task = TASK_DEFINITIONS[task_id]
+        mc = MODULE_COLORS.get(task_id, MODULE_COLORS['recalls'])
         with col:
-            # Card container - featured cards have special styling
             if featured:
                 st.markdown(f"""
-                <div style="background: linear-gradient(135deg, rgba(0,67,102,0.15) 0%, rgba(35,178,190,0.2) 100%);
-                            border: 2px solid rgba(0,67,102,0.5); border-radius: 12px; padding: 1rem;
-                            margin-bottom: 0.5rem; min-height: 120px; box-shadow: 0 4px 12px rgba(0,67,102,0.15);">
-                    <div style="font-size: 2rem; text-align: center; margin-bottom: 0.3rem;">{task['icon']}</div>
-                    <div style="font-weight: 700; color: #004366; text-align: center; font-size: 1rem;">{task['title']}</div>
-                    <div style="color: #23b2be; text-align: center; font-size: 0.8rem; margin-bottom: 0.3rem; font-weight: 500;">{task['subtitle']}</div>
-                    <div style="color: #666; text-align: center; font-size: 0.7rem; margin-top: 0.3rem;">FDA • EMA • MHRA • Health Canada • CPSC • Media</div>
+                <div style="background: linear-gradient(135deg, {mc['bg']} 0%, rgba(0,67,102,0.12) 100%);
+                            border: 2px solid {mc['border']}; border-radius: 14px; padding: 1.25rem 1rem;
+                            margin-bottom: 0.5rem; min-height: 130px;
+                            box-shadow: 0 4px 18px {mc['bg']};">
+                    <div style="font-size: 2.2rem; text-align: center; margin-bottom: 0.4rem;">{task['icon']}</div>
+                    <div style="font-weight: 700; color: {mc['accent']}; text-align: center; font-size: 1.05rem; letter-spacing: 0.01em;">{task['title']}</div>
+                    <div style="color: #555; text-align: center; font-size: 0.78rem; margin: 0.2rem 0 0.35rem 0; font-weight: 500;">{task['subtitle']}</div>
+                    <div style="color: #777; text-align: center; font-size: 0.68rem;">FDA • EMA • MHRA • Health Canada • CPSC • Media</div>
                 </div>
                 """, unsafe_allow_html=True)
             else:
                 st.markdown(f"""
-                <div style="background: linear-gradient(135deg, rgba(35,178,190,0.05) 0%, rgba(0,67,102,0.08) 100%);
-                            border: 1px solid rgba(35,178,190,0.3); border-radius: 12px; padding: 1rem;
-                            margin-bottom: 0.5rem; min-height: 120px;">
-                    <div style="font-size: 2rem; text-align: center; margin-bottom: 0.3rem;">{task['icon']}</div>
-                    <div style="font-weight: 600; color: #004366; text-align: center; font-size: 0.95rem;">{task['title']}</div>
-                    <div style="color: #23b2be; text-align: center; font-size: 0.8rem; margin-bottom: 0.3rem;">{task['subtitle']}</div>
+                <div style="background: {mc['bg']}; border: 1.5px solid {mc['border']};
+                            border-radius: 14px; padding: 1.1rem 1rem;
+                            margin-bottom: 0.5rem; min-height: 120px;
+                            transition: box-shadow 0.2s;">
+                    <div style="font-size: 2rem; text-align: center; margin-bottom: 0.35rem;">{task['icon']}</div>
+                    <div style="font-weight: 700; color: {mc['accent']}; text-align: center; font-size: 0.95rem;">{task['title']}</div>
+                    <div style="color: #555; text-align: center; font-size: 0.75rem; margin-top: 0.2rem;">{task['subtitle']}</div>
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -10207,9 +10292,8 @@ def render_task_selector():
     for i, task_id in enumerate(tasks_row1):
         render_task_card(row1[i], task_id)
 
-    # Row 2
-    for i, task_id in enumerate(tasks_row2):
-        render_task_card(row2[i], task_id)
+    # Row 2 - centered screening card
+    render_task_card(row2_center, 'screening')
 
     # Featured Row - Global Recall Surveillance (full width)
     st.markdown("---")
@@ -10230,7 +10314,7 @@ def render_task_selector():
         st.markdown("**🔍 Quick Search:**")
         user_input = st.text_input(
             "Type keywords",
-            placeholder="e.g., 'b2b', 'screen', 'tracker', 'inventory', or 'all'",
+            placeholder="e.g., 'b2b', 'zendesk', 'screen', 'recalls', or 'all'",
             label_visibility="collapsed",
             key="task_search_input"
         )
@@ -10244,7 +10328,7 @@ def render_task_selector():
                         st.session_state.selected_task = matched
                         st.rerun()
                     else:
-                        st.warning("No matching tool found. Try: b2b, screen, tracker, inventory, categorize, resources")
+                        st.warning("No matching tool found. Try: categorize, b2b, zendesk, screen, recalls")
         with col_all:
             if st.button("📂 Show All Tools", width="stretch"):
                 st.session_state.selected_task = 'all'
@@ -10255,13 +10339,12 @@ def render_task_selector():
         st.markdown("""
         **Common Workflows:**
         - **Weekly Returns Analysis:** Categorize Returns → B2B Report
-        - **Quality Investigation:** Screen Products → Quality Case Tracker
-        - **Inventory Planning:** Screen Products → Inventory Analysis
-        - **🆕 Proactive Surveillance:** Global Recall Surveillance → Screen similar products
+        - **B2C Support Analysis:** B2C Zendesk Reporting → Screen Products
+        - **🌐 Proactive Surveillance:** Global Recall Surveillance → Screen similar products
 
-        **Keyboard Shortcuts:**
+        **Quick Access:**
         - Type `all` to see all tools in tab view
-        - Type tool keywords like `b2b`, `screen`, `tracker`, `recalls` for quick access
+        - Type tool keywords like `b2b`, `zendesk`, `screen`, `recalls` for quick access
         - Type `recall`, `fda`, `mhra`, or `maude` for Global Recall Surveillance
         """)
 
@@ -10721,17 +10804,27 @@ def render_global_recall_surveillance():
 # --- MAIN APP ---
 
 def render_single_tool(task_id: str, provider_map: dict, provider_selection: str):
-    """Render a single tool with back button"""
+    """Render a single tool with color-coded module header"""
     task = TASK_DEFINITIONS.get(task_id, {})
+    mc = MODULE_COLORS.get(task_id, MODULE_COLORS['recalls'])
 
-    # Back button at top
-    col_back, col_title = st.columns([1, 10])
-    with col_back:
-        if st.button("← Back", key="back_to_menu", help="Return to tool selector"):
-            st.session_state.selected_task = None
-            st.rerun()
-    with col_title:
-        st.markdown(f"### {task.get('icon', '')} {task.get('title', task_id)}")
+    # Color-coded module banner
+    st.markdown(f"""
+    <div style="background: linear-gradient(135deg, {mc['bg']} 0%, rgba(255,255,255,0.03) 100%);
+                border-left: 5px solid {mc['accent']}; border-radius: 0 10px 10px 0;
+                padding: 0.75rem 1.25rem; margin-bottom: 1rem;
+                display: flex; align-items: center; gap: 0.75rem;">
+        <span style="font-size: 1.6rem;">{task.get('icon','')}</span>
+        <div>
+            <div style="font-weight: 700; color: {mc['accent']}; font-size: 1.1rem; letter-spacing: 0.01em;">{task.get('title', task_id)}</div>
+            <div style="color: #666; font-size: 0.78rem;">{task.get('subtitle','')}</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if st.button("← Back to Tools", key="back_to_menu", help="Return to tool selector"):
+        st.session_state.selected_task = None
+        st.rerun()
 
     st.markdown("---")
 
@@ -10740,14 +10833,10 @@ def render_single_tool(task_id: str, provider_map: dict, provider_selection: str
         render_categorizer_tool(provider_map, provider_selection)
     elif task_id == 'b2b':
         render_b2b_tool(provider_map, provider_selection)
-    elif task_id == 'tracker':
-        render_quality_cases_dashboard()
+    elif task_id == 'zendesk':
+        render_b2b_zendesk_reporting()
     elif task_id == 'screening':
         render_quality_screening_tab()
-    elif task_id == 'inventory':
-        render_inventory_integration_tab()
-    elif task_id == 'resources':
-        render_quality_resources()
     elif task_id == 'recalls':
         render_global_recall_surveillance()
 
@@ -10761,14 +10850,12 @@ def render_all_tabs(provider_map: dict, provider_selection: str):
 
     st.markdown("---")
 
-    # Tabs - All tools
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    # Tabs - Active tools only
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📊 Return Categorizer",
-        "📑 B2B Report Generator",
-        "📋 Quality Case Tracker",
-        "🧪 Quality Screening",
-        "📦 Inventory Integration",
-        "📚 Resources",
+        "📑 B2B Report",
+        "🎫 B2C Zendesk",
+        "🧪 Screen Products",
         "🌐 Global Recalls"
     ])
 
@@ -10779,18 +10866,12 @@ def render_all_tabs(provider_map: dict, provider_selection: str):
         render_b2b_tool(provider_map, provider_selection)
 
     with tab3:
-        render_quality_cases_dashboard()
+        render_b2b_zendesk_reporting()
 
     with tab4:
         render_quality_screening_tab()
 
     with tab5:
-        render_inventory_integration_tab()
-
-    with tab6:
-        render_quality_resources()
-
-    with tab7:
         render_global_recall_surveillance()
 
 
@@ -10802,6 +10883,9 @@ def main():
         inject_theme_css()
     else:
         inject_custom_css()  # Fallback to old CSS if theme not available
+
+    # Keepalive ping + inactivity popup
+    inject_keepalive()
 
     # Theme toggle button (top right)
     if THEME_AVAILABLE:
@@ -10821,10 +10905,10 @@ def main():
     <div class="main-header" style="background: linear-gradient(135deg, {header_bg} 0%, {COLORS['secondary']} 100%); padding: 2rem; border-radius: 10px; margin-bottom: 2rem;">
         <h1 class="main-title" style="color: {header_text}; margin: 0;">🏥 VIVE HEALTH QUALITY SUITE</h1>
         <p style="color: {header_text}; margin: 0.5rem 0; font-size: 1.1rem;">
-            <strong>Enterprise Quality Management System v25.0</strong>
+            <strong>Enterprise Quality Management System v33.0</strong>
         </p>
         <p style="color: rgba(255,255,255,0.95); margin: 0; font-size: 0.9rem;">
-            🤖 <strong>AI-Powered:</strong> GPT-4o, o1-preview, Claude 3.5 Sonnet/Opus | TQM Methodology<br/>
+            🤖 <strong>AI-Powered:</strong> Claude Sonnet · Haiku · Opus | TQM Methodology<br/>
             🌐 <strong>Global Intelligence:</strong> FDA | EU EMA | UK MHRA | Health Canada | 20+ International Sources<br/>
             📊 <strong>Compliance:</strong> ISO 13485 | FDA 21 CFR 820 | EU MDR | UK MDR
         </p>
@@ -10835,18 +10919,12 @@ def main():
         st.error("❌ AI Modules Missing. Please check deployment.")
         st.stop()
 
-    # Add AI status indicator
+    # Add AI status indicator (Claude only)
     keys = check_api_keys()
-    ai_status = []
-    if keys.get('openai'):
-        ai_status.append("✅ OpenAI Active")
     if keys.get('claude'):
-        ai_status.append("✅ Claude Active")
-
-    if ai_status:
-        st.success(f"🤖 AI Status: {' | '.join(ai_status)}")
+        st.success("🤖 Claude AI: Connected")
     else:
-        st.warning("⚠️ No AI API keys configured. Some features will be limited.")
+        st.warning("⚠️ Claude API key not configured. Add ANTHROPIC_API_KEY to Streamlit secrets.")
 
     # Connection configuration modal
     if st.session_state.get('show_connection_modal', False):
@@ -10859,19 +10937,22 @@ def main():
         # Data connections
         render_data_connections_sidebar()
 
-        # AI Provider selection
+        # AI Provider selection (Claude only)
         provider_selection = st.selectbox(
-            "🤖 AI Provider",
-            options=['Fastest (Claude Haiku)', 'OpenAI GPT-3.5', 'Claude Sonnet', 'Both (Consensus)'],
+            "🤖 Claude Model",
+            options=[
+                'Claude Sonnet (Recommended)',
+                'Claude Haiku (Fast)',
+                'Claude Opus (Most Powerful)',
+            ],
             index=0,
-            help="Select AI model for AI-powered tools"
+            help="Sonnet is the best balance of speed and accuracy. Use Opus for complex screening analysis."
         )
 
         provider_map = {
-            'Fastest (Claude Haiku)': AIProvider.FASTEST,
-            'OpenAI GPT-3.5': AIProvider.OPENAI,
-            'Claude Sonnet': AIProvider.CLAUDE,
-            'Both (Consensus)': AIProvider.BOTH
+            'Claude Sonnet (Recommended)': AIProvider.CLAUDE,
+            'Claude Haiku (Fast)': AIProvider.CLAUDE_FAST,
+            'Claude Opus (Most Powerful)': AIProvider.CLAUDE_POWERFUL,
         }
 
         # API Health Check
