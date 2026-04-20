@@ -7307,12 +7307,24 @@ def process_screening(df: pd.DataFrame, analysis_type: str = "ANOVA", include_cl
         status_text.text("Step 1/6: Preparing data...")
         log_process("Preparing data...")
         
+        # Ensure required columns exist with safe defaults
+        if 'Category' not in df.columns:
+            df['Category'] = 'All Others'
+            log_process("'Category' column missing — defaulting all rows to 'All Others'", 'warning')
+        else:
+            df['Category'] = df['Category'].fillna('All Others')
+
+        if 'Name' not in df.columns:
+            df['Name'] = df.get('SKU', pd.Series(['Unknown'] * len(df), index=df.index))
+        if 'SKU' not in df.columns:
+            df['SKU'] = 'Unknown'
+
         # Parse numeric columns
         if 'Sold' in df.columns:
             df['Sold'] = parse_numeric(df['Sold'])
         else:
-            df['Sold'] = 100  # Default
-        
+            df['Sold'] = 100
+
         if 'Returned' in df.columns:
             df['Returned'] = parse_numeric(df['Returned'])
         else:
@@ -7523,8 +7535,11 @@ Based on ISO 13485 and FDA 21 CFR 820, provide:
         status_text.text("Step 6/6: Generating executive summary...")
         log_process("Generating AI executive summary...")
         try:
-            action_count = len(results_df[results_df['Action'].str.contains('Escalat|Case', na=False)])
-            top_cats = ', '.join(results_df[results_df['Risk_Score'] > 50]['Category'].value_counts().head(3).index.tolist()) or 'None'
+            action_count = len(results_df[results_df['Action'].str.contains('Escalat|Case', na=False)]) if 'Action' in results_df.columns else 0
+            top_cats = ', '.join(results_df[results_df['Risk_Score'] > 50]['Category'].value_counts().head(3).index.tolist()) if 'Category' in results_df.columns else 'Unknown'
+            top_cats = top_cats or 'None'
+            _summary_cols = [c for c in ['Name', 'SKU', 'Category', 'Return_Rate', 'Risk_Score'] if c in results_df.columns]
+            top5_str = results_df.nlargest(5, 'Risk_Score')[_summary_cols].to_string(index=False) if len(results_df) > 0 else 'None'
             summary_prompt = f"""You are reviewing a quality screening batch for Vive Health medical devices.
 
 Screening Data Summary:
@@ -7536,7 +7551,7 @@ Screening Data Summary:
 - Safety flags: {results_df['Safety Risk'].eq('Yes').sum() if 'Safety Risk' in results_df.columns else 0}
 
 Top 5 highest-risk products:
-{results_df.nlargest(5, 'Risk_Score')[['Name','SKU','Category','Return_Rate','Risk_Score']].to_string(index=False) if len(results_df) > 0 else 'None'}
+{top5_str}
 
 Provide a 3-5 sentence executive summary referencing the actual products and categories above. Then list 2-3 priority actions."""
 
