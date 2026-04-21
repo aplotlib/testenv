@@ -1,18 +1,30 @@
 import os
 import requests
 import json
-from openai import OpenAI
+import logging
+
+logger = logging.getLogger(__name__)
 
 # ==========================================
 # CONFIGURATION
 # ==========================================
-# Make sure to set these in your environment variables or paste them here for testing
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "YOUR_OPENAI_KEY_HERE")
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "YOUR_GOOGLE_KEY_HERE")
-GOOGLE_CX_ID = os.getenv("GOOGLE_CX_ID", "YOUR_SEARCH_ENGINE_ID_HERE")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+GOOGLE_CX_ID = os.getenv("GOOGLE_CX_ID", "")
 
-# Initialize OpenAI Client (Fixes connection issues with new v1.0+ library)
-client = OpenAI(api_key=OPENAI_API_KEY)
+
+def _get_anthropic_key() -> str:
+    """Resolve Anthropic API key from Streamlit secrets or environment."""
+    try:
+        import streamlit as st
+        if hasattr(st, 'secrets'):
+            for key_name in ["ANTHROPIC_API_KEY", "anthropic_api_key", "claude_api_key", "claude"]:
+                if key_name in st.secrets:
+                    val = str(st.secrets[key_name]).strip()
+                    if val:
+                        return val
+    except Exception:
+        pass
+    return os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_API_KEY") or ""
 
 # ==========================================
 # TOOL 1: US FDA DATABASE (Structured Data)
@@ -145,15 +157,28 @@ def analyze_device_safety(device_name, manufacturer=None, model=None):
     4. Recommended next steps for the Quality team.
     """
 
+    api_key = _get_anthropic_key()
+    if not api_key:
+        return "AI unavailable — add ANTHROPIC_API_KEY to Streamlit secrets."
+
     try:
-        completion = client.chat.completions.create(
-            model="gpt-4o",  # or "gpt-3.5-turbo"
-            messages=[
-                {"role": "system", "content": "You are a helpful medical device regulatory assistant."},
-                {"role": "user", "content": prompt}
-            ]
+        response = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "Content-Type": "application/json",
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+            },
+            json={
+                "model": "claude-sonnet-4-6",
+                "max_tokens": 1500,
+                "system": "You are a helpful medical device regulatory assistant.",
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            timeout=45,
         )
-        return completion.choices[0].message.content
+        response.raise_for_status()
+        return response.json()["content"][0]["text"]
     except Exception as e:
         return f"AI Connection Failed: {e}"
 
