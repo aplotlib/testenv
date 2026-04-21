@@ -151,9 +151,11 @@ except ImportError:
         pass
 
 try:
-    from ai_quality_analyst import render_regulatory_watcher_sidebar
+    from ai_quality_analyst import render_regulatory_watcher_sidebar, render_quality_analyst_chat
 except ImportError:
     def render_regulatory_watcher_sidebar(*a, **kw):
+        pass
+    def render_quality_analyst_chat(*a, **kw):
         pass
 
 # Check optional imports
@@ -11101,20 +11103,6 @@ def render_single_tool(task_id: str, provider_map: dict, provider_selection: str
         render_quality_screening_tab()
     elif task_id == 'recalls':
         render_global_recall_surveillance()
-    elif task_id == 'zendesk':
-        render_b2b_zendesk_reporting()
-    elif task_id == 'multilingual':
-        render_multilingual_comms_tab()
-    elif task_id == 'analyst':
-        _analyst_session = {
-            'categorized_data': st.session_state.get('categorized_data'),
-            'zendesk_data': st.session_state.get('zendesk_data'),
-            'zendesk_kpis': st.session_state.get('zendesk_kpis'),
-            'b2b_report_data': st.session_state.get('b2b_report_data'),
-        }
-        _az = st.session_state.get('ai_analyzer')
-        _claude_key = _az.claude_key if _az is not None else ''
-        render_quality_analyst_chat(_claude_key, _analyst_session)
 
 
 def render_all_tabs(provider_map: dict, provider_selection: str):
@@ -11149,23 +11137,6 @@ def render_all_tabs(provider_map: dict, provider_selection: str):
 
     with tab5:
         render_global_recall_surveillance()
-
-    with tab8:
-        render_b2b_zendesk_reporting()
-
-    with tab9:
-        render_multilingual_comms_tab()
-
-    with tab10:
-        _analyst_session = {
-            'categorized_data': st.session_state.get('categorized_data'),
-            'zendesk_data': st.session_state.get('zendesk_data'),
-            'zendesk_kpis': st.session_state.get('zendesk_kpis'),
-            'b2b_report_data': st.session_state.get('b2b_report_data'),
-        }
-        _az = st.session_state.get('ai_analyzer')
-        _claude_key = _az.claude_key if _az is not None else ''
-        render_quality_analyst_chat(_claude_key, _analyst_session)
 
 
 def main():
@@ -11273,19 +11244,6 @@ def main():
 
         # Help guide
         render_help_guide()
-
-        if AI_AVAILABLE:
-            st.markdown("---")
-
-            # AI Memory — corrections learned from user overrides
-            render_corrections_panel()
-
-            # Regulatory Signal Watcher
-            _reg_session = {
-                'categorized_data': st.session_state.get('categorized_data'),
-                'zendesk_data': st.session_state.get('zendesk_data'),
-            }
-            render_regulatory_watcher_sidebar(_reg_session)
 
         st.markdown("---")
 
