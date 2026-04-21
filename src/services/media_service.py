@@ -83,7 +83,7 @@ class MediaMonitoringService:
                         # Common RSS date format: "Mon, 06 Jan 2025 14:30:00 GMT"
                         dt_obj = datetime.strptime(pub_date, "%a, %d %b %Y %H:%M:%S %Z")
                         fmt_date = dt_obj.strftime("%Y-%m-%d")
-                    except:
+                    except Exception:
                         pass
 
                     out.append({

@@ -64,7 +64,7 @@ from typing import Dict, List, Any, Optional, Tuple
 import time
 from collections import Counter, defaultdict
 import re
-import os
+import os 
 import gc
 import json
 
@@ -93,7 +93,8 @@ try:
         InventoryConfiguration, InventoryCalculator, IntegratedAnalyzer
     )
     from multilingual_vendor_comms import (
-        MultilingualVendorCommunicator, EnglishLevel, TargetLanguage, LANGUAGE_INFO
+        MultilingualVendorCommunicator, EnglishLevel, TargetLanguage, LANGUAGE_INFO,
+        render_multilingual_comms_tab
     )
     from product_matching import ProductMatcher
     from regulatory_compliance import RegulatoryComplianceAnalyzer, REGULATORY_MARKETS
@@ -149,9 +150,16 @@ try:
 except ImportError:
     EXCEL_AVAILABLE = False
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging — structured format so Streamlit Cloud logs are readable
+import sys as _sys
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[logging.StreamHandler(_sys.stdout)],
+)
 logger = logging.getLogger(__name__)
+logger.info("Vive Health Quality Suite starting — AI_AVAILABLE=%s", AI_AVAILABLE)
 
 # --- App Configuration ---
 st.set_page_config(
@@ -202,7 +210,7 @@ QUALITY_CATEGORIES = [
     'Medical/Health Concerns'
 ]
 
-# AI Provider options - Latest models with Fast/Powerful choice
+# AI Provider options — Claude (Anthropic) only
 AI_PROVIDER_OPTIONS = {
     '🎯 Claude Sonnet (Recommended)': AIProvider.CLAUDE,
     '🏃 Claude Haiku (Fast)': AIProvider.CLAUDE_FAST,
@@ -708,7 +716,15 @@ def initialize_session_state():
         'b2b_processing_complete': False,
         'b2b_export_data': None,
         'b2b_export_filename': None,
-        'b2b_perf_mode': 'Small (< 500 rows)',
+        'b2b_perf_mode': 'Small (< 500 rows)',                  
+
+        # Tab: B2B Zendesk Reporting
+        'zendesk_report': None,
+        'zendesk_cat_summary': None,
+        'zendesk_kpis': None,
+        'zendesk_date_label': None,
+        'zendesk_filtered': None,
+        'zendesk_categorized': None,
         
         # Tab 3: Quality Screening - NEW
         'qc_mode': 'Lite',
@@ -773,46 +789,52 @@ def initialize_session_state():
 
 
 def check_api_keys():
-    """Check for API keys and set environment variables"""
+    """Check for Anthropic API key — Streamlit secrets first, then env vars."""
     keys_found = {}
     try:
+        # 1. Streamlit secrets (Streamlit Cloud deployment)
         if hasattr(st, 'secrets'):
-            # Check OpenAI
-            for key in ['OPENAI_API_KEY', 'openai_api_key', 'openai']:
-                if key in st.secrets:
-                    val = str(st.secrets[key]).strip()
-                    if val:
-                        keys_found['openai'] = val
-                        os.environ['OPENAI_API_KEY'] = val
-                        break
-            
-            # Check Claude
             for key in ['ANTHROPIC_API_KEY', 'anthropic_api_key', 'claude_api_key', 'claude']:
-                if key in st.secrets:
-                    val = str(st.secrets[key]).strip()
-                    if val:
-                        keys_found['claude'] = val
-                        os.environ['ANTHROPIC_API_KEY'] = val
-                        break
+                try:
+                    if key in st.secrets:
+                        val = str(st.secrets[key]).strip()
+                        if val and val.startswith('sk-ant-'):
+                            keys_found['claude'] = val
+                            os.environ['ANTHROPIC_API_KEY'] = val
+                            break
+                except Exception:
+                    pass
+        # 2. Environment variables (local dev / Docker)
+        if 'claude' not in keys_found:
+            env_val = os.environ.get('ANTHROPIC_API_KEY', '').strip()
+            if env_val and env_val.startswith('sk-ant-'):
+                keys_found['claude'] = env_val
     except Exception as e:
-        logger.warning(f"Error checking secrets: {e}")
-    
+        logger.warning(f"Error checking API keys: {e}")
+    if 'claude' not in keys_found:
+        logger.warning("ANTHROPIC_API_KEY not found — AI features will be disabled")
     return keys_found
 
 
-def get_ai_analyzer(provider: AIProvider = None, max_workers: int = 5):
-    """Get or create AI analyzer instance"""
+def get_ai_analyzer(provider=None, max_workers: int = 5):
+    """Get or create AI analyzer instance — returns None if AI unavailable."""
+    if not AI_AVAILABLE:
+        return None
     if provider is None:
         provider = st.session_state.ai_provider
-    
-    if st.session_state.ai_analyzer is None or st.session_state.ai_analyzer.provider != provider:
-        try:
-            check_api_keys()
-            st.session_state.ai_analyzer = EnhancedAIAnalyzer(provider, max_workers=max_workers)
-            logger.info(f"Created AI analyzer: {provider.value}, Workers: {max_workers}")
-        except Exception as e:
-            st.error(f"Error initializing AI: {str(e)}")
-    
+    existing = st.session_state.get('ai_analyzer')
+    if existing is not None and getattr(existing, 'provider', None) == provider:
+        return existing
+    try:
+        keys = check_api_keys()
+        if not keys.get('claude'):
+            logger.warning("AI analyzer requested but no API key found")
+            return None
+        st.session_state.ai_analyzer = EnhancedAIAnalyzer(provider, max_workers=max_workers)
+        logger.info("AI analyzer ready: provider=%s workers=%d", provider.value, max_workers)
+    except Exception as e:
+        logger.error("AI analyzer init failed: %s", e, exc_info=True)
+        st.session_state.ai_analyzer = None
     return st.session_state.ai_analyzer
 
 
@@ -968,17 +990,17 @@ def render_connected_data_import():
                     if connector:
                         df = connector.read_sheet(sheet_id, worksheet_name if worksheet_name else None)
                         if not df.empty:
+                            st.session_state.connected_import_df = df
                             st.success(f"✓ Imported {len(df)} rows from Google Sheets")
                             st.dataframe(df.head(10), width="stretch")
-
-                            # Process button
-                            if st.button("🔍 Run Screening on Imported Data"):
-                                process_screening(df, 'Pro', include_claude=False)
-                                st.rerun()
                         else:
                             st.error("No data found or import failed")
                     else:
                         st.error("Connection failed. Check credentials.")
+            if st.session_state.get('connected_import_df') is not None:
+                if st.button("🔍 Run Screening on Imported Data", key="screen_sheets"):
+                    process_screening(st.session_state.connected_import_df, 'Pro', include_claude=False)
+                    st.rerun()
 
     elif conn_type == 'database':
         st.markdown("#### Database Query")
@@ -1001,18 +1023,18 @@ def render_connected_data_import():
                     if connector:
                         df = connector.query(query)
                         if not df.empty:
+                            st.session_state.connected_import_df = df
                             st.success(f"✓ Retrieved {len(df)} rows from database")
                             st.dataframe(df.head(10), width="stretch")
-
-                            # Process button
-                            if st.button("🔍 Run Screening on Query Results"):
-                                process_screening(df, 'Pro', include_claude=False)
-                                st.rerun()
                         else:
                             st.error("Query returned no results")
                         connector.close()
                     else:
                         st.error("Connection failed")
+            if st.session_state.get('connected_import_df') is not None:
+                if st.button("🔍 Run Screening on Query Results", key="screen_db"):
+                    process_screening(st.session_state.connected_import_df, 'Pro', include_claude=False)
+                    st.rerun()
 
     elif conn_type == 'smartsheet':
         st.markdown("#### Smartsheet Import")
@@ -1036,15 +1058,15 @@ def render_connected_data_import():
                     with st.spinner("Importing data from Smartsheet..."):
                         df = connector.read_sheet(sheet_id)
                         if not df.empty:
+                            st.session_state.connected_import_df = df
                             st.success(f"✓ Imported {len(df)} rows from Smartsheet")
                             st.dataframe(df.head(10), width="stretch")
-
-                            # Process button
-                            if st.button("🔍 Run Screening on Imported Data"):
-                                process_screening(df, 'Pro', include_claude=False)
-                                st.rerun()
                         else:
                             st.error("No data found or import failed")
+                if st.session_state.get('connected_import_df') is not None:
+                    if st.button("🔍 Run Screening on Imported Data", key="screen_smart"):
+                        process_screening(st.session_state.connected_import_df, 'Pro', include_claude=False)
+                        st.rerun()
             else:
                 st.warning("No sheets found in Smartsheet account")
 
@@ -1164,8 +1186,25 @@ def render_connection_modal():
 # TAB 1 LOGIC: Categorizer (PRESERVED)
 # -------------------------
 
+def _fuzzy_find_column(cols: list, candidates: list, threshold: int = 70) -> Optional[str]:
+    """Use RapidFuzz to find the best-matching column name from a list of candidates."""
+    try:
+        from rapidfuzz import process as rfprocess, fuzz
+        col_lower = [c.lower() for c in cols]
+        best_col, best_score = None, 0
+        for candidate in candidates:
+            result = rfprocess.extractOne(candidate.lower(), col_lower, scorer=fuzz.partial_ratio)
+            if result and result[1] > best_score and result[1] >= threshold:
+                best_score = result[1]
+                best_col = cols[col_lower.index(result[0])]
+        return best_col
+    except ImportError:
+        return None
+
+
 def process_file_preserve_structure(file_content, filename):
-    """Process file while preserving original structure"""
+    """Process file while preserving original structure.
+    Uses fuzzy column matching to detect complaint/SKU columns automatically."""
     try:
         if filename.endswith('.csv'):
             df = pd.read_csv(io.BytesIO(file_content), dtype=str)
@@ -1175,22 +1214,52 @@ def process_file_preserve_structure(file_content, filename):
             df = pd.read_csv(io.BytesIO(file_content), sep='\t', dtype=str)
         else:
             return None, None
-        
+
         column_mapping = {}
         cols = df.columns.tolist()
-        
-        if len(cols) >= 11:
-            if len(cols) > 8: column_mapping['complaint'] = cols[8]
-            if len(cols) > 1: column_mapping['sku'] = cols[1]
-            
-            while len(df.columns) < 11:
-                df[f'Column_{len(df.columns)}'] = ''
-            column_mapping['category'] = df.columns[10]
-            df[column_mapping['category']] = ''
-        else:
+
+        # ── Fuzzy-detect complaint column ─────────────────────────────────
+        complaint_candidates = [
+            'complaint', 'customer complaint', 'return reason', 'reason',
+            'issue', 'description', 'comments', 'feedback', 'notes',
+            'customer feedback', 'problem', 'defect description',
+        ]
+        complaint_col = _fuzzy_find_column(cols, complaint_candidates)
+
+        # Fallback: position-based (column I = index 8)
+        if complaint_col is None and len(cols) > 8:
+            complaint_col = cols[8]
+
+        # ── Fuzzy-detect SKU column ───────────────────────────────────────
+        sku_candidates = [
+            'sku', 'asin', 'product sku', 'item sku', 'product code',
+            'item number', 'model', 'part number', 'product id',
+        ]
+        sku_col = _fuzzy_find_column(cols, sku_candidates)
+        if sku_col is None and len(cols) > 1:
+            sku_col = cols[1]
+
+        if complaint_col:
+            column_mapping['complaint'] = complaint_col
+        if sku_col:
+            column_mapping['sku'] = sku_col
+
+        # ── Category column — always column K or append ────────────────────
+        while len(df.columns) < 11:
+            df[f'Column_{len(df.columns)}'] = ''
+        column_mapping['category'] = df.columns[10]
+        df[column_mapping['category']] = ''
+
+        # ── Inform user of detected columns ───────────────────────────────
+        if complaint_col:
+            detected_msg = f"Auto-detected: Complaint = **{complaint_col}**"
+            if sku_col:
+                detected_msg += f", SKU = **{sku_col}**"
+            st.info(f"🔍 {detected_msg}")
+        elif len(cols) < 11:
             st.error("File structure not recognized. Need at least 11 columns (A-K).")
             return None, None
-            
+
         return df, column_mapping
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
@@ -1388,28 +1457,41 @@ def display_results_dashboard(df, column_mapping):
     categorized_rows = len(df[df[category_col].notna() & (df[category_col] != '')])
     
     # Key Metrics Row
-    col1, col2, col3, col4, col5 = st.columns(5)
-    
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
+
     with col1:
         st.metric("Total Rows", f"{total_rows:,}")
-    
+
     with col2:
         st.metric("Categorized", f"{categorized_rows:,}")
-    
+
     with col3:
         success_rate = categorized_rows / total_rows * 100 if total_rows > 0 else 0
         st.metric("Success Rate", f"{success_rate:.1f}%")
-    
+
     with col4:
-        quality_count = sum(count for cat, count in st.session_state.reason_summary.items() 
+        quality_count = sum(count for cat, count in st.session_state.reason_summary.items()
                           if cat in QUALITY_CATEGORIES)
         quality_rate = quality_count / categorized_rows * 100 if categorized_rows > 0 else 0
-        st.metric("Quality Issues", f"{quality_rate:.1f}%", 
+        st.metric("Quality Issues", f"{quality_rate:.1f}%",
                  help=f"{quality_count:,} quality-related returns")
-    
+
     with col5:
         cost_per_return = st.session_state.total_cost / categorized_rows if categorized_rows > 0 else 0
         st.metric("Cost/Return", f"${cost_per_return:.4f}")
+
+    with col6:
+        # Show prompt cache savings if available from analyzer
+        analyzer = st.session_state.get('ai_analyzer')
+        cache_savings = 0.0
+        if analyzer and hasattr(analyzer, 'cost_tracker'):
+            cache_savings = analyzer.cost_tracker.estimated_cache_savings
+        if cache_savings > 0:
+            st.metric("Cache Saved", f"${cache_savings:.4f}",
+                      help="Estimated savings from prompt caching (same accuracy, lower cost)")
+        else:
+            st.metric("Cache Saved", "$0.0000",
+                      help="Prompt caching saves ~80% on repeated system prompts")
     
     # Category Distribution
     st.markdown("---")
@@ -1577,6 +1659,71 @@ def display_results_dashboard(df, column_mapping):
                 mime="text/csv"
             )
 
+    # ── AI Learning: Category Override Table ──────────────────────────────
+    st.markdown("---")
+    with st.expander("🧠 Correct AI Categories (teaches the AI for next time)", expanded=False):
+        st.caption(
+            "Override any AI-assigned category below. Corrections are saved permanently "
+            "and used as examples in future analyses — the more you correct, the smarter it gets."
+        )
+        if category_col and category_col in df.columns:
+            try:
+                from corrections_memory import get_corrections_memory
+                from enhanced_ai_analysis import MEDICAL_DEVICE_CATEGORIES
+
+                # Build editable table with complaint text + current category
+                text_col_candidates = ['complaint', 'Complaint', 'comment', 'Comment',
+                                       'text', 'Text', 'description', 'Description', 'Body']
+                text_col = next((c for c in text_col_candidates if c in df.columns), None)
+
+                edit_df = df[[text_col, category_col]].copy() if text_col else df[[category_col]].copy()
+                edit_df = edit_df.rename(columns={
+                    category_col: 'Current Category',
+                    **(  {text_col: 'Complaint Text'} if text_col else {}),
+                })
+                edit_df['Override Category'] = edit_df['Current Category']
+                edit_df = edit_df.head(200)  # cap for performance
+
+                col_cfg = {
+                    'Override Category': st.column_config.SelectboxColumn(
+                        'Override Category',
+                        options=sorted(MEDICAL_DEVICE_CATEGORIES),
+                        required=True,
+                    ),
+                    'Current Category': st.column_config.TextColumn('AI Category', disabled=True),
+                }
+                if text_col:
+                    col_cfg['Complaint Text'] = st.column_config.TextColumn(
+                        'Complaint Text', disabled=True, width='large'
+                    )
+
+                edited = st.data_editor(
+                    edit_df,
+                    column_config=col_cfg,
+                    hide_index=True,
+                    width='stretch',
+                    key="corrections_editor",
+                )
+
+                if st.button("💾 Save Corrections to AI Memory", type="primary", key="save_corrections"):
+                    mem = get_corrections_memory()
+                    saved = 0
+                    for _, row in edited.iterrows():
+                        old_cat = row['Current Category']
+                        new_cat = row['Override Category']
+                        complaint_text = str(row.get('Complaint Text', '')) if text_col else ''
+                        if old_cat != new_cat and complaint_text:
+                            mem.add_correction(complaint_text, old_cat, new_cat)
+                            saved += 1
+                    if saved:
+                        st.success(f"✅ Saved {saved} correction(s) — AI will use these next time.")
+                    else:
+                        st.info("No changes detected.")
+            except Exception as _ce:
+                st.info(f"Category override unavailable: {_ce}")
+        else:
+            st.info("No category column found in results.")
+
 
 # -------------------------
 # TAB 2 LOGIC: B2B Reports (PRESERVED)
@@ -1714,9 +1861,10 @@ def generate_b2b_report(df, analyzer, batch_size):
             'Display Name': item['subject'],
             'Description': item['full_description'],
             'SKU': item['sku'],
+            'Category': item.get('category', ''),
             'Reason': item.get('summary', 'Summary Unavailable')
         })
-        
+
     return pd.DataFrame(final_rows)
 
 
@@ -1798,7 +1946,7 @@ def render_root_cause_analysis(tracker):
         selected_case = st.selectbox(
             "Select Case for 5-Why Analysis",
             options=range(len(tracker.cases)),
-            format_func=lambda i: f"{tracker.cases[i].product_name} ({tracker.cases[i].sku}) - {tracker.cases[i].top_issues[:50]}..."
+            format_func=lambda i: f"{tracker.cases[i].product_name} ({tracker.cases[i].sku}) - {(tracker.cases[i].top_issues or '')[:50]}..."
         )
 
         case = tracker.cases[selected_case]
@@ -1806,7 +1954,7 @@ def render_root_cause_analysis(tracker):
         st.markdown(f"""
         **Problem Statement:** {case.top_issues}
         **Product:** {case.product_name} ({case.sku})
-        **Return Rate:** {case.return_rate_amazon*100:.1f}%
+        **Return Rate:** {f"{case.return_rate_amazon*100:.1f}%" if case.return_rate_amazon is not None else "N/A"}
         """)
 
         st.markdown("---")
@@ -1836,7 +1984,7 @@ def render_root_cause_analysis(tracker):
 
 Product: {case.product_name}
 Issue: {case.top_issues}
-Return Rate: {case.return_rate_amazon*100:.1f}%
+Return Rate: {f"{case.return_rate_amazon*100:.1f}%" if case.return_rate_amazon is not None else "N/A"}
 Additional Context: {case.notification_notes}
 
 Provide 5 progressive "why" questions that drill down to the root cause. Format as:
@@ -1878,7 +2026,7 @@ End with "Root Cause:" and the fundamental issue."""
         selected_case = st.selectbox(
             "Select Case for Fishbone Analysis",
             options=range(len(tracker.cases)),
-            format_func=lambda i: f"{tracker.cases[i].product_name} ({tracker.cases[i].sku}) - {tracker.cases[i].top_issues[:50]}...",
+            format_func=lambda i: f"{tracker.cases[i].product_name} ({tracker.cases[i].sku}) - {(tracker.cases[i].top_issues or '')[:50]}...",
             key="fishbone_case"
         )
 
@@ -2251,7 +2399,7 @@ def render_risk_analysis_fmea(tracker):
         risk_data.append({
             'Product': case.product_name,
             'SKU': case.sku,
-            'Failure Mode': case.top_issues[:50] + '...' if len(case.top_issues) > 50 else case.top_issues,
+            'Failure Mode': (case.top_issues or '')[:50] + ('...' if len(case.top_issues or '') > 50 else ''),
             'Severity (S)': severity,
             'Occurrence (O)': occurrence,
             'Detection (D)': detection,
@@ -2594,13 +2742,13 @@ Include specific dollar amounts and percentages."""
         selected_case_idx = st.selectbox(
             "Select Product for Forecast",
             options=range(len(tracker.cases)),
-            format_func=lambda i: f"{tracker.cases[i].product_name} ({tracker.cases[i].sku}) - RR: {tracker.cases[i].return_rate_amazon*100:.1f}%"
+            format_func=lambda i: f"{tracker.cases[i].product_name} ({tracker.cases[i].sku}) - RR: {f'{tracker.cases[i].return_rate_amazon*100:.1f}%' if tracker.cases[i].return_rate_amazon is not None else 'N/A'}"
         )
 
         case = tracker.cases[selected_case_idx]
 
         st.markdown(f"**Product:** {case.product_name}")
-        st.markdown(f"**Current Return Rate:** {case.return_rate_amazon*100:.1f}%")
+        st.markdown(f"**Current Return Rate:** {f'{case.return_rate_amazon*100:.1f}%' if case.return_rate_amazon is not None else 'N/A'}")
         st.markdown(f"**Issue:** {case.top_issues}")
 
         if st.button("🤖 Generate Product Forecast", type="primary"):
@@ -2608,7 +2756,7 @@ Include specific dollar amounts and percentages."""
                 prompt = f"""Product Quality Forecast:
 
 Product: {case.product_name} ({case.sku})
-Current Return Rate: {case.return_rate_amazon*100:.1f}%
+Current Return Rate: {f"{case.return_rate_amazon*100:.1f}%" if case.return_rate_amazon is not None else "N/A"}
 Issue: {case.top_issues}
 Action Taken: {case.action_taken if case.action_taken else 'None yet'}
 Sales Channel: {case.main_sales_channel}
@@ -3558,7 +3706,8 @@ Be specific and actionable."""
                 **Cost Impact:** ${data.get('cost_of_refunds', 0):,.0f}
                 """)
 
-            st.markdown(f"**Top Issues:** {data.get('top_issues', 'Not specified')[:200]}...")
+            _issues_preview = data.get('top_issues') or 'Not specified'
+            st.markdown(f"**Top Issues:** {_issues_preview[:200]}{'...' if len(_issues_preview) > 200 else ''}")
 
             # AI recommendation
             if not should_add:
@@ -6595,7 +6744,7 @@ def render_pro_mode():
 
                                 with col1:
                                     st.metric("Total Returns", latest.total_orders)
-                                    st.metric("Defect Rate", f"{latest.return_rate*100:.1f}%")
+                                    st.metric("Defect Rate", f"{latest.return_rate*100:.1f}%" if latest.return_rate is not None else "N/A")
 
                                 with col2:
                                     st.metric("Period", latest.period_name)
@@ -6688,7 +6837,7 @@ def render_pro_mode():
                                             fig_trend.add_trace(
                                                 go.Scatter(
                                                     x=[p.period_name for p in periods_sorted],
-                                                    y=[p.return_rate * 100 for p in periods_sorted],
+                                                    y=[(p.return_rate * 100) if p.return_rate is not None else 0 for p in periods_sorted],
                                                     mode='lines+markers',
                                                     name='Return Rate %',
                                                     line=dict(color='red', width=3),
@@ -6729,7 +6878,7 @@ def render_pro_mode():
                                             # Single period - show comparison to threshold
                                             fig_gauge = go.Figure(go.Indicator(
                                                 mode="gauge+number+delta",
-                                                value=latest.return_rate * 100,
+                                                value=(latest.return_rate * 100) if latest.return_rate is not None else 0,
                                                 domain={'x': [0, 1], 'y': [0, 1]},
                                                 title={'text': "Return Rate vs Amazon Threshold"},
                                                 delta={'reference': analysis.amazon_threshold * 100},
@@ -6869,7 +7018,7 @@ def render_pro_mode():
                                         'SKU': sku,
                                         'Period': latest.period_name,
                                         'Total Returns': latest.total_orders,
-                                        'Defect Rate': f"{latest.return_rate*100:.1f}%",
+                                        'Defect Rate': f"{latest.return_rate*100:.1f}%" if latest.return_rate is not None else "N/A",
                                         'Priority': analysis.priority_level,
                                         'Risk Flags': ' | '.join(analysis.risk_flags)
                                     }
@@ -6959,7 +7108,7 @@ def render_pro_mode():
                 # Clean up temp file
                 try:
                     os.unlink(tmp_path)
-                except:
+                except OSError:
                     pass
 
             except Exception as e:
@@ -7034,7 +7183,8 @@ def render_pro_mode():
                         for analysis in analyses_list:
                             if analysis.periods:
                                 products.append(analysis.product_name[:30] + "..." if len(analysis.product_name) > 30 else analysis.product_name)
-                                return_rates.append(analysis.periods[0].return_rate * 100)
+                                rr = analysis.periods[0].return_rate
+                                return_rates.append((rr * 100) if rr is not None else 0)
                                 priorities.append(analysis.priority_level)
 
                         bar_colors = [colors_map.get(p, "gray") for p in priorities]
@@ -7362,6 +7512,8 @@ def process_screening(df: pd.DataFrame, analysis_type: str = "ANOVA", include_cl
                 axis=1
             )
         else:
+            if 'Category' not in df.columns:
+                df['Category'] = 'All Others'
             df['Category_Threshold'] = df['Category'].apply(
                 lambda x: active_thresholds.get(x, active_thresholds.get('All Others', 0.10))
             )
@@ -7381,7 +7533,7 @@ def process_screening(df: pd.DataFrame, analysis_type: str = "ANOVA", include_cl
             st.session_state.manova_result = manova_result
             log_process(f"MANOVA p-value: {manova_result.p_value:.4f}")
         
-        elif analysis_type in ["ANOVA", "Auto"] and len(df) > 5:
+        elif analysis_type in ["ANOVA", "Auto", "Auto (AI Recommended)", "ANOVA (Analysis of Variance)"] and len(df) > 5:
             anova_result = QualityStatistics.perform_anova(df, 'Category', 'Return_Rate')
             st.session_state.anova_result = anova_result
             log_process(f"ANOVA F={anova_result.statistic:.2f}, p={anova_result.p_value:.4f}")
@@ -7892,7 +8044,11 @@ def render_screening_results():
                 if st.session_state.multilingual_communicator is None:
                     st.warning("AI communicator not initialized. Generating basic email...")
                     # Fallback to old generator
-                    row = action_items[action_items['SKU'] == selected_sku].iloc[0]
+                    _filtered_sku = action_items[action_items['SKU'] == selected_sku]
+                    if _filtered_sku.empty:
+                        st.error(f"SKU {selected_sku} not found in data.")
+                        st.stop()
+                    row = _filtered_sku.iloc[0]
                     if email_type == "CAPA Request":
                         email = VendorEmailGenerator.generate_capa_request(
                             sku=row['SKU'],
@@ -7905,7 +8061,11 @@ def render_screening_results():
                         st.text_area("Generated Email", email, height=400)
                 else:
                     with st.spinner("🤖 AI is generating your customized email..."):
-                        row = action_items[action_items['SKU'] == selected_sku].iloc[0]
+                        _filtered_sku2 = action_items[action_items['SKU'] == selected_sku]
+                        if _filtered_sku2.empty:
+                            st.error(f"SKU {selected_sku} not found in data.")
+                            st.stop()
+                        row = _filtered_sku2.iloc[0]
 
                         try:
                             if email_type == "CAPA Request":
@@ -7927,7 +8087,7 @@ def render_screening_results():
                                     product_name=row.get('Name', row['SKU']),
                                     defect_type=row['Action'],
                                     occurrence_rate=row['Return_Rate'],
-                                    sample_complaints=str(row.get('Complaint_Text', '')).split(',')[:5],
+                                    sample_complaints=(row.get('Complaint_Text') or '').split(',')[:5],
                                     english_level=english_level_map[english_level],
                                     target_language=target_lang_map[target_lang],
                                     vendor_region=vendor_region
@@ -7992,8 +8152,12 @@ def render_screening_results():
             )
             
             if st.button("Generate Plan", key="gen_plan"):
-                row = action_items[action_items['SKU'] == plan_sku].iloc[0]
-                
+                _plan_filtered = action_items[action_items['SKU'] == plan_sku]
+                if _plan_filtered.empty:
+                    st.error(f"SKU {plan_sku} not found in data.")
+                    st.stop()
+                row = _plan_filtered.iloc[0]
+
                 plan = InvestigationPlanGenerator.generate_plan(
                     sku=row['SKU'],
                     product_name=row.get('Name', row['SKU']),
@@ -8260,7 +8424,7 @@ def render_screening_results():
                                             product_name=row.get('Name', row['SKU']),
                                             defect_type=row['Action'],
                                             occurrence_rate=row['Return_Rate'],
-                                            sample_complaints=str(row.get('Complaint_Text', '')).split(',')[:5],
+                                            sample_complaints=(row.get('Complaint_Text') or '').split(',')[:5],
                                             english_level=english_level_map[bulk_english_level],
                                             target_language=target_lang_map[bulk_target_lang],
                                             vendor_region=bulk_vendor_region
@@ -8930,7 +9094,11 @@ def render_screening_results():
                     key="rework_sku"
                 )
 
-                row = action_items[action_items['SKU'] == rework_sku].iloc[0]
+                _rework_filtered = action_items[action_items['SKU'] == rework_sku]
+                if _rework_filtered.empty:
+                    st.error(f"SKU {rework_sku} not found in data.")
+                    st.stop()
+                row = _rework_filtered.iloc[0]
 
                 # Create form for rework questions
                 with st.form("rework_questions_form"):
@@ -9331,7 +9499,7 @@ def render_help_guide():
                         width="stretch"
                     )
                     st.caption("✨ **Advanced Demo includes:** Products from actual catalog, realistic return scenarios, safety risks, multilingual support testing, fuzzy matching against 231 historical products")
-            except Exception as e:
+            except Exception:
                 pass  # Silently fail if advanced demo not available
 
 
@@ -9940,9 +10108,10 @@ def render_inventory_integration_tab():
 
                         with col1:
                             st.markdown("**Quality Metrics**")
-                            return_rate = row.get('Return_Rate', 0) * 100 if row.get('Return_Rate', 0) < 1 else row.get('Return_Rate', 0)
+                            _rr = row.get('Return_Rate') or 0
+                            return_rate = _rr * 100 if _rr < 1 else _rr
                             st.metric("Return Rate", f"{return_rate:.2f}%")
-                            if 'Risk_Score' in row:
+                            if 'Risk_Score' in row and pd.notna(row['Risk_Score']):
                                 st.metric("Risk Score", f"{row['Risk_Score']:.0f}")
                             if 'Action_Required' in row:
                                 st.write(f"**Action:** {row['Action_Required']}")
@@ -9958,9 +10127,9 @@ def render_inventory_integration_tab():
 
                         with col3:
                             st.markdown("**Financial Impact**")
-                            if 'AtRiskDollars' in row:
+                            if 'AtRiskDollars' in row and pd.notna(row['AtRiskDollars']):
                                 st.metric("At Risk", f"${row['AtRiskDollars']:,.0f}")
-                            if 'AtRiskUnits' in row:
+                            if 'AtRiskUnits' in row and pd.notna(row['AtRiskUnits']):
                                 st.metric("Units at Risk", f"{row['AtRiskUnits']:,}")
 
                         # Recommendation box
@@ -9968,7 +10137,7 @@ def render_inventory_integration_tab():
                         <div style="background: #f0f9ff; border-left: 4px solid #0284c7;
                                     padding: 1rem; margin-top: 1rem; border-radius: 4px;">
                             <strong>📋 Recommendation:</strong><br>
-                            {row['Recommendation']}
+                            {row.get('Recommendation', 'No recommendation available')}
                         </div>
                         """, unsafe_allow_html=True)
 
@@ -10166,8 +10335,48 @@ def render_b2b_tool(provider_map=None, provider_selection=None):
             unique_skus = df_res[df_res['SKU'] != 'Unknown']['SKU'].nunique()
             st.metric("Unique Products", unique_skus)
 
-        st.markdown("#### Preview (Top 10)")
-        st.dataframe(df_res.head(10), width="stretch")
+        st.markdown("#### 📋 Report Preview")
+
+        # Filters
+        with st.expander("🔧 Filter Options", expanded=False):
+            bf1, bf2 = st.columns(2)
+            with bf1:
+                b2b_sku_filter = st.text_input("SKU contains", key="b2b_sku_filter",
+                                               placeholder="e.g. MOB1027")
+            with bf2:
+                if 'Category' in df_res.columns:
+                    b2b_cat_opts = ["All"] + sorted(df_res['Category'].dropna().unique().tolist())
+                    b2b_cat_filter = st.selectbox("Category", b2b_cat_opts, key="b2b_cat_filter")
+                else:
+                    b2b_cat_filter = "All"
+
+        df_display = df_res.copy()
+        if b2b_sku_filter:
+            df_display = df_display[df_display['SKU'].str.contains(b2b_sku_filter, case=False, na=False)]
+        if b2b_cat_filter != "All" and 'Category' in df_display.columns:
+            df_display = df_display[df_display['Category'] == b2b_cat_filter]
+
+        if 'Category' in df_display.columns:
+            cat_counts = df_display['Category'].value_counts()
+            st.dataframe(
+                df_display,
+                width='stretch',
+                height=min(500, 38 + 35 * len(df_display)),
+                column_config={
+                    "Category": st.column_config.TextColumn("Category", width="medium"),
+                    "Reason": st.column_config.TextColumn("AI Summary", width="large"),
+                    "SKU": st.column_config.TextColumn("SKU", width="small"),
+                },
+            )
+            # Category breakdown bar
+            if not cat_counts.empty:
+                st.markdown("**Category Distribution:**")
+                st.bar_chart(cat_counts, color="#23b2be", horizontal=True)
+        else:
+            st.dataframe(df_display, width='stretch',
+                         height=min(500, 38 + 35 * len(df_display)))
+
+        st.caption(f"Showing **{len(df_display)}** of **{len(df_res)}** rows. Click column headers to sort.")
 
         col1, col2 = st.columns(2)
         with col1:
@@ -10223,6 +10432,27 @@ TASK_DEFINITIONS = {
         'subtitle': 'Worldwide Regulatory Intelligence',
         'description': 'Scan FDA, EU EMA, UK MHRA, Health Canada, ANVISA, CPSC, and global media for recalls, alerts, and safety signals affecting your products.',
         'keywords': ['recall', 'recalls', 'surveillance', 'fda', 'mhra', 'ema', 'health canada', 'anvisa', 'cpsc', 'maude', 'adverse', 'alert', 'safety', 'global', 'worldwide'],
+    },
+    'zendesk': {
+        'icon': '🎫',
+        'title': 'B2C Zendesk Reporting',
+        'subtitle': 'Quality Issue Analysis',
+        'description': 'Categorize and analyse all Zendesk B2C tickets by issue type using standard quality categories. Produces a consolidated report grouped by Parent SKU sorted by occurrence.',
+        'keywords': ['zendesk', 'b2c', 'tickets', 'quality issues', 'recordings', 'sku', 'zendesk reporting'],
+    },
+    'multilingual': {
+        'icon': '🌍',
+        'title': 'Multilingual Vendor Comms',
+        'subtitle': 'AI-Generated Vendor Emails',
+        'description': 'Generate CAPA requests, RCA emails, and quality reports for international vendors in their preferred language with cultural context awareness.',
+        'keywords': ['multilingual', 'vendor', 'email', 'capa', 'rca', 'translate', 'language', 'chinese', 'spanish'],
+    },
+    'analyst': {
+        'icon': '🤖',
+        'title': 'AI Quality Analyst',
+        'subtitle': 'Chat with Your Data',
+        'description': 'Ask natural language questions about your loaded quality data. Claude uses tool calls to query real SKU, category, and safety data — and checks FDA MAUDE for regulatory signals.',
+        'keywords': ['analyst', 'chat', 'ask', 'ai', 'question', 'insight', 'fda', 'maude', 'signal', 'kpi'],
     },
 }
 
@@ -10312,6 +10542,11 @@ def render_task_selector():
 
     # Row 2 - centered screening card
     render_task_card(row2_center, 'screening')
+
+    # Row 3
+    for i, task_id in enumerate(tasks_row3):
+        if task_id:
+            render_task_card(row3[i], task_id)
 
     # Featured Row - Global Recall Surveillance (full width)
     st.markdown("---")
@@ -10640,7 +10875,7 @@ def render_global_recall_surveillance():
             else:
                 df_sorted = df
 
-            for idx, row in df_sorted.iterrows():
+            for _, row in df_sorted.iterrows():
                 risk = row.get('Risk_Level', 'Medium')
                 risk_icon = "🔴" if risk == "High" else "🟠" if risk == "Medium" else "🟢"
                 source = row.get('Source', 'Unknown')
@@ -10857,6 +11092,20 @@ def render_single_tool(task_id: str, provider_map: dict, provider_selection: str
         render_quality_screening_tab()
     elif task_id == 'recalls':
         render_global_recall_surveillance()
+    elif task_id == 'zendesk':
+        render_b2b_zendesk_reporting()
+    elif task_id == 'multilingual':
+        render_multilingual_comms_tab()
+    elif task_id == 'analyst':
+        _analyst_session = {
+            'categorized_data': st.session_state.get('categorized_data'),
+            'zendesk_data': st.session_state.get('zendesk_data'),
+            'zendesk_kpis': st.session_state.get('zendesk_kpis'),
+            'b2b_report_data': st.session_state.get('b2b_report_data'),
+        }
+        _az = st.session_state.get('ai_analyzer')
+        _claude_key = _az.claude_key if _az is not None else ''
+        render_quality_analyst_chat(_claude_key, _analyst_session)
 
 
 def render_all_tabs(provider_map: dict, provider_selection: str):
@@ -10892,9 +11141,45 @@ def render_all_tabs(provider_map: dict, provider_selection: str):
     with tab5:
         render_global_recall_surveillance()
 
+    with tab8:
+        render_b2b_zendesk_reporting()
+
+    with tab9:
+        render_multilingual_comms_tab()
+
+    with tab10:
+        _analyst_session = {
+            'categorized_data': st.session_state.get('categorized_data'),
+            'zendesk_data': st.session_state.get('zendesk_data'),
+            'zendesk_kpis': st.session_state.get('zendesk_kpis'),
+            'b2b_report_data': st.session_state.get('b2b_report_data'),
+        }
+        _az = st.session_state.get('ai_analyzer')
+        _claude_key = _az.claude_key if _az is not None else ''
+        render_quality_analyst_chat(_claude_key, _analyst_session)
+
 
 def main():
     initialize_session_state()
+
+    # ── Startup diagnostics (shown once per session) ──────────────────────
+    if not AI_AVAILABLE and not st.session_state.get('_startup_warned'):
+        st.session_state['_startup_warned'] = True
+        st.warning(
+            "⚠️ **AI modules failed to load.** Some features are disabled. "
+            "Check Streamlit Cloud logs for the import error details.",
+            icon="⚠️",
+        )
+    elif AI_AVAILABLE and not st.session_state.get('_api_key_checked'):
+        st.session_state['_api_key_checked'] = True
+        keys = check_api_keys()
+        if not keys.get('claude'):
+            st.error(
+                "🔑 **Anthropic API key not found.** AI features will not work. "
+                "Add `ANTHROPIC_API_KEY` to your Streamlit secrets "
+                "(**Settings → Secrets** in the Streamlit Cloud dashboard).",
+                icon="🔑",
+            )
 
     # Inject theme CSS first (replaces inject_custom_css())
     if THEME_AVAILABLE:
@@ -10934,8 +11219,7 @@ def main():
     """, unsafe_allow_html=True)
 
     if not AI_AVAILABLE:
-        st.error("❌ AI Modules Missing. Please check deployment.")
-        st.stop()
+        st.warning("⚠️ AI Modules Missing. Some AI features may be unavailable. Please check deployment.")
 
     # Add AI status indicator (Claude only)
     keys = check_api_keys()
@@ -10980,6 +11264,34 @@ def main():
 
         # Help guide
         render_help_guide()
+
+        if AI_AVAILABLE:
+            st.markdown("---")
+
+            # AI Memory — corrections learned from user overrides
+            render_corrections_panel()
+
+            # Regulatory Signal Watcher
+            _reg_session = {
+                'categorized_data': st.session_state.get('categorized_data'),
+                'zendesk_data': st.session_state.get('zendesk_data'),
+            }
+            render_regulatory_watcher_sidebar(_reg_session)
+
+        st.markdown("---")
+
+        # Clear All session state
+        if st.button("🗑️ Clear All & Reset", help="Reset all uploaded data, results, and selections", key="sidebar_clear_all"):
+            keys_to_clear = [
+                'categorized_data', 'column_mapping', 'b2b_report_data',
+                'zendesk_data', 'zendesk_report', 'zendesk_cat_summary', 'zendesk_categorized',
+                'screening_results', 'inventory_data', 'quality_cases',
+                'ml_last_result', 'selected_task',
+            ]
+            for k in keys_to_clear:
+                st.session_state.pop(k, None)
+            st.success("✅ All data cleared.")
+            st.rerun()
 
     # === TASK-BASED ROUTING ===
     selected = st.session_state.selected_task

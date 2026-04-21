@@ -528,10 +528,10 @@ class EnhancedVoCAnalysisService:
 
         try:
             return datetime.strptime(date_str, '%m/%d/%Y')
-        except:
+        except Exception:
             try:
                 return datetime.strptime(date_str, '%m/%d/%y')
-            except:
+            except Exception:
                 return None
 
     @staticmethod

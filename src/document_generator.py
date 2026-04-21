@@ -47,7 +47,8 @@ class DocumentGenerator:
         if 'Date' in df.columns:
             try:
                 df = df.sort_values(by='Date', ascending=False)
-            except: pass
+            except Exception:
+                pass
             
         for idx, row in df.iterrows():
             # Skip high risk here if we want to avoid dups, or just list all

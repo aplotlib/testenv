@@ -181,8 +181,8 @@ class QualityTrackerManager:
 
 Product: {case.product_name} ({case.sku})
 Issue: {case.top_issues}
-Return Rate Amazon: {case.return_rate_amazon * 100:.2f}% if case.return_rate_amazon else 'N/A'
-Return Rate B2B: {case.return_rate_b2b * 100:.2f}% if case.return_rate_b2b else 'N/A'
+Return Rate Amazon: {f"{case.return_rate_amazon * 100:.2f}%" if case.return_rate_amazon is not None else "N/A"}
+Return Rate B2B: {f"{case.return_rate_b2b * 100:.2f}%" if case.return_rate_b2b is not None else "N/A"}
 Star Rating: {case.star_rating_amazon or 'N/A'}
 Action Taken: {case.action_taken or 'None yet'}
 Status: {case.case_status or 'Open'}
@@ -235,7 +235,7 @@ Provide a pithy, executive-level summary focusing on the issue severity, busines
                     try:
                         if len(str(cell.value)) > max_length:
                             max_length = len(str(cell.value))
-                    except:
+                    except (TypeError, AttributeError):
                         pass
                 adjusted_width = min(max_length + 2, 50)
                 worksheet.column_dimensions[column_letter].width = adjusted_width
@@ -282,7 +282,7 @@ Provide a pithy, executive-level summary focusing on the issue severity, busines
                     try:
                         if len(str(cell.value)) > max_length:
                             max_length = len(str(cell.value))
-                    except:
+                    except (TypeError, AttributeError):
                         pass
                 adjusted_width = min(max_length + 2, 50)
                 worksheet.column_dimensions[column_letter].width = adjusted_width
@@ -412,7 +412,7 @@ Provide a pithy, executive-level summary focusing on the issue severity, busines
             if pd.isna(value) or value == '' or value is None:
                 return None
             return int(float(value))
-        except:
+        except (ValueError, TypeError):
             return None
 
     def _safe_float(self, value) -> Optional[float]:
@@ -421,7 +421,7 @@ Provide a pithy, executive-level summary focusing on the issue severity, busines
             if pd.isna(value) or value == '' or value is None:
                 return None
             return float(value)
-        except:
+        except (ValueError, TypeError):
             return None
 
     def _safe_date(self, value) -> Optional[date]:
@@ -435,7 +435,7 @@ Provide a pithy, executive-level summary focusing on the issue severity, busines
                 return value.date()
             # Try parsing string
             return pd.to_datetime(value).date()
-        except:
+        except (ValueError, TypeError):
             return None
 
     def find_duplicate_skus(self) -> Dict[str, List[QualityTrackerCase]]:

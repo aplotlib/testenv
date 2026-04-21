@@ -103,7 +103,7 @@ def render_root_cause_analysis(tracker):
         st.markdown(f"""
         **Problem Statement:** {case.top_issues}
         **Product:** {case.product_name} ({case.sku})
-        **Return Rate:** {case.return_rate_amazon*100:.1f}%
+        **Return Rate:** {f"{case.return_rate_amazon*100:.1f}%" if case.return_rate_amazon is not None else "N/A"}
         """)
 
         st.markdown("---")
@@ -133,7 +133,7 @@ def render_root_cause_analysis(tracker):
 
 Product: {case.product_name}
 Issue: {case.top_issues}
-Return Rate: {case.return_rate_amazon*100:.1f}%
+Return Rate: {f"{case.return_rate_amazon*100:.1f}%" if case.return_rate_amazon is not None else "N/A"}
 Additional Context: {case.notification_notes}
 
 Provide 5 progressive "why" questions that drill down to the root cause. Format as:
@@ -907,13 +907,13 @@ Include specific dollar amounts and percentages."""
         selected_case_idx = st.selectbox(
             "Select Product for Forecast",
             options=range(len(tracker.cases)),
-            format_func=lambda i: f"{tracker.cases[i].product_name} ({tracker.cases[i].sku}) - RR: {tracker.cases[i].return_rate_amazon*100:.1f}%"
+            format_func=lambda i: f"{tracker.cases[i].product_name} ({tracker.cases[i].sku}) - RR: {f'{tracker.cases[i].return_rate_amazon*100:.1f}%' if tracker.cases[i].return_rate_amazon is not None else 'N/A'}"
         )
 
         case = tracker.cases[selected_case_idx]
 
         st.markdown(f"**Product:** {case.product_name}")
-        st.markdown(f"**Current Return Rate:** {case.return_rate_amazon*100:.1f}%")
+        st.markdown(f"**Current Return Rate:** {f'{case.return_rate_amazon*100:.1f}%' if case.return_rate_amazon is not None else 'N/A'}")
         st.markdown(f"**Issue:** {case.top_issues}")
 
         if st.button("🤖 Generate Product Forecast", type="primary"):
@@ -921,7 +921,7 @@ Include specific dollar amounts and percentages."""
                 prompt = f"""Product Quality Forecast:
 
 Product: {case.product_name} ({case.sku})
-Current Return Rate: {case.return_rate_amazon*100:.1f}%
+Current Return Rate: {f"{case.return_rate_amazon*100:.1f}%" if case.return_rate_amazon is not None else "N/A"}
 Issue: {case.top_issues}
 Action Taken: {case.action_taken if case.action_taken else 'None yet'}
 Sales Channel: {case.main_sales_channel}

@@ -161,7 +161,7 @@ class DataProcessor:
                             qty = float(val_str)
                             # We found the total (last col), stop looking
                             break
-                    except:
+                    except Exception:
                         continue
                 
                 # Only add if we found a positive return quantity
