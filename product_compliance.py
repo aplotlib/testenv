@@ -322,6 +322,12 @@ def render_product_compliance():
     if not is_md:
         st.caption('Complete the Medical Device Gate above to unlock this section.')
     else:
+        sold_us = _yn_row('Sold in USA?', 'cp_sold_us', default=True)
+
+    if not is_md or not st.session_state.get('cp_sold_us', True):
+        if is_md:
+            st.caption('Toggle "Sold in USA?" on to complete FDA fields.')
+    else:
         fda_class = st.selectbox('FDA Device Class *', FDA_CLASSES, key='cp_fda_class')
 
         if fda_class == 'Class II':
@@ -520,38 +526,25 @@ def render_product_compliance():
 def _collect_record() -> dict:
     """Collect all session state compliance fields into a dict for export."""
     s = st.session_state
-    return {
-        'meta': {
-            'exported_at': datetime.now().isoformat(),
-            'tool': 'Product Compliance Test (pre-Odoo)',
-        },
-        'product': {
-            'name':          s.get('cp_name', ''),
-            'sku':           s.get('cp_sku', ''),
-            'product_line':  s.get('cp_line', ''),
-        },
-        'universal': {
-            'warnings': {
-                'on_product': s.get('cp_warn_product', False),
-                'on_manual':  s.get('cp_warn_manual', False),
-                'on_package': s.get('cp_warn_package', False),
-            },
-            'artwork_folder':       s.get('cp_artwork_link', ''),
-            'prop_65_required':     s.get('cp_prop65', False),
-            'iec_60601_required':   s.get('cp_elec_label', False),
-            'hsa_fsa_eligible':     s.get('cp_hsa_fsa', False),
-            'compliance_owner':     s.get('cp_owner', ''),
-            'compliance_review_date': str(s.get('cp_review_date', '')),
-        },
-        'medical_device': {
-            'is_medical_device':    s.get('cp_is_md', False),
+    is_md   = s.get('cp_is_md', False)
+    sold_us = s.get('cp_sold_us', True)
+    sold_eu = s.get('cp_sold_eu', False)
+    sold_uk = s.get('cp_sold_uk', False)
+    sold_co = s.get('cp_sold_co', False)
+    fda_class_val = s.get('cp_fda_class', '') if (is_md and sold_us) else ''
+
+    # MD sub-fields only populated when MD gate is open
+    md_section: dict = {'is_medical_device': is_md}
+    if is_md:
+        has_shelf = s.get('cp_shelf_yn', False)
+        md_section.update({
             'intended_use':         s.get('cp_intended_use', ''),
             'sterile':              s.get('cp_sterile', False),
             'single_use':           s.get('cp_single_use', False),
             'contains_latex':       s.get('cp_latex', False),
             'biocompatibility':     s.get('cp_biocompat', ''),
-            'has_shelf_life':       s.get('cp_shelf_yn', False),
-            'shelf_life':           s.get('cp_shelf_life', ''),
+            'has_shelf_life':       has_shelf,
+            'shelf_life':           s.get('cp_shelf_life', '') if has_shelf else '',
             'tech_file_link':       s.get('cp_tech_file', ''),
             'regulatory_doc_links': s.get('cp_reg_docs', ''),
             'lot_controlled':       s.get('cp_lot_ctrl', False),
@@ -559,50 +552,109 @@ def _collect_record() -> dict:
             'risk_class':           s.get('cp_risk_class', ''),
             'primary_hazards':      s.get('cp_primary_hazards', ''),
             'risk_mitigation_file': s.get('cp_risk_file', ''),
-        },
-        'usa_fda': {
-            'fda_class':            s.get('cp_fda_class', ''),
-            '510k_number':          s.get('cp_pmn_number', ''),
-            '510k_letter_link':     s.get('cp_pmn_link', ''),
-            'product_code_fda':     s.get('cp_product_code_fda', ''),
-            'hcpcs_code':           s.get('cp_hcpcs', ''),
-            'vendor_fda_reg':       s.get('cp_vendor_fda_reg', ''),
-            'device_listing_mfr':   s.get('cp_listing_mfr', ''),
-            'device_listing_vive':  s.get('cp_listing_vive', ''),
-            'added_to_gudid':       s.get('cp_gudid', False),
-            'ndc_required':         s.get('cp_ndc_required', False),
-            'ndc_code':             s.get('cp_ndc_code', ''),
-            'udi': {
-                'gtin':       True,
-                'sku':        s.get('cp_udi_sku_us', False),
-                'lot':        s.get('cp_udi_lot_us', False),
-                'mfg_date':   s.get('cp_udi_mfg_us', False),
-                'serial':     s.get('cp_udi_serial_us', False),
-            },
-        },
-        'eu_mdr': {
-            'sold_in_eu':           s.get('cp_sold_eu', False),
-            'ce_mark':              s.get('cp_ce_mark', False),
-            'mdr_class':            s.get('cp_mdr_class', ''),
-            'doc_link':             s.get('cp_eu_doc', ''),
-            'registered_in_eudamed':s.get('cp_eudamed', False),
-            'udi_different_from_us':s.get('cp_eu_udi_diff', False),
-            'udi': {
+        })
+
+    # USA/FDA — only when MD=Y and sold in US
+    usa_section: dict = {'sold_in_usa': sold_us}
+    if is_md and sold_us:
+        usa_udi = {
+            'gtin':     True,
+            'sku':      s.get('cp_udi_sku_us', False),
+            'lot':      s.get('cp_udi_lot_us', False),
+            'mfg_date': s.get('cp_udi_mfg_us', False),
+            'serial':   s.get('cp_udi_serial_us', False),
+        }
+        usa_section.update({
+            'fda_class':          fda_class_val,
+            'product_code_fda':   s.get('cp_product_code_fda', ''),
+            'hcpcs_code':         s.get('cp_hcpcs', ''),
+            'vendor_fda_reg':     s.get('cp_vendor_fda_reg', ''),
+            'device_listing_mfr': s.get('cp_listing_mfr', ''),
+            'device_listing_vive':s.get('cp_listing_vive', ''),
+            'added_to_gudid':     s.get('cp_gudid', False),
+            'ndc_required':       s.get('cp_ndc_required', False),
+            'ndc_code':           s.get('cp_ndc_code', '') if s.get('cp_ndc_required') else '',
+            'udi':                usa_udi,
+        })
+        # 510(k) only relevant for Class II
+        if fda_class_val == 'Class II':
+            usa_section['510k_number']      = s.get('cp_pmn_number', '')
+            usa_section['510k_letter_link'] = s.get('cp_pmn_link', '')
+
+    # EU MDR — only when sold in EU
+    eu_section: dict = {'sold_in_eu': sold_eu}
+    if sold_eu:
+        eu_udi_diff = s.get('cp_eu_udi_diff', False)
+        # Mirror USA UDI when user says "not different"
+        if eu_udi_diff:
+            eu_udi = {
                 'gtin':     True,
                 'sku':      s.get('cp_udi_sku_eu', False),
                 'lot':      s.get('cp_udi_lot_eu', False),
                 'mfg_date': s.get('cp_udi_mfg_eu', False),
                 'serial':   s.get('cp_udi_serial_eu', False),
+            }
+        else:
+            eu_udi = {
+                'gtin':     True,
+                'sku':      s.get('cp_udi_sku_us', False),
+                'lot':      s.get('cp_udi_lot_us', False),
+                'mfg_date': s.get('cp_udi_mfg_us', False),
+                'serial':   s.get('cp_udi_serial_us', False),
+                '_note':    'mirrored from USA',
+            }
+        eu_section.update({
+            'ce_mark':               s.get('cp_ce_mark', False),
+            'mdr_class':             s.get('cp_mdr_class', '') if s.get('cp_ce_mark') else '',
+            'doc_link':              s.get('cp_eu_doc', '') if s.get('cp_ce_mark') else '',
+            'registered_in_eudamed': s.get('cp_eudamed', False),
+            'udi_different_from_us': eu_udi_diff,
+            'udi':                   eu_udi,
+        })
+
+    # UK — only when sold in UK
+    uk_section: dict = {'sold_in_uk': sold_uk}
+    if sold_uk:
+        uk_section.update({
+            'ukca_mark': s.get('cp_ukca_mark', False),
+            'doc_link':  s.get('cp_uk_doc', ''),
+        })
+
+    # LATAM/Colombia — only when sold in Colombia
+    latam_section: dict = {'sold_in_colombia': sold_co}
+    if sold_co:
+        invima_class_val = s.get('cp_invima_class', '')
+        latam_section.update({
+            'invima_class': invima_class_val,
+            'invima_reg':   s.get('cp_invima_reg', '') if invima_class_val not in ('', '— Select —') else '',
+        })
+
+    return {
+        'meta': {
+            'exported_at': datetime.now().isoformat(),
+            'tool': 'Product Compliance Test (pre-Odoo)',
+        },
+        'product': {
+            'name':         s.get('cp_name', ''),
+            'sku':          s.get('cp_sku', ''),
+            'product_line': s.get('cp_line', ''),
+        },
+        'universal': {
+            'warnings': {
+                'on_product': s.get('cp_warn_product', False),
+                'on_manual':  s.get('cp_warn_manual', False),
+                'on_package': s.get('cp_warn_package', False),
             },
+            'artwork_folder':         s.get('cp_artwork_link', ''),
+            'prop_65_required':       s.get('cp_prop65', False),
+            'iec_60601_required':     s.get('cp_elec_label', False),
+            'hsa_fsa_eligible':       s.get('cp_hsa_fsa', False),
+            'compliance_owner':       s.get('cp_owner', ''),
+            'compliance_review_date': str(s.get('cp_review_date', '')),
         },
-        'uk_ukca': {
-            'sold_in_uk':   s.get('cp_sold_uk', False),
-            'ukca_mark':    s.get('cp_ukca_mark', False),
-            'doc_link':     s.get('cp_uk_doc', ''),
-        },
-        'latam_colombia': {
-            'sold_in_colombia': s.get('cp_sold_co', False),
-            'invima_class':     s.get('cp_invima_class', ''),
-            'invima_reg':       s.get('cp_invima_reg', ''),
-        },
+        'medical_device': md_section,
+        'usa_fda':         usa_section,
+        'eu_mdr':          eu_section,
+        'uk_ukca':         uk_section,
+        'latam_colombia':  latam_section,
     }
