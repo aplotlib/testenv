@@ -1529,7 +1529,7 @@ def display_results_dashboard(df, column_mapping):
         def _safety_level(row):
             cat = str(row.get(cat_col, '') or '')
             complaint = str(row.get(complaint_col, '') or '').lower() if complaint_col else ''
-            if cat == 'Medical / Safety Concern':
+            if cat == 'Medical/Health Concerns':
                 return 'major'
             text = (cat + ' ' + complaint).lower()
             if any(kw in text for kw in SAFETY_KEYWORDS_MAJOR):
