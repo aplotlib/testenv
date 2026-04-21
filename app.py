@@ -143,6 +143,19 @@ except ImportError as e:
     def render_b2b_zendesk_reporting(*a, **kw):
         st.error("b2b_zendesk_reporting module not available")
 
+# Optional modules added by v30-v32 merge — graceful fallback if missing
+try:
+    from corrections_memory import render_corrections_panel
+except ImportError:
+    def render_corrections_panel(*a, **kw):
+        pass
+
+try:
+    from ai_quality_analyst import render_regulatory_watcher_sidebar
+except ImportError:
+    def render_regulatory_watcher_sidebar(*a, **kw):
+        pass
+
 # Check optional imports
 try:
     import xlsxwriter
