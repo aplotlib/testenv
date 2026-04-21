@@ -1508,6 +1508,87 @@ def display_results_dashboard(df, column_mapping):
             st.metric("Cache Saved", "$0.0000",
                       help="Prompt caching saves ~80% on repeated system prompts")
     
+    # ── Safety Concern Highlighting ──────────────────────────────────────
+    SAFETY_KEYWORDS_MINOR = [
+        'injury', 'injured', 'hurt', 'fell', 'fall', 'collapse', 'collapsed',
+        'shock', 'electric', 'burn', 'burned', 'cut', 'laceration', 'pinch',
+        'pinched', 'trap', 'trapped', 'unstable', 'unsafe', 'hazard', 'hazardous',
+        'dangerous', 'danger', 'brake', 'broke', 'breaking', 'crack', 'cracked',
+        'sharp', 'bleed', 'bleeding', 'bruise', 'bruising', 'scratch',
+    ]
+    SAFETY_KEYWORDS_MAJOR = [
+        'death', 'died', 'dead', 'fatal', 'fatality', 'hospitalized', 'hospital',
+        'ambulance', 'emergency', 'severe injury', 'broken bone', 'fracture',
+        'surgery', 'stitches', 'unconscious', 'paralyzed',
+    ]
+
+    complaint_col = column_mapping.get('complaint')
+    cat_col = column_mapping.get('category')
+
+    if cat_col and cat_col in df.columns:
+        def _safety_level(row):
+            cat = str(row.get(cat_col, '') or '')
+            complaint = str(row.get(complaint_col, '') or '').lower() if complaint_col else ''
+            if cat == 'Medical / Safety Concern':
+                return 'major'
+            text = (cat + ' ' + complaint).lower()
+            if any(kw in text for kw in SAFETY_KEYWORDS_MAJOR):
+                return 'major'
+            if any(kw in text for kw in SAFETY_KEYWORDS_MINOR):
+                return 'minor'
+            return ''
+
+        df['_safety_level'] = df.apply(_safety_level, axis=1)
+        major_df = df[df['_safety_level'] == 'major']
+        minor_df = df[df['_safety_level'] == 'minor']
+        total_safety = len(major_df) + len(minor_df)
+
+        if total_safety > 0:
+            st.markdown("---")
+            col_maj, col_min = st.columns(2)
+            with col_maj:
+                st.markdown(f"""
+                <div style="background:rgba(235,51,0,0.12);border:2px solid #EB3300;
+                            border-radius:10px;padding:0.8rem 1rem;text-align:center;">
+                    <div style="font-size:1.8rem;font-weight:700;color:#EB3300;">{len(major_df)}</div>
+                    <div style="color:#EB3300;font-weight:600;">🔴 Major Safety Concerns</div>
+                    <div style="color:#888;font-size:0.75rem;margin-top:0.2rem;">Medical/Safety category or critical keywords</div>
+                </div>""", unsafe_allow_html=True)
+            with col_min:
+                st.markdown(f"""
+                <div style="background:rgba(240,179,35,0.12);border:2px solid #F0B323;
+                            border-radius:10px;padding:0.8rem 1rem;text-align:center;">
+                    <div style="font-size:1.8rem;font-weight:700;color:#F0B323;">{len(minor_df)}</div>
+                    <div style="color:#F0B323;font-weight:600;">🟠 Minor Safety Concerns</div>
+                    <div style="color:#888;font-size:0.75rem;margin-top:0.2rem;">Safety keywords detected in complaint text</div>
+                </div>""", unsafe_allow_html=True)
+
+            with st.expander(f"🚨 View All {total_safety} Safety Flagged Rows", expanded=len(major_df) > 0):
+                display_cols = [c for c in [
+                    column_mapping.get('sku'), column_mapping.get('date'),
+                    complaint_col, cat_col
+                ] if c and c in df.columns]
+
+                def _highlight_safety(row):
+                    level = row.get('_safety_level', '')
+                    if level == 'major':
+                        return ['background-color: rgba(235,51,0,0.18); color: inherit'] * len(row)
+                    if level == 'minor':
+                        return ['background-color: rgba(240,179,35,0.18); color: inherit'] * len(row)
+                    return ['' ] * len(row)
+
+                safety_view = pd.concat([major_df, minor_df])[display_cols + ['_safety_level']] \
+                    .sort_values('_safety_level', ascending=True)  # major first
+                styled = safety_view[display_cols].style.apply(
+                    lambda row: _highlight_safety(
+                        dict(zip(display_cols, row.values)) | {'_safety_level': safety_view.loc[row.name, '_safety_level']}
+                    ),
+                    axis=1
+                )
+                st.dataframe(styled, width='stretch', height=min(400, 35 * total_safety + 40))
+
+        df.drop(columns=['_safety_level'], inplace=True, errors='ignore')
+
     # Category Distribution
     st.markdown("---")
     st.markdown("#### 📈 Category Distribution")
