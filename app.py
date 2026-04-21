@@ -1348,7 +1348,7 @@ def process_in_chunks(df, analyzer, column_mapping, chunk_size=None):
                 # Update dataframe
                 for result in results:
                     idx = result['index']
-                    category = result.get('category', 'Other/Miscellaneous')
+                    category = result.get('category', 'Other / Miscellaneous')
                     df.at[idx, category_col] = category
                     
                     # Track stats
@@ -1387,7 +1387,7 @@ def process_in_chunks(df, analyzer, column_mapping, chunk_size=None):
             # Fill failed items with default category
             for item in batch_data:
                 if pd.isna(df.at[item['index'], category_col]):
-                    df.at[item['index'], category_col] = 'Other/Miscellaneous'
+                    df.at[item['index'], category_col] = 'Other / Miscellaneous'
         
         # Force garbage collection after each chunk
         gc.collect()
