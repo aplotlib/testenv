@@ -10556,10 +10556,6 @@ def render_task_selector():
     # Row 2 - centered screening card
     render_task_card(row2_center, 'screening')
 
-    # Row 3
-    for i, task_id in enumerate(tasks_row3):
-        if task_id:
-            render_task_card(row3[i], task_id)
 
     # Featured Row - Global Recall Surveillance (full width)
     st.markdown("---")
