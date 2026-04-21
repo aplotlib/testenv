@@ -158,6 +158,12 @@ except ImportError:
     def render_quality_analyst_chat(*a, **kw):
         pass
 
+try:
+    from product_compliance import render_product_compliance
+except ImportError:
+    def render_product_compliance(*a, **kw):
+        st.error("product_compliance module not available")
+
 # Check optional imports
 try:
     import xlsxwriter
@@ -213,6 +219,7 @@ MODULE_COLORS = {
     'zendesk':    {'accent': '#7B5EA7', 'bg': 'rgba(123,94,167,0.08)', 'border': 'rgba(123,94,167,0.4)', 'label': 'Violet'},
     'screening':  {'accent': '#F0B323', 'bg': 'rgba(240,179,35,0.08)', 'border': 'rgba(240,179,35,0.4)', 'label': 'Gold'},
     'recalls':    {'accent': '#EB3300', 'bg': 'rgba(235,51,0,0.08)',   'border': 'rgba(235,51,0,0.4)',   'label': 'Red'},
+    'compliance': {'accent': '#1a7f5e', 'bg': 'rgba(26,127,94,0.08)',  'border': 'rgba(26,127,94,0.35)',  'label': 'Green'},
 }
 
 # Quality categories (For Tab 1 Analysis)
@@ -10529,12 +10536,12 @@ TASK_DEFINITIONS = {
         'description': 'Scan FDA, EU EMA, UK MHRA, Health Canada, ANVISA, CPSC, and global media for recalls, alerts, and safety signals affecting your products.',
         'keywords': ['recall', 'recalls', 'surveillance', 'fda', 'mhra', 'ema', 'health canada', 'anvisa', 'cpsc', 'maude', 'adverse', 'alert', 'safety', 'global', 'worldwide'],
     },
-    'zendesk': {
-        'icon': '🎫',
-        'title': 'B2C Zendesk Reporting',
-        'subtitle': 'Quality Issue Analysis',
-        'description': 'Categorize and analyse all Zendesk B2C tickets by issue type using standard quality categories. Produces a consolidated report grouped by Parent SKU sorted by occurrence.',
-        'keywords': ['zendesk', 'b2c', 'tickets', 'quality issues', 'recordings', 'sku', 'zendesk reporting'],
+    'compliance': {
+        'icon': '📋',
+        'title': 'Product Compliance Test',
+        'subtitle': 'Pre-Odoo Field Validation',
+        'description': 'Test new compliance data fields before they go live in Odoo. Covers FDA, EU MDR, UKCA, INVIMA, and universal requirements with conditional logic.',
+        'keywords': ['compliance', 'odoo', 'fda', 'mdr', 'ukca', 'invima', '510k', 'ce mark', 'regulatory', 'prop 65', 'udi', 'gudid'],
     },
     'multilingual': {
         'icon': '🌍',
@@ -10587,9 +10594,9 @@ def render_task_selector():
     </div>
     """, unsafe_allow_html=True)
 
-    # Task cards - 3+1 grid + Featured surveillance tool
+    # Task cards - 3+2+1 grid + Featured surveillance tool
     row1 = st.columns(3)
-    _, row2_center, _ = st.columns([1, 1, 1])
+    row2_l, row2_r = st.columns(2)
 
     tasks_row1 = ['categorize', 'b2b', 'zendesk']
 
@@ -10636,9 +10643,9 @@ def render_task_selector():
     for i, task_id in enumerate(tasks_row1):
         render_task_card(row1[i], task_id)
 
-    # Row 2 - centered screening card
-    render_task_card(row2_center, 'screening')
-
+    # Row 2 - screening + compliance
+    render_task_card(row2_l, 'screening')
+    render_task_card(row2_r, 'compliance')
 
     # Featured Row - Global Recall Surveillance (full width)
     st.markdown("---")
@@ -11184,6 +11191,8 @@ def render_single_tool(task_id: str, provider_map: dict, provider_selection: str
         render_quality_screening_tab()
     elif task_id == 'recalls':
         render_global_recall_surveillance()
+    elif task_id == 'compliance':
+        render_product_compliance()
 
 
 def render_all_tabs(provider_map: dict, provider_selection: str):
@@ -11196,12 +11205,13 @@ def render_all_tabs(provider_map: dict, provider_selection: str):
     st.markdown("---")
 
     # Tabs - Active tools only
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📊 Return Categorizer",
         "📑 B2B Report",
         "🎫 B2C Zendesk",
         "🧪 Screen Products",
-        "🌐 Global Recalls"
+        "🌐 Global Recalls",
+        "📋 Compliance Test",
     ])
 
     with tab1:
@@ -11218,6 +11228,9 @@ def render_all_tabs(provider_map: dict, provider_selection: str):
 
     with tab5:
         render_global_recall_surveillance()
+
+    with tab6:
+        render_product_compliance()
 
 
 def main():
