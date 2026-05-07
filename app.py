@@ -1576,22 +1576,20 @@ def display_results_dashboard(df, column_mapping):
                     complaint_col, cat_col
                 ] if c and c in df.columns]
 
-                def _highlight_safety(row):
-                    level = row.get('_safety_level', '')
-                    if level == 'major':
-                        return ['background-color: rgba(235,51,0,0.18); color: inherit'] * len(row)
-                    if level == 'minor':
-                        return ['background-color: rgba(240,179,35,0.18); color: inherit'] * len(row)
-                    return ['' ] * len(row)
-
                 safety_view = pd.concat([major_df, minor_df])[display_cols + ['_safety_level']] \
                     .sort_values('_safety_level', ascending=True)  # major first
-                styled = safety_view[display_cols].style.apply(
-                    lambda row: _highlight_safety(
-                        dict(zip(display_cols, row.values)) | {'_safety_level': safety_view.loc[row.name, '_safety_level']}
-                    ),
-                    axis=1
-                )
+                _safety_levels = safety_view['_safety_level']
+
+                def _highlight_safety(row):
+                    level = _safety_levels.loc[row.name]
+                    n = len(row)
+                    if level == 'major':
+                        return ['background-color: rgba(235,51,0,0.18); color: inherit'] * n
+                    if level == 'minor':
+                        return ['background-color: rgba(240,179,35,0.18); color: inherit'] * n
+                    return [''] * n
+
+                styled = safety_view[display_cols].style.apply(_highlight_safety, axis=1)
                 st.dataframe(styled, width='stretch', height=min(400, 35 * total_safety + 40))
 
         df.drop(columns=['_safety_level'], inplace=True, errors='ignore')
