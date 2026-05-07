@@ -1578,19 +1578,14 @@ def display_results_dashboard(df, column_mapping):
 
                 safety_view = pd.concat([major_df, minor_df])[display_cols + ['_safety_level']] \
                     .sort_values('_safety_level', ascending=True)  # major first
-                _safety_levels = safety_view['_safety_level']
 
-                def _highlight_safety(row):
-                    level = _safety_levels.loc[row.name]
-                    n = len(row)
-                    if level == 'major':
-                        return ['background-color: rgba(235,51,0,0.18); color: inherit'] * n
-                    if level == 'minor':
-                        return ['background-color: rgba(240,179,35,0.18); color: inherit'] * n
-                    return [''] * n
-
-                styled = safety_view[display_cols].style.apply(_highlight_safety, axis=1)
-                st.dataframe(styled, width='stretch', height=min(400, 35 * total_safety + 40))
+                if display_cols:
+                    view_display = safety_view[display_cols].copy()
+                    view_display.insert(0, 'Risk', safety_view['_safety_level'].map(
+                        {'major': '🔴 Major', 'minor': '🟠 Minor'}
+                    ))
+                    st.dataframe(view_display, use_container_width=True,
+                                 height=min(400, 35 * total_safety + 40), hide_index=True)
 
         df.drop(columns=['_safety_level'], inplace=True, errors='ignore')
 
