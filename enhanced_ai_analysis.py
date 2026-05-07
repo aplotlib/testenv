@@ -210,121 +210,250 @@ HAIKU_SUFFICIENT_CATEGORIES = {
     'Missing or Incomplete Components',
 }
 
+# Pipe-prefix map: many complaints are structured as "Reason|Detail|Notes".
+# The first segment is a strong direct signal — map it to the exact category.
+PIPE_PREFIX_MAP = {
+    'too large':            'Size: Too Large',
+    'too small':            'Size: Too Small',
+    'incorrect size':       "Size: Doesn't Fit / Wrong Dimensions",
+    'wrong size':           "Size: Doesn't Fit / Wrong Dimensions",
+    'changed mind':         'Customer: Changed Mind / No Longer Needed',
+    'no longer needed':     'Customer: Changed Mind / No Longer Needed',
+    'not needed':           'Customer: Changed Mind / No Longer Needed',
+    'ordering issue':       'Customer: Changed Mind / No Longer Needed',
+    'accidental purchase':  'Customer: Changed Mind / No Longer Needed',
+    'delivery issue':       'Fulfillment: Delivery Issue',
+    'wrong item':           'Fulfillment: Wrong Item Sent',
+    'damaged in shipping':  'Fulfillment: Damaged in Shipping',
+    'missing parts':        'Missing or Incomplete Components',
+    'missing components':   'Missing or Incomplete Components',
+}
+
+# Equipment/device keywords — if present, check Equipment Compatibility before Size
+_EQUIPMENT_WORDS = re.compile(
+    r'\b(crutch(es)?|cane|walker|wheelchair|rollator|scooter|oxygen tank|'
+    r'hospital bed|bed rail|commode|IV pole|grab bar)\b',
+    re.IGNORECASE
+)
+
+
+def preprocess_complaint(text: str) -> str:
+    """Decode HTML entities, normalize whitespace, and strip pipe-format metadata."""
+    import html
+    if not text:
+        return ''
+    # Decode HTML entities (&#39; → ', &amp; → &, etc.)
+    text = html.unescape(text)
+    # Strip leading/trailing whitespace
+    text = text.strip()
+    return text
+
+
+def parse_pipe_complaint(text: str):
+    """
+    Parse pipe-delimited complaint format: 'Reason|Detail|Notes'.
+    Returns (category_hint, full_text_for_ai) where category_hint may be None.
+    The full_text_for_ai joins all segments so the AI sees the complete picture.
+    """
+    if '|' not in text:
+        return None, text
+
+    parts = [p.strip() for p in text.split('|') if p.strip()]
+    first = parts[0].lower()
+
+    # Look up the first segment in the prefix map
+    category_hint = PIPE_PREFIX_MAP.get(first)
+
+    # Reconstruct natural text from all segments for AI fallback
+    natural = ' — '.join(parts)
+    return category_hint, natural
+
+
 # Quick categorization patterns for speed — unified to Return Categorizer categories
 QUICK_PATTERNS = {
-    # Safety first — always wins
+    # 1. Safety — always highest priority
     'Medical / Safety Concern': [
         r'\binjur(y|ed|ies)\b', r'\bhospital(ized)?\b', r'\bemergency\b',
-        r'\bdangerous\b', r'\bunsafe\b', r'\bhazard\b',
+        r'\bdangerous\b', r'\bunsafe\b', r'\bhazard(ous)?\b',
         r'\bdeath\b', r'\bdied?\b', r'\bfatal\b', r'\bserious (harm|injury)\b',
+        r'\bwent to (the )?(doctor|urgent care|ER|hospital)\b',
+        r'\bneeded stitches\b', r'\bbroken bone\b', r'\bfracture\b',
     ],
-    # Stability — checked before defects so "tipping/falling" wins over "broken"
-    'Stability: Shifts / Unstable / Falls': [
-        r'\bunstable\b', r'\btips? (over|easily)\b', r'\bfalls? over\b',
-        r'\bwobble?s?\b', r'\bshifts? (out|around|constantly)\b',
-        r'\bwon[\']?t stay (in place|on|put)\b',
-        r'\bkeeps? (moving|shifting|falling)\b',
-    ],
-    # Size: Too Small
-    'Size: Too Small': [
-        r'\btoo (small|tight|narrow|short)\b',
-        r'\bruns? small\b', r'\bcan[\']?t (get|fit) (it )?on\b',
-        r'\bwon[\']?t go on\b', r'\btoo (snug|constricting|restrictive)\b',
-    ],
-    # Size: Too Large
-    'Size: Too Large': [
-        r'\btoo (big|large|wide|long|bulky|loose|baggy)\b',
-        r'\bruns? (too )?large\b', r'\bfalls? off\b', r'\bslips? off\b',
-    ],
-    # Size: Doesn't Fit / Wrong Dimensions
-    "Size: Doesn't Fit / Wrong Dimensions": [
-        r"\bdoesn[\']?t fit\b", r'\bwon[\']?t fit\b', r'\bdoes not fit\b',
-        r'\bwrong (size|fit)\b', r'\bfit (poorly|badly|incorrectly)\b',
-    ],
-    # Comfort: Causes Pain or Pressure
-    'Comfort: Causes Pain or Pressure': [
-        r'\bcauses? (pain|sores?|blisters?|bruising|chafing)\b',
-        r'\bhurts?\b', r'\bpainful\b', r'\bsore\b', r'\bdigs? in\b', r'\buncomfortable\b',
-    ],
-    # Comfort: Too Hard / Rigid
-    'Comfort: Too Hard / Rigid': [
-        r'\btoo (hard|stiff|rigid|firm)\b',
-    ],
-    # Comfort: Too Soft / Lacks Support
-    'Comfort: Too Soft / Lacks Support': [
-        r'\btoo (soft|flimsy|weak|floppy)\b',
-        r'\blacks? support\b', r'\bno support\b', r'\bcollapses?\b',
-    ],
-    # Comfort: Skin Irritation or Allergic Reaction
-    'Comfort: Skin Irritation or Allergic Reaction': [
-        r'\birritati(on|ng|es?)\b', r'\brash\b', r'\ballerg(y|ic)\b',
-    ],
-    # Defect: Broken / Structural Failure
-    'Defect: Broken / Structural Failure': [
-        r'\bbroken\b', r'\bsnapped\b', r'\bcracked\b', r'\bfell? apart\b', r'\bdetached\b',
-        r'\bstructural (fail|break|collapse)\b',
-    ],
-    # Defect: Malfunctions / Stops Working
-    'Defect: Malfunctions / Stops Working': [
-        r"\bdoesn[\']?t work\b", r'\bdoes not work\b', r'\bstopped? working\b',
-        r'\bmalfunctions?\b', r'\bstop(ped)? functioning\b',
-    ],
-    # Defect: Poor Material Quality
-    'Defect: Poor Material Quality': [
-        r'\bpoor (quality|material|construction)\b', r'\bcheap (material|plastic|fabric)\b',
-        r'\blow quality\b', r'\bpaint (peeling|chipping)\b', r'\bpeeling\b',
-        r'\bscratched\b',
-    ],
-    # Defect: Cosmetic Damage
-    'Defect: Cosmetic Damage': [
-        r'\bdented\b', r'\bscuffed\b', r'\bcosmet(ic)? (damage|defect)\b',
-    ],
-    # Wrong Product / Not as Described
-    'Wrong Product / Not as Described': [
-        r'\bwrong (item|product|color|model)\b',
-        r'\bnot as (described|advertised|shown)\b',
-        r'\bdifferent (product|item) (than|from) (what|ordered)\b',
-    ],
-    # Performance: Ineffective / Doesn't Help
-    "Performance: Ineffective / Doesn't Help": [
-        r'\bineffective\b', r"\bdoesn[\']?t help\b", r'\bnot effective\b', r'\buseless\b',
-        r"\bdoesn[\']?t do anything\b",
-    ],
-    # Equipment Compatibility Issue
-    'Equipment Compatibility Issue': [
-        r'\bnot compatible (with|for)\b', r'\bincompatible\b',
-        r"\bdoesn[\']?t (fit|work) (with|on|for) (my|the|a)\b",
-    ],
-    # Assembly / Usage Difficulty
-    'Assembly / Usage Difficulty': [
-        r'\bdifficult (to (assemble|use|adjust|put together|set up))\b',
-        r'\bhard (to (assemble|use|put together|adjust))\b',
-        r'\bconfusing instructions?\b', r'\bimpossible to (assemble|use)\b',
-    ],
-    # Missing or Incomplete Components
-    'Missing or Incomplete Components': [
-        r'\bmissing (part|piece|component|accessory|hardware|screw|bolt|nut)\b',
-        r'\bincomplete\b', r'\bparts? (missing|absent|not included)\b', r'\bno instructions?\b',
-        r'\bnot (all|everything) (included|in box)\b',
-    ],
-    # Non-quality
+    # 2. Customer-caused — catch early (high volume, clear signals)
     'Customer: Changed Mind / No Longer Needed': [
         r'\bchanged (my )?mind\b', r'\bno longer (need|want|require)\b',
-        r'\bdon[\']?t need (it|anymore|this)\b', r'\bnot needed\b',
+        r"\bdon[\']?t (need|want) (it|this|anymore)\b",
+        r'\bnot needed\b', r'\bno longer needed\b',
         r'\bdecided (not to|against)\b', r'\bdonating\b',
+        r'\bsurgery (cancelled|canceled)\b', r'\bfound (a |an )?(better|other)\b',
+        r'\bno longer on (crutches|walker|wheelchair)\b',
+        r'\baccidental (purchase|order)\b', r'\bmy needs changed\b',
+        r'\bdon[\']?t need it\b',
     ],
     'Customer: Ordered Wrong Size or Item': [
-        r'\bordered (the )?wrong (size|item|product)\b', r'\bmy (mistake|error|fault)\b',
+        r'\bordered (the )?wrong (size|item|product)\b',
+        r'\bmy (mistake|error|fault)\b',
         r'\baccidentally (ordered|bought|purchased)\b',
+        r'\bi (ordered|bought) (the )?wrong\b',
     ],
+    # 3. Fulfillment
     'Fulfillment: Damaged in Shipping': [
         r'\bdamaged (in|during|by) (shipping|transit|delivery)\b',
         r'\barrived (damaged|broken|crushed|dented|wet)\b',
-        r'\bbox (damaged|crushed|wet|torn)\b', r'\bshipping damage\b',
+        r'\bbox (damaged|crushed|wet|torn|open)\b', r'\bshipping damage\b',
+        r'\bdamaged (package|box|item) (on )?arrival\b',
     ],
     'Fulfillment: Wrong Item Sent': [
         r'\bsent (the )?wrong (item|product|size|color)\b',
         r'\breceived (the )?wrong\b', r'\bpackaged incorrectly\b',
+        r'\bgot (a |the )?wrong\b',
+    ],
+    'Fulfillment: Delivery Issue': [
+        r'\bnever (arrived|received|delivered)\b',
+        r'\btracking says delivered (but|and) (never|not)\b',
+        r'\bpackage (lost|missing)\b', r'\bnot delivered\b',
+    ],
+    # 4. Missing components
+    'Missing or Incomplete Components': [
+        r'\bmissing .{0,40}(part|piece|component|accessory|hardware|screw|bolt|nut|strap|pad)\b',
+        r'\b(part|piece|component|strap|pad) (is |was )?missing\b',
+        r'\bparts? (missing|absent|not included|weren[\']?t included)\b',
+        r'\bno instructions?\b', r'\binstructions? (not|missing|weren[\']?t) (included|in box)\b',
+        r'\bnot (all|everything) (included|in (the )?box)\b',
+        r'\bincomplete (package|set|kit)\b',
+    ],
+    # 5. Equipment compatibility — must check BEFORE size (device words are key signal)
+    'Equipment Compatibility Issue': [
+        r'\b(doesn[\']?t|won[\']?t|will not|does not) (fit|work) (on|with|for) (my |a |the )?(crutch|crutches|cane|walker|wheelchair|rollator|scooter|bed rail|grab bar|commode)\b',
+        r'\bnot compatible (with|for) (my |a |the )?(crutch|cane|walker|wheelchair|rollator)\b',
+        r'\b(too big|too large|too small|too wide|too narrow) for (my |a |the )?(crutch|cane|walker|wheelchair|rollator|scooter|oxygen tank|IV pole|hospital bed)\b',
+        r'\b(crutch|cane|walker|wheelchair|rollator) (doesn[\']?t|won[\']?t|will not) (fit|work|attach|connect)\b',
+        r'\bnot (the )?right (size|fit) for (my )?(crutch|cane|walker|wheelchair|rollator)\b',
+        r'\b(did not|didn[\']?t) fit (my |the )?(crutch|cane|walker|wheelchair|rollator|walker|scooter)\b',
+        r'\bcannot (be )?placed? on (a |the )?(rollator|walker|crutch|wheelchair)\b',
+    ],
+    # 6. Stability — product itself moves on a surface; NOT body-to-product size issue
+    'Stability: Shifts / Unstable / Falls': [
+        r'\bunstable\b', r'\btips? over\b', r'\bfalls? over\b', r'\bwobble?s?\b',
+        r'\b(won[\']?t|do(es)? not|doesn[\']?t) stay (in place|on|put|still|attached|in position)\b',
+        r'\bkeeps? (moving|shifting|tipping)\b',
+        # Product/pad slides on a surface (crutch, seat, chair, bed)
+        r'\b(slides?|slips?|falls?|keeps? (sliding|slipping|falling)) off (the )?(crutch|seat|chair|bed|surface|cushion|scooter|walker|armrest)\b',
+        r'\b(pads?|cushion|grip|cover|sleeve|tip) (slides?|slips?|falls?|keeps? (sliding|slipping)) (off|around|out)\b',
+        r'\bslides? (on|across|around) (the )?(seat|surface|floor|chair|bed|cushion)\b',
+        r'\bwon[\']?t stay (attached|secured|in position|on (the )?(chair|seat|bed|surface|crutch))\b',
+        r'\bkeeps? sliding off (the )?(crutch|seat|surface|chair|cushion|pad)\b',
+        r'\b(doesn[\']?t|won[\']?t) stay (on|in) (the )?(brace|seat|position|place)\b',
+        r'\bkeeps? (sliding|slipping|falling) off\b',  # repeated movement = positioning failure
+        r'\bwould not stay on\b', r'\bwon[\']?t stay on\b',
+    ],
+    # 7. Size: Too Small — product is undersized for this person's body
+    'Size: Too Small': [
+        r'\btoo (small|tight|narrow|short|snug|constricting|restrictive)\b',
+        r'\bto (small|tight|narrow|short)\b',  # common typo "to" instead of "too"
+        r'\bruns? small\b', r'\brun(s)? (very |extremely )?small\b',
+        r'\bcan[\']?t (get|fit) (it |them )?(on|over|around)\b',
+        r'\bwon[\']?t go on\b', r'\bcouldn[\']?t get (it )?on\b',
+        r'\bstraps? (too )?short\b', r'\bhandle (too )?small\b',
+        r'\btips? (too )?small\b', r'\bopening (too )?narrow\b',
+        r'\bnot high enough\b',
+    ],
+    # 8. Size: Too Large — product is oversized for this person's body
+    'Size: Too Large': [
+        r'\btoo (big|large|wide|long|bulky|loose|baggy)\b',
+        r'\bto (big|large|wide|long|loose|baggy)\b',  # common typo
+        r'\bway too (big|large|loose|long|wide|baggy)\b',
+        r'\bruns? (too )?(large|big)\b',
+        r'\bvery (loose|big|large)\b',
+        r'\bway (too )?(loose|big|large)\b',
+        r'\b(strap|band|cuff|sleeve) (too )?loose\b',
+        r'\bdoesn[\']?t (provide|give) (any |enough )?compression\b',
+        r'\b(falls?|slides?|slips?) (right )?off (my |the )?(body|arm|leg|wrist|ankle|foot|hand|finger|thumb|knee|elbow|shoulder|neck|head)\b',
+        r'\btoo (long|wide) for (my |the )?(body|arm|leg|wrist|ankle|foot|hand|finger)\b',
+    ],
+    # 9. Size: Doesn't Fit / Wrong Dimensions — fit complaint without clear small/large direction
+    "Size: Doesn't Fit / Wrong Dimensions": [
+        r"\bdoesn[\']?t fit\b", r'\bwon[\']?t fit\b', r'\bdoes not fit\b',
+        r'\bdid not fit\b', r'\bdidn[\']?t fit\b',
+        r'\bwrong (size|fit|dimensions?)\b',
+        r'\bfit (poorly|badly|incorrectly|is not good|isn[\']?t good)\b',
+        r'\bthe fit (is|isn[\']?t|was|wasn[\']?t)\b',
+        r'\bhard time adjusting\b', r'\bwill not fit\b',
+        r'\bnot the right (size|fit|dimensions?)\b',
+    ],
+    # 10. Comfort subcategories
+    'Comfort: Skin Irritation or Allergic Reaction': [
+        r'\birritati(on|ng|es?)\b', r'\brash\b', r'\ballerg(y|ic)\b',
+        r'\bred(ness)? (and )?itch(y|ing)?\b', r'\bhives\b',
+        r'\bskin (reaction|broke out|turning red)\b',
+    ],
+    'Comfort: Too Hard / Rigid': [
+        r'\btoo (hard|stiff|rigid|firm)\b',
+        r'\bextremely (stiff|rigid|hard|firm)\b',
+        r'\bno give (at all)?\b', r'\bvery stiff\b',
+    ],
+    'Comfort: Too Soft / Lacks Support': [
+        r'\btoo (soft|flimsy|weak|floppy)\b',
+        r'\blacks? (any |enough )?support\b', r'\bno support\b',
+        r'\bcollapses?\b', r'\bprovides? (no|zero) (support|compression)\b',
+        r'\buseless,? (no|provides no) support\b',
+    ],
+    'Comfort: Causes Pain or Pressure': [
+        r'\bcauses? (pain|sores?|blisters?|bruising|chafing|pressure sores?)\b',
+        r'\bhurts?\b', r'\bpainful\b', r'\bdigs? in\b',
+        r'\buncomfortable\b', r'\bdiscomfort\b',
+        r'\bcuts? into (my |the )?(skin|wrist|ankle|arm|leg)\b',
+        r'\bleaves? (marks?|indentations?|impressions?)\b',
+    ],
+    # 11. Defects
+    'Defect: Broken / Structural Failure': [
+        r'\bbroken\b', r'\bsnapped\b', r'\bcracked\b',
+        r'\bfell? apart\b', r'\bdetached\b', r'\bfalls? apart\b',
+        r'\bstructural (fail|break|collapse)\b',
+        r'\bbroke (on|after|within|during)\b',
+    ],
+    'Defect: Malfunctions / Stops Working': [
+        r"\bdoesn[\']?t work\b", r'\bdoes not work\b',
+        r'\bstopped? working\b', r'\bmalfunctions?\b',
+        r'\bstop(ped)? functioning\b', r'\bwon[\']?t (turn on|charge|inflate|deflate)\b',
+        r'\bbattery (died|won[\']?t (hold|charge))\b',
+        r'\bno longer works?\b',
+    ],
+    'Defect: Poor Material Quality': [
+        r'\bpoor (quality|material|construction|build)\b',
+        r'\bcheap (material|plastic|fabric|quality)\b',
+        r'\blow (quality|grade)\b', r'\bvery cheap\b', r'\bfeels? cheap\b',
+        r'\bpaint (peeling|chipping)\b', r'\bpeeling\b',
+        r'\bvelcro (wore out|doesn[\']?t stick|stopped sticking)\b',
+        r'\bstitching (came apart|fraying|unraveling)\b',
+        r'\bflimsy\b',
+    ],
+    'Defect: Cosmetic Damage': [
+        r'\bdented\b', r'\bscuffed\b', r'\bcosmet(ic)? (damage|defect)\b',
+        r'\barrived (scratched|with a dent|with scratches)\b',
+    ],
+    # 12. Wrong product
+    'Wrong Product / Not as Described': [
+        r'\bwrong (item|product|color|model|style)\b',
+        r'\bnot as (described|advertised|shown|pictured)\b',
+        r'\bdifferent (product|item) (than|from) (what|ordered)\b',
+        r'\blooks nothing like\b', r'\bnot what (i|was) (ordered|expected|shown)\b',
+        r'\breceived (a )?different\b',
+    ],
+    # 13. Performance
+    "Performance: Ineffective / Doesn't Help": [
+        r'\bineffective\b', r"\bdoesn[\']?t help\b", r'\bnot effective\b',
+        r'\buseless\b', r"\bdoesn[\']?t do anything\b",
+        r'\bprovides? (no|zero) (relief|benefit|help)\b',
+        r'\bdoesn[\']?t (relieve|reduce|improve|alleviate)\b',
+        r'\bwaste of (money|time)\b', r'\bnot helpful\b',
+    ],
+    'Assembly / Usage Difficulty': [
+        r'\bdifficult to (assemble|use|adjust|put together|set up)\b',
+        r'\bhard to (assemble|use|put together|adjust|figure out)\b',
+        r'\bconfusing instructions?\b', r'\bimpossible to (assemble|use|put on)\b',
+        r'\bcan[\']?t figure out (how to)?\b',
+        r'\binstructions? (make no sense|are confusing|unclear)\b',
     ],
 }
 
@@ -395,16 +524,45 @@ def calculate_cost(model: str, input_tokens: int, output_tokens: int) -> CostEst
 
 
 def quick_categorize(complaint: str, fba_reason: str = None) -> Optional[str]:
-    """Quick pattern-based categorization for speed"""
+    """
+    Quick categorization: FBA code → pipe prefix → equipment check → regex patterns.
+    Preprocessing (HTML decode, pipe parsing) should be done before calling this.
+    """
     if not complaint:
         return None
 
+    # 1. FBA reason code — highest confidence signal
     if fba_reason and fba_reason in FBA_REASON_MAP:
         return FBA_REASON_MAP[fba_reason]
 
+    # 2. Pipe prefix map — first segment of structured complaints is a direct signal
+    if '|' in complaint:
+        pipe_hint, _ = parse_pipe_complaint(complaint)
+        if pipe_hint:
+            return pipe_hint
+
     complaint_lower = complaint.lower()
 
+    # 3. Equipment compatibility check — must run BEFORE size patterns
+    # "too big for my crutch" = Equipment Compatibility, NOT Size: Too Large
+    if _EQUIPMENT_WORDS.search(complaint_lower):
+        equip_patterns = COMPILED_PATTERNS.get('Equipment Compatibility Issue', [])
+        for pattern in equip_patterns:
+            if pattern.search(complaint_lower):
+                return 'Equipment Compatibility Issue'
+        # If it mentions a device but no explicit compatibility pattern,
+        # still flag as equipment issue if size language is present
+        size_device = re.search(
+            r'\b(too? (big|large|small|wide|narrow|long|short)|doesn[\']?t fit|won[\']?t fit|did not fit|will not fit)\b',
+            complaint_lower
+        )
+        if size_device:
+            return 'Equipment Compatibility Issue'
+
+    # 4. Regex patterns (ordered by priority in QUICK_PATTERNS dict)
     for category, patterns in COMPILED_PATTERNS.items():
+        if category == 'Equipment Compatibility Issue':
+            continue  # already handled above
         for pattern in patterns:
             if pattern.search(complaint_lower):
                 return category
@@ -867,7 +1025,12 @@ Example: Product Defects/Quality | Scooter battery not holding charge after 3 mo
     ) -> Tuple[str, float, str, str]:
         """Categorize return with speed optimization and learned corrections."""
         if not complaint or not complaint.strip():
-            return 'Other/Miscellaneous', 0.1, 'none', 'en'
+            return 'Other / Miscellaneous', 0.1, 'none', 'en'
+
+        # 0. Preprocess — decode HTML entities, parse pipe format
+        complaint = preprocess_complaint(complaint)
+        pipe_hint, ai_text = parse_pipe_complaint(complaint)
+        # ai_text is the natural-language version sent to the AI (pipe segments joined)
 
         # 1. Check persistent corrections memory — exact match = instant, free
         try:
@@ -1038,7 +1201,7 @@ Respond with ONLY the exact category name from the list. No explanation, no punc
         categories_list = '\n'.join(f'  {cat}' for cat in MEDICAL_DEVICE_CATEGORIES)
         user_prompt = (
             f'AVAILABLE CATEGORIES:\n{categories_list}\n\n'
-            f'COMPLAINT: "{complaint}"\n\n'
+            f'COMPLAINT: "{ai_text}"\n\n'
             f'CATEGORY:'
         )
 
