@@ -15,6 +15,7 @@ import logging
 import os
 import json
 import re
+import random
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple, Union
 from enum import Enum
@@ -40,7 +41,7 @@ requests, has_requests = safe_import('requests')
 
 # API Configuration
 API_TIMEOUT = 45
-MAX_RETRIES = 2
+MAX_RETRIES = 6
 
 # Token configurations by mode
 TOKEN_LIMITS = {
@@ -438,7 +439,7 @@ class EnhancedAIAnalyzer:
     Uses direct HTTP requests (requests library).
     """
 
-    def __init__(self, provider: AIProvider = AIProvider.CLAUDE, max_workers: int = 5):
+    def __init__(self, provider: AIProvider = AIProvider.CLAUDE, max_workers: int = 3):
         self.provider = provider
         self.max_workers = max_workers
         self.claude_key = self._get_api_key('claude')
@@ -595,13 +596,13 @@ class EnhancedAIAnalyzer:
                     return content, cost
 
                 elif response.status_code == 429:
-                    wait_time = min(2 ** attempt, 10)
-                    logger.warning(f"Claude rate limited, waiting {wait_time}s")
+                    wait_time = min(2 ** attempt * 2, 60) * random.uniform(0.8, 1.2)
+                    logger.warning(f"Claude rate limited, waiting {wait_time:.1f}s")
                     time.sleep(wait_time)
 
                 elif response.status_code == 529:
-                    wait_time = min(2 ** attempt * 2, 20)
-                    logger.warning(f"Claude overloaded, waiting {wait_time}s")
+                    wait_time = min(2 ** attempt * 3, 90) * random.uniform(0.8, 1.2)
+                    logger.warning(f"Claude overloaded, waiting {wait_time:.1f}s")
                     time.sleep(wait_time)
 
                 else:
