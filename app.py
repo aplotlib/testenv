@@ -6907,7 +6907,7 @@ def render_pro_mode():
                                             title="Return Category Distribution",
                                             height=400
                                         )
-                                        st.plotly_chart(fig_pie, width="stretch")
+                                        st.plotly_chart(fig_pie, use_container_width=True)
 
                                         # Bar chart: Top 10 categories
                                         sorted_cats = sorted(latest.category_counts.items(), key=lambda x: x[1], reverse=True)[:10]
@@ -6923,7 +6923,7 @@ def render_pro_mode():
                                             height=400,
                                             xaxis={'tickangle': -45}
                                         )
-                                        st.plotly_chart(fig_bar, width="stretch")
+                                        st.plotly_chart(fig_bar, use_container_width=True)
 
                                     with viz_tab2:
                                         # Trend visualization (if multiple periods exist)
@@ -6976,7 +6976,7 @@ def render_pro_mode():
                                             fig_trend.update_yaxes(title_text="Count", row=2, col=1)
                                             fig_trend.update_layout(height=600, showlegend=True)
 
-                                            st.plotly_chart(fig_trend, width="stretch")
+                                            st.plotly_chart(fig_trend, use_container_width=True)
                                         else:
                                             # Single period - show comparison to threshold
                                             fig_gauge = go.Figure(go.Indicator(
@@ -7000,7 +7000,7 @@ def render_pro_mode():
                                                 }
                                             ))
                                             fig_gauge.update_layout(height=400)
-                                            st.plotly_chart(fig_gauge, width="stretch")
+                                            st.plotly_chart(fig_gauge, use_container_width=True)
 
                                             st.info(f"📊 Single period analysis. Upload multiple periods to see trends over time.")
 
@@ -7036,7 +7036,7 @@ def render_pro_mode():
                                             title="Quality Defects vs Customer Error",
                                             height=400
                                         )
-                                        st.plotly_chart(fig_defect, width="stretch")
+                                        st.plotly_chart(fig_defect, use_container_width=True)
 
                                         # Breakdown of defect categories
                                         defect_breakdown = {cat: latest.category_counts.get(cat, 0)
@@ -7056,7 +7056,7 @@ def render_pro_mode():
                                                 yaxis_title="Defect Type",
                                                 height=400
                                             )
-                                            st.plotly_chart(fig_defect_detail, width="stretch")
+                                            st.plotly_chart(fig_defect_detail, use_container_width=True)
 
                                         # Key metrics
                                         col1, col2, col3 = st.columns(3)
@@ -7319,7 +7319,7 @@ def render_pro_mode():
                             showlegend=False
                         )
 
-                        st.plotly_chart(fig_compare, width="stretch")
+                        st.plotly_chart(fig_compare, use_container_width=True)
 
                         # Category comparison heatmap
                         st.markdown("#### 🔥 Return Category Heatmap")
@@ -7362,7 +7362,7 @@ def render_pro_mode():
                                 xaxis={'tickangle': -45}
                             )
 
-                            st.plotly_chart(fig_heatmap, width="stretch")
+                            st.plotly_chart(fig_heatmap, use_container_width=True)
 
                         # Priority distribution
                         priority_counts = {}
@@ -7379,7 +7379,7 @@ def render_pro_mode():
                             title="Product Portfolio Risk Distribution",
                             height=400
                         )
-                        st.plotly_chart(fig_priority, width="stretch")
+                        st.plotly_chart(fig_priority, use_container_width=True)
 
                     with comp_tab3:
                         # Emerging issues alerts
@@ -7945,7 +7945,7 @@ def render_screening_results():
                 tooltip=['SKU', 'Category', 'Return_Rate_Pct', 'Landed Cost', 'Risk_Score', 'Action']
             ).interactive().properties(height=400)
             
-            st.altair_chart(chart, width="stretch")
+            st.altair_chart(chart, use_container_width=True)
     
     # Claude Review (if available)
     claude_reviews = [c for c in st.session_state.ai_chat_history if c.get('role') == 'claude_review']
