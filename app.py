@@ -224,12 +224,29 @@ MODULE_COLORS = {
 
 # Quality categories (For Tab 1 Analysis)
 QUALITY_CATEGORIES = [
-    'Product Defects/Quality',
-    'Performance/Effectiveness',
-    'Missing Components',
-    'Design/Material Issues',
-    'Stability/Positioning Issues',
-    'Medical/Health Concerns'
+    # Size / Fit
+    'Size: Too Small',
+    'Size: Too Large',
+    "Size: Doesn't Fit / Wrong Dimensions",
+    # Comfort
+    'Comfort: Causes Pain or Pressure',
+    'Comfort: Too Hard / Rigid',
+    'Comfort: Too Soft / Lacks Support',
+    'Comfort: Skin Irritation or Allergic Reaction',
+    # Defects
+    'Defect: Broken / Structural Failure',
+    'Defect: Malfunctions / Stops Working',
+    'Defect: Poor Material Quality',
+    'Defect: Cosmetic Damage',
+    'Wrong Product / Not as Described',
+    # Performance
+    "Performance: Ineffective / Doesn't Help",
+    'Equipment Compatibility Issue',
+    'Assembly / Usage Difficulty',
+    # Other quality
+    'Missing or Incomplete Components',
+    'Stability: Shifts / Unstable / Falls',
+    'Medical / Safety Concern',
 ]
 
 # AI Provider options — Claude (Anthropic) only
@@ -838,7 +855,7 @@ def check_api_keys():
     return keys_found
 
 
-def get_ai_analyzer(provider=None, max_workers: int = 5):
+def get_ai_analyzer(provider=None, max_workers: int = 3):
     """Get or create AI analyzer instance — returns None if AI unavailable."""
     if not AI_AVAILABLE:
         return None
@@ -1384,8 +1401,8 @@ def process_in_chunks(df, analyzer, column_mapping, chunk_size=None):
                         else:
                             st.metric("ETA", "Complete")
                 
-                # Small delay to prevent overwhelming
-                time.sleep(0.05)
+                # Throttle between sub-batches to stay within API RPM limits
+                time.sleep(0.5)
                 
         except Exception as e:
             logger.error(f"Chunk processing error: {e}")
@@ -10369,15 +10386,15 @@ def render_b2b_tool(provider_map=None, provider_selection=None):
 
     if perf_mode == 'Small (< 500 rows)':
         batch_size = 10
-        max_workers = 3
+        max_workers = 2
         st.caption("Settings: Conservative batching for max reliability.")
     elif perf_mode == 'Medium (500-2,000 rows)':
         batch_size = 25
-        max_workers = 6
+        max_workers = 3
         st.caption("Settings: Balanced speed and concurrency.")
     else:
         batch_size = 50
-        max_workers = 10
+        max_workers = 5
         st.caption("Settings: Aggressive parallel processing for high volume.")
 
     st.divider()
