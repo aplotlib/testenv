@@ -672,18 +672,32 @@ def detect_severity(complaint: str, category: str) -> str:
                          'unsafe', 'hazard', 'broke while', 'failed while', 'collapsed while']
     if any(kw in complaint_lower for kw in critical_keywords):
         return 'critical'
-    if category == 'Medical/Health Concerns':
+    if category == 'Medical / Safety Concern':
         return 'critical'
 
     # Major — functional failures and stability issues
-    major_categories = {'Product Defects/Quality', 'Stability/Positioning Issues'}
-    major_keywords = ['unusable', 'cannot use', "can't use", 'completely broken',
+    major_categories = {
+        'Defect: Broken / Structural Failure',
+        'Defect: Malfunctions / Stops Working',
+        'Defect: Poor Material Quality',
+        'Defect: Cosmetic Damage',
+        'Wrong Product / Not as Described',
+        'Stability: Shifts / Unstable / Falls',
+        'Missing or Incomplete Components',
+    }
+    major_keywords = ['unusable', 'cannot use', 'completely broken',
                       'fell apart', 'stopped working', 'failed', 'malfunction']
     if category in major_categories or any(kw in complaint_lower for kw in major_keywords):
         return 'major'
 
     # Moderate — fit, comfort, performance issues affecting usability
-    moderate_categories = {'Design/Material Issues', 'Performance/Effectiveness'}
+    moderate_categories = {
+        'Size: Too Small', 'Size: Too Large', "Size: Doesn't Fit / Wrong Dimensions",
+        'Comfort: Causes Pain or Pressure', 'Comfort: Too Hard / Rigid',
+        'Comfort: Too Soft / Lacks Support', 'Comfort: Skin Irritation or Allergic Reaction',
+        "Performance: Ineffective / Doesn't Help", 'Equipment Compatibility Issue',
+        'Assembly / Usage Difficulty',
+    }
     if category in moderate_categories:
         return 'moderate'
 
@@ -1065,19 +1079,30 @@ AVAILABLE CATEGORIES:
 {categories_list}
 
 DECISION RULES:
-- Product Defects/Quality: broken, snapped, cracked, stopped working, malfunctions, poor material, wrong product, not as described.
-- Performance/Effectiveness: product doesn't achieve its purpose, compatibility with equipment, assembly difficulty, confusing instructions.
-- Missing Components: parts or accessories absent from box, incomplete package, no instructions.
-- Design/Material Issues: size too small/large/doesn't fit, comfort problems (pain, pressure, too hard/soft), skin irritation, allergic reaction.
-- Stability/Positioning Issues: product wobbles, tips over, shifts out of position, slides, won't stay in place.
-- Medical/Health Concerns: injury, safety hazard, hospital visit, dangerous condition.
+- Size: Too Small: product is too small, tight, narrow, or short for the customer.
+- Size: Too Large: product is too big, loose, wide, or long for the customer.
+- Size: Doesn't Fit / Wrong Dimensions: fit issue without clear direction, wrong shape.
+- Comfort: Causes Pain or Pressure: digs in, causes sores, uncomfortable to wear.
+- Comfort: Too Hard / Rigid: material is too stiff or firm.
+- Comfort: Too Soft / Lacks Support: collapses, too floppy, no support.
+- Comfort: Skin Irritation or Allergic Reaction: rash, irritation, allergic response.
+- Defect: Broken / Structural Failure: snapped, cracked, fell apart during normal use.
+- Defect: Malfunctions / Stops Working: stops working, does not work, electrical/mechanical failure.
+- Defect: Poor Material Quality: peeling, fraying, cheap-feeling, velcro worn out.
+- Wrong Product / Not as Described: received wrong item or doesn't match listing.
+- Performance: Ineffective / Doesn't Help: works mechanically but provides no therapeutic benefit.
+- Equipment Compatibility Issue: does not fit/work with patient's specific device (walker, cane, etc.).
+- Assembly / Usage Difficulty: hard to assemble, confusing instructions.
+- Missing or Incomplete Components: parts or accessories absent from the box.
+- Stability: Shifts / Unstable / Falls: product slides off, tips over, won't stay in position.
+- Medical / Safety Concern: injury occurred, safety hazard, hospital visit.
 - Customer: Changed Mind / No Longer Needed: customer returning by choice, no product fault.
-- Fulfillment: Damaged in Shipping: damaged by carrier in transit.
+- Fulfillment: Damaged in Shipping: carrier damaged product in transit.
 - Fulfillment: Wrong Item Sent: warehouse sent incorrect product.
-- Other / Miscellaneous: no clear issue or general inquiry.
+- Other / Miscellaneous: no clear issue or does not fit any category above.
 
 FORMAT YOUR RESPONSE EXACTLY AS: Category Name | Summary text here
-Example: Product Defects/Quality | Scooter battery not holding charge after 3 months of use."""
+Example: Defect: Malfunctions / Stops Working | Scooter battery not holding charge after 3 months of use."""
 
         futures = []
         for item in items:
