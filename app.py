@@ -1553,7 +1553,7 @@ def display_results_dashboard(df, column_mapping):
         def _safety_level(row):
             cat = str(row.get(cat_col, '') or '')
             complaint = str(row.get(complaint_col, '') or '').lower() if complaint_col else ''
-            if cat == 'Medical/Health Concerns':
+            if cat == 'Medical / Safety Concern':
                 return 'major'
             text = (cat + ' ' + complaint).lower()
             if any(kw in text for kw in SAFETY_KEYWORDS_MAJOR):
@@ -7017,19 +7017,33 @@ def render_pro_mode():
                                     with viz_tab3:
                                         # Defect vs Non-Defect breakdown
                                         defect_categories = [
-                                            "Product Defects/Quality",
-                                            "Performance/Effectiveness",
-                                            "Design/Material Issues",
-                                            "Stability/Positioning Issues",
-                                            "Comfort Issues",
-                                            "Size/Fit Issues"
+                                            "Size: Too Small",
+                                            "Size: Too Large",
+                                            "Size: Doesn't Fit / Wrong Dimensions",
+                                            "Comfort: Causes Pain or Pressure",
+                                            "Comfort: Too Hard / Rigid",
+                                            "Comfort: Too Soft / Lacks Support",
+                                            "Comfort: Skin Irritation or Allergic Reaction",
+                                            "Defect: Broken / Structural Failure",
+                                            "Defect: Malfunctions / Stops Working",
+                                            "Defect: Poor Material Quality",
+                                            "Defect: Cosmetic Damage",
+                                            "Wrong Product / Not as Described",
+                                            "Performance: Ineffective / Doesn't Help",
+                                            "Equipment Compatibility Issue",
+                                            "Assembly / Usage Difficulty",
+                                            "Missing or Incomplete Components",
+                                            "Stability: Shifts / Unstable / Falls",
+                                            "Medical / Safety Concern",
                                         ]
 
                                         non_defect_categories = [
-                                            "Customer Error/Changed Mind",
-                                            "Shipping/Fulfillment Issues",
-                                            "Wrong Product/Misunderstanding",
-                                            "Medical/Health Concerns"
+                                            "Customer: Changed Mind / No Longer Needed",
+                                            "Customer: Ordered Wrong Size or Item",
+                                            "Fulfillment: Damaged in Shipping",
+                                            "Fulfillment: Wrong Item Sent",
+                                            "Fulfillment: Delivery Issue",
+                                            "Other / Miscellaneous",
                                         ]
 
                                         defect_count = sum(latest.category_counts.get(cat, 0) for cat in defect_categories)
