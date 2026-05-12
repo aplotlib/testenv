@@ -53,12 +53,24 @@ NOISE_ISSUES = {
 # ─── MEDICAL DEVICE CATEGORIES ────────────────────────────────────────────────
 
 QUALITY_CATEGORIES = [
-    'Product Defects/Quality',
-    'Performance/Effectiveness',
-    'Missing Components',
-    'Design/Material Issues',
-    'Stability/Positioning Issues',
-    'Medical/Health Concerns',
+    'Size: Too Small',
+    'Size: Too Large',
+    "Size: Doesn't Fit / Wrong Dimensions",
+    'Comfort: Causes Pain or Pressure',
+    'Comfort: Too Hard / Rigid',
+    'Comfort: Too Soft / Lacks Support',
+    'Comfort: Skin Irritation or Allergic Reaction',
+    'Defect: Broken / Structural Failure',
+    'Defect: Malfunctions / Stops Working',
+    'Defect: Poor Material Quality',
+    'Defect: Cosmetic Damage',
+    'Wrong Product / Not as Described',
+    "Performance: Ineffective / Doesn't Help",
+    'Equipment Compatibility Issue',
+    'Assembly / Usage Difficulty',
+    'Missing or Incomplete Components',
+    'Stability: Shifts / Unstable / Falls',
+    'Medical / Safety Concern',
 ]
 
 NON_QUALITY_CATEGORIES = [
@@ -83,54 +95,77 @@ INJURY_KEYWORDS = [
 
 KEYWORD_RULES: List[Tuple[str, List[str]]] = [
     # Safety first — always highest priority
-    ('Medical/Health Concerns', [
+    ('Medical / Safety Concern', [
         'injury', 'injured', 'hospital', 'emergency', 'dangerous', 'unsafe',
         'hazard', 'fell off', 'tipping', 'tipped over', 'fell', 'fall',
         'cut my leg', 'cut myself', 'hurt', 'accident', 'death', 'fatal',
     ]),
-    # Stability — checked before defects so tipping/sliding wins
-    ('Stability/Positioning Issues', [
+    # Stability — checked before size/defects so tipping/sliding wins
+    ('Stability: Shifts / Unstable / Falls', [
         'wobbly', 'wobble', 'wobbling', 'unstable', 'shifts',
         'slides', 'tipping forward', 'not stable', 'not secure',
         'tilted', 'not locking', "won't lock", 'wont lock',
         "doesn't lock", 'not stay', "won't stay",
         'seat not locking', 'lock in place',
     ]),
-    # Design/Material — size, comfort, fit, skin
-    ('Design/Material Issues', [
-        'too small', 'too short', 'too narrow', 'too tight',
+    # Size — too small
+    ('Size: Too Small', [
+        'too small', 'too short', 'too narrow', 'too tight', 'too snug',
+        'runs small', 'cannot get on', "can't get on",
+    ]),
+    # Size — too large
+    ('Size: Too Large', [
         'too large', 'too big', 'too wide', 'too long', 'too bulky', 'oversized',
+        'too loose', 'runs large', 'falls off my', 'slides off my',
+    ]),
+    # Size — doesn't fit (no clear direction)
+    ("Size: Doesn't Fit / Wrong Dimensions", [
         "doesn't fit", "doesnt fit", "does not fit", "not fit",
         'not fitting', "won't fit", "didn't fit", 'wrong size', 'bad fit',
+    ]),
+    # Comfort subcategories
+    ('Comfort: Skin Irritation or Allergic Reaction', [
+        'rash', 'irritation', 'allergic', 'skin reaction', 'itching', 'itch',
+    ]),
+    ('Comfort: Too Hard / Rigid', [
+        'too hard', 'too stiff', 'too rigid', 'too firm',
+    ]),
+    ('Comfort: Too Soft / Lacks Support', [
+        'too soft', 'no support', 'lacks support', 'deflated',
+        'collapsed under', 'not enough support',
+    ]),
+    ('Comfort: Causes Pain or Pressure', [
         'pain', 'painful', 'pressure', 'sore', 'bruise', 'bruising',
         'digs in', 'rubs', 'rubbing', 'uncomfortable', 'discomfort',
         'causes pain', 'hurts', 'numbed',
-        'too hard', 'too stiff', 'too rigid', 'too firm',
-        'too soft', 'no support', 'lacks support', 'deflated',
-        'collapsed under', 'not enough support',
-        'rash', 'irritation', 'allergic', 'skin reaction', 'itching', 'itch',
     ]),
-    # Product Defects/Quality — breaks, malfunctions, material, cosmetic, wrong product
-    ('Product Defects/Quality', [
+    # Defect subcategories
+    ('Defect: Broken / Structural Failure', [
         'broke', 'broken', 'snapped', 'cracked', 'crack', 'shattered',
         'fell apart', 'ripped', 'rip', 'torn', 'tore', 'split',
         'bent', 'buckle', 'weld', 'disconnected from the frame',
-        'collapsed', 'structural', 'frame broke', 'clamp broke',
+        'structural', 'frame broke', 'clamp broke',
         'handle broke', 'leg broke', 'broke off', 'snapped off',
+    ]),
+    ('Defect: Malfunctions / Stops Working', [
         'malfunction', 'stops working', 'stopped working', 'not working',
         "won't turn on", "won't work", "doesn't work", 'doesnt work',
         'quit working', 'defective', 'beeping', 'not charging',
         'motor', 'pump not working', 'pump quit', 'losing power',
         'scooter issue', 'joystick', "isn't working",
+    ]),
+    ('Defect: Poor Material Quality', [
         'scratch', 'scratched', 'dent', 'dented', 'paint peeling',
         'cheap', 'poor quality', 'low quality', 'flimsy', 'wear out',
         'peeling', 'discolor', 'rusting', 'rust', 'velcro stopped',
+    ]),
+    ('Wrong Product / Not as Described', [
         'wrong product', 'wrong item', 'not as described',
         'incorrect product', 'incorrect item', 'received the incorrect',
         "didn't order", 'not what I ordered', 'different product', 'different color',
     ]),
-    # Missing Components
-    ('Missing Components', [
+    # Missing components
+    ('Missing or Incomplete Components', [
         'missing part', 'missing piece', 'missing hardware',
         'missing bolt', 'missing screw', 'missing nut',
         'missing washer', 'missing component', 'missing gel',
@@ -142,16 +177,22 @@ KEYWORD_RULES: List[Tuple[str, List[str]]] = [
         'missing push pin', 'missing handscrew', 'missing leg',
         'missing axle', 'missing hardware kit',
     ]),
-    # Performance/Effectiveness — doesn't help, compatibility, assembly
-    ('Performance/Effectiveness', [
-        'ineffective', "doesn't help", "doesn't do anything",
-        "doesn't work for", 'not effective', 'useless', "didn't help",
+    # Equipment compatibility
+    ('Equipment Compatibility Issue', [
         'not compatible', 'incompatible', "doesn't attach",
         'does not fit my walker', 'does not fit my wheelchair',
         "doesn't connect", 'not pairing',
+    ]),
+    # Assembly difficulty
+    ('Assembly / Usage Difficulty', [
         'hard to assemble', 'difficult to assemble', 'assembly issue',
         'unable to assemble', 'confusing instruction',
         'help assembl', 'help putting', 'problem assembling',
+    ]),
+    # Performance
+    ("Performance: Ineffective / Doesn't Help", [
+        'ineffective', "doesn't help", "doesn't do anything",
+        "doesn't work for", 'not effective', 'useless', "didn't help",
     ]),
     # Non-quality
     ('Fulfillment: Damaged in Shipping', [
@@ -913,7 +954,7 @@ def render_b2b_zendesk_reporting():
                 unsafe_allow_html=True,
             )
             safety_tickets = categorized[
-                categorized["Category"] == "Medical/Health Concerns"
+                categorized["Category"] == "Medical / Safety Concern"
             ].copy()
             safety_cols = [c for c in [
                 "Ticket ID", "Ticket created - Date", "Parent SKU", "SKU",

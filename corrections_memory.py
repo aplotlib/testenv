@@ -60,12 +60,36 @@ class CorrectionsMemory:
                 with open(self.path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 self.corrections = data.get("corrections", {})
+                migrated = self._migrate_categories()
                 logger.info(
                     f"CorrectionsMemory: loaded {len(self.corrections)} entries"
+                    + (f", migrated {migrated} stale category names" if migrated else "")
                 )
+                if migrated:
+                    self.save()
         except Exception as exc:
             logger.warning(f"CorrectionsMemory load failed: {exc}")
             self.corrections = {}
+
+    def _migrate_categories(self) -> int:
+        """Remap any stored old/broad category names to current granular ones.
+        Returns the number of entries that were updated."""
+        try:
+            from enhanced_ai_analysis import LEGACY_CATEGORY_MAP, MEDICAL_DEVICE_CATEGORIES
+        except ImportError:
+            return 0
+
+        valid = set(MEDICAL_DEVICE_CATEGORIES)
+        updated = 0
+        for entry in self.corrections.values():
+            for field in ("old_category", "new_category"):
+                cat = entry.get(field, "")
+                if cat and cat not in valid:
+                    remapped = LEGACY_CATEGORY_MAP.get(cat)
+                    if remapped and remapped in valid:
+                        entry[field] = remapped
+                        updated += 1
+        return updated
 
     def save(self):
         try:

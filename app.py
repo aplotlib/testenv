@@ -1310,9 +1310,13 @@ def process_in_chunks(df, analyzer, column_mapping, chunk_size=None):
     if chunk_size is None:
         chunk_size = st.session_state.chunk_size
     
-    complaint_col = column_mapping['complaint']
-    category_col = column_mapping['category']
-    
+    complaint_col = column_mapping.get('complaint')
+    category_col = column_mapping.get('category')
+
+    if not complaint_col or not category_col:
+        st.error("Column mapping is incomplete — could not detect complaint or category columns.")
+        return df
+
     # Get rows with complaints
     valid_indices = df[df[complaint_col].notna() & (df[complaint_col].str.strip() != '')].index
     total_valid = len(valid_indices)
@@ -10346,6 +10350,9 @@ def render_categorizer_tool(provider_map=None, provider_selection=None):
 
             if st.button("🚀 Start Categorization", type="primary"):
                 analyzer = get_ai_analyzer()
+                if not analyzer:
+                    st.error("🔑 AI analyzer unavailable — check that ANTHROPIC_API_KEY is set in Streamlit secrets.")
+                    st.stop()
                 with st.spinner("Categorizing..."):
                     categorized_df = process_in_chunks(df, analyzer, column_mapping)
                     st.session_state.categorized_data = categorized_df

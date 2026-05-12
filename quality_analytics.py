@@ -1113,42 +1113,108 @@ class InvestigationPlanGenerator:
         
         # Determine investigation areas based on issue type
         issue_areas = {
-            'Product Defects/Quality': [
+            'Defect: Broken / Structural Failure': [
                 'Material quality and specifications',
                 'Manufacturing process controls',
                 'Assembly procedures',
                 'Final inspection criteria'
             ],
-            'Performance/Effectiveness': [
+            'Defect: Malfunctions / Stops Working': [
+                'Electrical/mechanical component testing',
+                'Manufacturing process controls',
+                'Quality control checkpoints',
+                'Supplier component specifications'
+            ],
+            'Defect: Poor Material Quality': [
+                'Material quality and specifications',
+                'Supplier audit and qualification',
+                'Durability testing results',
+                'Incoming inspection criteria'
+            ],
+            'Wrong Product / Not as Described': [
+                'Product listing accuracy review',
+                'Photography vs actual product comparison',
+                'Packing and labeling process controls',
+                'Warehouse pick/pack verification'
+            ],
+            "Performance: Ineffective / Doesn't Help": [
                 'Product specifications vs actual performance',
                 'User instructions clarity',
                 'Expected use conditions vs actual use',
                 'Design verification records'
             ],
-            'Size/Fit Issues': [
+            'Equipment Compatibility Issue': [
+                'Compatibility specifications and testing',
+                'Product listing compatibility claims',
+                'Design review for attachment mechanisms',
+                'Customer equipment range analysis'
+            ],
+            'Assembly / Usage Difficulty': [
+                'Instruction clarity and accuracy review',
+                'Assembly process simplification',
+                'User testing with target demographic',
+                'Instruction translation quality'
+            ],
+            'Size: Too Small': [
+                'Sizing chart accuracy and range',
+                'Manufacturing tolerances review',
+                'Size labeling accuracy',
+                'Customer body measurement guidance'
+            ],
+            'Size: Too Large': [
+                'Sizing chart accuracy and range',
+                'Manufacturing tolerances review',
+                'Size labeling accuracy',
+                'Customer body measurement guidance'
+            ],
+            "Size: Doesn't Fit / Wrong Dimensions": [
+                'Product dimensions vs specifications',
                 'Sizing chart accuracy',
                 'Manufacturing tolerances',
-                'Size labeling accuracy',
                 'Product photography vs actual dimensions'
             ],
-            'Missing Components': [
+            'Comfort: Causes Pain or Pressure': [
+                'Ergonomic design review',
+                'Material hardness/softness specifications',
+                'User testing results',
+                'Padding and edge finishing review'
+            ],
+            'Comfort: Too Hard / Rigid': [
+                'Material softness/hardness specifications',
+                'Ergonomic design review',
+                'User testing results',
+                'Alternative material evaluation'
+            ],
+            'Comfort: Too Soft / Lacks Support': [
+                'Material density and support specifications',
+                'Structural reinforcement review',
+                'User testing results',
+                'Alternative material evaluation'
+            ],
+            'Comfort: Skin Irritation or Allergic Reaction': [
+                'Material biocompatibility testing',
+                'Chemical composition review',
+                'Regulatory compliance (skin contact materials)',
+                'Hypoallergenic alternative evaluation'
+            ],
+            'Missing or Incomplete Components': [
                 'Packing list verification',
                 'Packaging process controls',
                 'Final packaging inspection',
                 'Shipping handling procedures'
             ],
-            'Design/Material Issues': [
-                'Design specifications review',
-                'Material selection rationale',
-                'Durability testing results',
-                'User feedback on design'
+            'Stability: Shifts / Unstable / Falls': [
+                'Product stability testing under load',
+                'Non-slip surface specifications',
+                'Attachment mechanism review',
+                'Weight distribution analysis'
             ],
-            'Comfort Issues': [
-                'Material softness/hardness specifications',
-                'Ergonomic design review',
-                'User testing results',
-                'Comparison with competitor products'
-            ]
+            'Medical / Safety Concern': [
+                'Immediate safety risk assessment',
+                'MDR/regulatory reporting requirements',
+                'Product recall consideration',
+                'Customer safety follow-up protocol'
+            ],
         }
         
         investigation_areas = issue_areas.get(issue_type, [
