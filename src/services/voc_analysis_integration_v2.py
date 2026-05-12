@@ -195,19 +195,33 @@ class EnhancedVoCAnalysisService:
 
         # Calculate defect rate (quality issues vs. customer error)
         defect_categories = [
-            "Product Defects/Quality",
-            "Performance/Effectiveness",
-            "Design/Material Issues",
-            "Stability/Positioning Issues",
-            "Comfort Issues",
-            "Size/Fit Issues"
+            "Size: Too Small",
+            "Size: Too Large",
+            "Size: Doesn't Fit / Wrong Dimensions",
+            "Comfort: Causes Pain or Pressure",
+            "Comfort: Too Hard / Rigid",
+            "Comfort: Too Soft / Lacks Support",
+            "Comfort: Skin Irritation or Allergic Reaction",
+            "Defect: Broken / Structural Failure",
+            "Defect: Malfunctions / Stops Working",
+            "Defect: Poor Material Quality",
+            "Defect: Cosmetic Damage",
+            "Wrong Product / Not as Described",
+            "Performance: Ineffective / Doesn't Help",
+            "Equipment Compatibility Issue",
+            "Assembly / Usage Difficulty",
+            "Missing or Incomplete Components",
+            "Stability: Shifts / Unstable / Falls",
+            "Medical / Safety Concern",
         ]
 
         non_defect_categories = [
-            "Customer Error/Changed Mind",
-            "Shipping/Fulfillment Issues",
-            "Wrong Product/Misunderstanding",
-            "Medical/Health Concerns"
+            "Customer: Changed Mind / No Longer Needed",
+            "Customer: Ordered Wrong Size or Item",
+            "Fulfillment: Damaged in Shipping",
+            "Fulfillment: Wrong Item Sent",
+            "Fulfillment: Delivery Issue",
+            "Other / Miscellaneous",
         ]
 
         defect_returns = sum(category_counts.get(cat, 0) for cat in defect_categories)
@@ -276,12 +290,18 @@ class EnhancedVoCAnalysisService:
                 risk_flags.append(f"🔍 Dominant Issue: {top_cat} ({top_count}/{total_returns})")
 
         # Size/fit issues (design problem)
-        size_fit = category_counts.get("Size/Fit Issues", 0)
+        size_fit = sum(category_counts.get(cat, 0) for cat in [
+            "Size: Too Small", "Size: Too Large", "Size: Doesn't Fit / Wrong Dimensions"
+        ])
         if size_fit > total_returns * 0.30:
             risk_flags.append(f"📏 High Size/Fit Issues - Design Review Needed")
 
         # Product defects
-        defect_count = category_counts.get("Product Defects/Quality", 0)
+        defect_count = sum(category_counts.get(cat, 0) for cat in [
+            "Defect: Broken / Structural Failure",
+            "Defect: Malfunctions / Stops Working",
+            "Defect: Poor Material Quality",
+        ])
         if defect_count > total_returns * 0.15:
             risk_flags.append(f"🔧 Quality Defects Detected - Manufacturing Review")
 
