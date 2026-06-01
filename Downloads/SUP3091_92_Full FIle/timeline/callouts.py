@@ -92,7 +92,7 @@ def draw_legend(ax, colors, markers):
                       markerfacecolor=colors['containment'], markersize=7,
                       label='Containment / corrective action'),
         mlines.Line2D([], [], marker='*', color='w',
-                      markerfacecolor='#27AE60',             markersize=9,
+                      markerfacecolor=colors.get('positive_badge', '#27AE60'), markersize=9,
                       label='Positive team action'),
     ]
     legend = ax.legend(

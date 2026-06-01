@@ -11,7 +11,7 @@ def draw_phase_bands(ax, events, phases):
     12% opacity so the overlap blends naturally.
     """
     X_PAD = 8   # days padding on each side of a phase's event cluster
-    BAND_Y_BOTTOM = 0.44  # just above spine
+    BAND_Y_BOTTOM = 0.44  # intentionally above spine only (per design: bands are upper-half context zones)
     BAND_Y_TOP    = 1.00
 
     for phase in phases:

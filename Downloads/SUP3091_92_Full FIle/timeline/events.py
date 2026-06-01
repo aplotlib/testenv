@@ -5,7 +5,7 @@ SPINE_Y       = 0.42   # NOTE: canvas.py defines its own SPINE_Y = 0.42, keep in
 MARKER_ABOVE  = 0.56
 MARKER_BELOW  = 0.28
 LABEL_ABOVE   = 0.77
-LABEL_BELOW   = 0.09
+LABEL_BELOW   = 0.05
 NOTE_ABOVE    = 0.63
 NOTE_BELOW    = 0.21
 MARKER_SIZE   = 130
