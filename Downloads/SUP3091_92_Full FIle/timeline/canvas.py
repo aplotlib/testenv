@@ -3,13 +3,12 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from matplotlib.lines import Line2D
-from datetime import datetime
 import os
 
 FIG_WIDTH  = 20
 FIG_HEIGHT = 8
 DPI        = 300
-SPINE_Y    = 0.42   # y in data coords (ax ylim 0–1); slightly below center
+SPINE_Y    = 0.42   # y in data coords (ax ylim 0–1); slightly below center — NOTE: events.py defines its own SPINE_Y = 0.42, keep in sync
 X_PAD_DAYS = 20     # padding in days beyond first/last event
 
 OUTPUT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -17,6 +16,8 @@ OUTPUT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 def setup_canvas(events):
     """Return (fig, ax) with background, cleared spines, date x-axis, and spine line drawn."""
+    if not events:
+        raise ValueError("setup_canvas requires at least one event; got an empty list.")
     dates_num = [mdates.date2num(e['date']) for e in events]
     x_min = min(dates_num) - X_PAD_DAYS
     x_max = max(dates_num) + X_PAD_DAYS
