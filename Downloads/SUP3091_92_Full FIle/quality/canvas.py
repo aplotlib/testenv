@@ -2,6 +2,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+import matplotlib.lines as mlines
 from matplotlib.backends.backend_pdf import PdfPages
 import os
 
@@ -32,7 +33,6 @@ def add_page_header(fig, title, subtitle=''):
 
 def add_footer(fig, text):
     """Add thin gray rule and italic source note at bottom of figure."""
-    import matplotlib.lines as mlines
     fig.add_artist(
         mlines.Line2D(
             [0.06, 0.97], [0.040, 0.040],
@@ -52,6 +52,10 @@ def draw_sidebar_callouts(ax, callouts):
     Optional: bg_alpha (float, default 0 = white background),
               header_color (hex str, default '#2C2C2C').
     """
+    if not callouts:
+        ax.axis('off')
+        return
+
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.axis('off')
@@ -103,7 +107,7 @@ def draw_sidebar_callouts(ax, callouts):
                 fontsize=6.5, fontweight='bold',
                 color=hdr_color, fontfamily='DejaVu Sans',
                 transform=ax.transAxes, zorder=8, clip_on=False)
-        ax.text(text_x, y_top - 0.035,
+        ax.text(text_x, y_top - box_height * 0.35,
                 c['body'],
                 ha='left', va='top',
                 fontsize=5.8, color='#444444' if bg_alpha == 0 else '#FFFFFF',
@@ -118,7 +122,7 @@ def save_all(pages, stem='SUP3091_3092_Quality_Analysis'):
     pdf_path = os.path.join(OUTPUT_DIR, stem + '.pdf')
     with PdfPages(pdf_path) as pdf:
         for i, fig in enumerate(pages, 1):
-            pdf.savefig(fig, bbox_inches='tight', facecolor='#F8F9FA')
+            pdf.savefig(fig, dpi=DPI, bbox_inches='tight', facecolor='#F8F9FA')
             png_path = os.path.join(OUTPUT_DIR, f'{stem}_p{i}.png')
             fig.savefig(png_path, dpi=DPI, bbox_inches='tight',
                         facecolor='#F8F9FA')
