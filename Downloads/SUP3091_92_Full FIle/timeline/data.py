@@ -116,7 +116,8 @@ EVENTS = [
         'positive': True,
         'phase':    'investigation',
     },
-    # ── DECISIONS ──────────────────────────────────────────────────────────────
+    # ── DECISIONS ─────────────────────────────────────────────────────────────
+    # NB: decisions phase overlaps investigation in time; renderer sorts events by date
     {
         'date':     datetime(2026, 2, 5),
         'label':    'Vendor switch to\nPacRim/Pailing agreed',

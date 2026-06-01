@@ -33,8 +33,8 @@ def test_all_dates_are_datetime():
 
 def test_events_cover_expected_date_range():
     dates = [e['date'] for e in EVENTS]
-    assert min(dates) >= datetime(2025, 1, 1)
-    assert max(dates) <= datetime(2026, 12, 31)
+    assert min(dates) >= datetime(2025, 5, 1)
+    assert max(dates) <= datetime(2026, 6, 30)
 
 
 def test_positive_events_have_notes():
