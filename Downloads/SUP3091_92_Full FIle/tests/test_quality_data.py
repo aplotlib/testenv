@@ -41,6 +41,13 @@ def test_variant_rates_have_required_keys():
         missing = REQUIRED_VARIANT_KEYS - set(v.keys())
         assert not missing, f"VARIANT_RATES[{i}] missing: {missing}"
 
+def test_total_rate_none_for_sup3092():
+    for v in VARIANT_RATES:
+        if 'SUP3091' in v['variant']:
+            assert v['total_rate'] is not None, f"{v['variant']} should have total_rate"
+        else:
+            assert v['total_rate'] is None, f"{v['variant']} should have total_rate=None"
+
 def test_variant_units_are_positive():
     for v in VARIANT_RATES:
         assert v['units'] > 0
@@ -87,8 +94,11 @@ def test_colors_has_required_keys():
                 'qa_rec', 'decision', 'background', 'text', 'grid', 'returns_line'}
     assert not (required - set(COLORS.keys()))
 
-def test_output_dir_is_string():
-    assert isinstance(OUTPUT_DIR, str) and len(OUTPUT_DIR) > 0
+def test_output_dir_exists_on_disk():
+    import os
+    assert os.path.isdir(OUTPUT_DIR), f"OUTPUT_DIR does not exist: {OUTPUT_DIR}"
 
-def test_half_rates_has_two_entries():
+def test_half_rates_values_are_correct():
+    assert HALF_RATES['H1 (Jun–Nov 2025)'] == 1.9
+    assert HALF_RATES['H2 (Dec 2025–May 2026)'] == 3.7
     assert len(HALF_RATES) == 2

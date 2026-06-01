@@ -7,7 +7,7 @@ COLORS = {
     'adhesive':     '#4A7DB5',
     'bladder':      '#7B5EA7',
     'other':        '#888888',
-    'cold_shading': '#E07B39',
+    'cold_shading': '#E07B39',  # intentionally same as plastic — amber = the cold/warning color
     'qa_rec':       '#2E8B7A',
     'decision':     '#C0392B',
     'background':   '#F8F9FA',
@@ -23,11 +23,13 @@ FAILURE_MODES = [
     {'name': 'Other / Unknown',                       'count': 30, 'color': '#888888'},
 ]
 
+# Unit denominators use 46,246-basis (monthly Odoo pivot; matches BLUF defect-rate calculations).
+# total_rate = all confirmed failure modes where available; None where only plastic+adhesive confirmed.
 VARIANT_RATES = [
     {'variant': 'SUP3091 Tall',  'units': 9_057,  'plastic_defects': 19, 'plastic_rate': 2.10, 'adhesive_defects': 14, 'adhesive_rate': 1.55, 'total_rate': 6.58},
     {'variant': 'SUP3091 Short', 'units': 19_509, 'plastic_defects': 9,  'plastic_rate': 0.46, 'adhesive_defects': 13, 'adhesive_rate': 0.67, 'total_rate': 1.58},
-    {'variant': 'SUP3092 Tall',  'units': 5_902,  'plastic_defects': 7,  'plastic_rate': 1.19, 'adhesive_defects': 9,  'adhesive_rate': 1.52, 'total_rate': 2.71},
-    {'variant': 'SUP3092 Short', 'units': 11_778, 'plastic_defects': 2,  'plastic_rate': 0.17, 'adhesive_defects': 1,  'adhesive_rate': 0.08, 'total_rate': 0.25},
+    {'variant': 'SUP3092 Tall',  'units': 5_902,  'plastic_defects': 7,  'plastic_rate': 1.19, 'adhesive_defects': 9,  'adhesive_rate': 1.52, 'total_rate': None},
+    {'variant': 'SUP3092 Short', 'units': 11_778, 'plastic_defects': 2,  'plastic_rate': 0.17, 'adhesive_defects': 1,  'adhesive_rate': 0.08, 'total_rate': None},
 ]
 
 MONTHLY_TICKETS = {
@@ -70,6 +72,6 @@ KEY_DATES = [
 ]
 
 HALF_RATES = {
-    'H1 (Jun–Nov 2025)':       1.9,
-    'H2 (Dec 2025–May 2026)':  3.7,
+    'H1 (Jun–Nov 2025)':       1.9,   # ~1.9 defects/1,000 in first half
+    'H2 (Dec 2025–May 2026)':  3.7,   # ~3.7 defects/1,000 in second half (+95% HoH)
 }
