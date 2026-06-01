@@ -50,7 +50,7 @@ def draw_events(ax, events, colors, markers):
         if event.get('positive'):
             ax.scatter([x], [marker_y],
                        s=BADGE_SIZE, marker='*',
-                       color='#27AE60', zorder=5)
+                       color=colors['positive_badge'], zorder=5)
 
         # Primary label
         ax.text(x, label_y, event['label'],
