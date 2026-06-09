@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import matplotlib.lines as mlines
 from matplotlib.backends.backend_pdf import PdfPages
+import matplotlib.image as mpimg
+import io
 import os
 
 FIG_W = 8.5
@@ -115,16 +117,42 @@ def draw_sidebar_callouts(ax, callouts):
                 transform=ax.transAxes, zorder=8, clip_on=False)
 
 
+PNG_DPI = DPI    # 150 DPI for standalone PNGs
+PDF_DPI = 200    # rasterise pages at 200 DPI so embedded PNGs push PDF above 100 KB
+
+
 def save_all(pages, stem='SUP3091_3092_Quality_Analysis'):
-    """Save list of figures as multi-page PDF and individual page PNGs.
+    """Save list of figures as multi-page PDF (rasterised) and individual PNGs.
+
+    Each page is first rendered to an in-memory PNG buffer at PDF_DPI.  That
+    raster image is then embedded into a full 8.5×11 PDF page, which keeps the
+    file size proportional to pixel count rather than path/glyph count.
+    Standalone PNGs are saved at PNG_DPI (150).
     Returns the pdf_path string.
     """
     pdf_path = os.path.join(OUTPUT_DIR, stem + '.pdf')
     with PdfPages(pdf_path) as pdf:
         for i, fig in enumerate(pages, 1):
-            pdf.savefig(fig, dpi=DPI, bbox_inches='tight', facecolor='#F8F9FA')
+            # ── standalone PNG at 150 DPI ────────────────────────────────
             png_path = os.path.join(OUTPUT_DIR, f'{stem}_p{i}.png')
-            fig.savefig(png_path, dpi=DPI, bbox_inches='tight',
+            fig.savefig(png_path, dpi=PNG_DPI, bbox_inches='tight',
                         facecolor='#F8F9FA')
+
+            # ── rasterise to in-memory buffer at PDF_DPI ─────────────────
+            buf = io.BytesIO()
+            fig.savefig(buf, format='png', dpi=PDF_DPI,
+                        bbox_inches='tight', facecolor='#F8F9FA')
+            buf.seek(0)
+            img = mpimg.imread(buf)
+
+            # ── embed raster image in a new 8.5×11 PDF page ──────────────
+            pdf_fig = plt.figure(figsize=(FIG_W, FIG_H))
+            pdf_fig.patch.set_facecolor('#F8F9FA')
+            ax_img = pdf_fig.add_axes([0, 0, 1, 1])
+            ax_img.imshow(img, aspect='auto')
+            ax_img.axis('off')
+            pdf.savefig(pdf_fig, dpi=PDF_DPI,
+                        bbox_inches='tight', facecolor='#F8F9FA')
+            plt.close(pdf_fig)
             plt.close(fig)
     return pdf_path
