@@ -1,5 +1,7 @@
 import matplotlib.pyplot as plt
+import matplotlib.lines as mlines
 from matplotlib.gridspec import GridSpec
+from matplotlib.patches import Patch
 import numpy as np
 from quality.data import FAILURE_MODES, VARIANT_RATES, COLORS
 from quality.canvas import new_page, add_page_header, add_footer, draw_sidebar_callouts
@@ -90,7 +92,6 @@ def build_page():
             ax_chart_b.scatter([tr], [yi], marker='|', s=120,
                                color='#2C2C2C', zorder=5, linewidths=1.5)
     # Dummy handle for legend
-    import matplotlib.lines as mlines
     total_handle = mlines.Line2D([], [], marker='|', color='#2C2C2C',
                                   linewidth=1.5, markersize=8, label='Total (all modes)')
 
@@ -110,7 +111,6 @@ def build_page():
     ax_chart_b.tick_params(axis='x', labelsize=7, colors='#888888')
     ax_chart_b.set_xlim(0, 8.5)
     # Add legend with explicit handles
-    from matplotlib.patches import Patch
     handles = [
         Patch(facecolor=COLORS['plastic'],  label='Plastic'),
         Patch(facecolor=COLORS['adhesive'], label='Adhesive/Velcro'),

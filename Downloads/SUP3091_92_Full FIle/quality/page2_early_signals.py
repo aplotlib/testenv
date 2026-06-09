@@ -35,14 +35,6 @@ MONTH_LABELS = list(MONTHLY_TICKETS.keys())
 COLD_START = 7
 COLD_END   = 11
 
-# Map date_str to index in MONTH_LABELS
-DATE_TO_IDX = {
-    '2025-11': 7,
-    '2026-01': 9,
-    '2026-02': 10,
-    '2026-05': 13,
-}
-
 
 def build_page():
     fig = new_page()
@@ -69,19 +61,21 @@ def build_page():
     ax_trend.plot(xs, tickets, color='#2C2C2C', linewidth=1.4, zorder=3)
     ax_trend.scatter(xs, tickets, s=28, color='#2C2C2C', zorder=4)
 
-    # Annotate key dates — deduplicate by index
-    seen = set()
-    y_offsets = {7: 3.5, 9: 3.0, 10: -5.0, 13: 3.0}
-    for d in KEY_DATES:
-        idx = DATE_TO_IDX.get(d['date_str'])
-        if idx is None or idx in seen:
-            continue
-        seen.add(idx)
-        y_off = y_offsets.get(idx, 3.0)
+    # Annotate key dates — Feb has two events stacked slightly apart
+    annotation_config = {
+        7:    {'label': 'MSDS flag',        'y_off': 3.5,  'x_off': 0.0},
+        9:    {'label': 'Tall flagged',      'y_off': 3.0,  'x_off': 0.0},
+        10.0: {'label': 'Testing opened',    'y_off': 4.5,  'x_off': -0.3},
+        10.6: {'label': 'Freezer FAILS',     'y_off': -5.5, 'x_off': 0.3},
+        13:   {'label': 'STOP-SHIP',         'y_off': 3.0,  'x_off': 0.0},
+    }
+    for x_idx, cfg in annotation_config.items():
+        xi = int(x_idx) if x_idx == int(x_idx) else x_idx
+        y_val = tickets[min(int(x_idx), 13)]
         ax_trend.annotate(
-            d['label'],
-            xy=(idx, tickets[idx]),
-            xytext=(idx, tickets[idx] + y_off),
+            cfg['label'],
+            xy=(x_idx, y_val),
+            xytext=(x_idx, y_val + cfg['y_off']),
             fontsize=5.5, color='#444444', fontfamily='DejaVu Sans',
             ha='center', va='bottom',
             arrowprops=dict(arrowstyle='-', color='#AAAAAA', lw=0.6),

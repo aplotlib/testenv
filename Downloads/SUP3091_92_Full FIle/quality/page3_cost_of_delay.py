@@ -65,9 +65,11 @@ def build_page():
                      f'{rate:.1f}/1,000', ha='center', va='bottom',
                      fontsize=8, fontweight='bold', color='#2C2C2C',
                      fontfamily='DejaVu Sans')
-    ax_half.annotate('', xy=(1, 3.7), xytext=(1, 1.9),
+    ax_half.annotate('', xy=(1, rates[1]), xytext=(1, rates[0]),
                      arrowprops=dict(arrowstyle='->', color=COLORS['plastic'], lw=1.5))
-    ax_half.text(1.22, 2.8, '+95%', fontsize=9, fontweight='bold',
+    pct = round((rates[1] / rates[0] - 1) * 100)
+    ax_half.text(1.22, (rates[0] + rates[1]) / 2, f'+{pct}%',
+                 fontsize=9, fontweight='bold',
                  color=COLORS['plastic'], fontfamily='DejaVu Sans', va='center')
     ax_half.set_title('Defect rate: first half vs. second half of period',
                        fontsize=9, fontweight='bold', color='#2C2C2C',
@@ -100,7 +102,7 @@ def build_page():
     )
     ax_diverge.fill_between(
         xs, ticket_vals, return_vals,
-        where=[t >= r for t, r in zip(ticket_vals, return_vals)],
+        where=[t > r for t, r in zip(ticket_vals, return_vals)],
         alpha=0.09, color=COLORS['plastic'],
     )
     # Show only every other label to avoid crowding

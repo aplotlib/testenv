@@ -86,9 +86,9 @@ def build_page():
         ax_milestones.scatter([x], [spine_y], s=90,
                                color=dot_colors.get(etype, '#888888'),
                                zorder=3, linewidths=0.5, edgecolors='white')
-        above = (i % 2 == 0)
-        y  = spine_y - 0.16 if above else spine_y + 0.08
-        va = 'top'          if above else 'bottom'
+        below = (i % 2 == 0)
+        y  = spine_y - 0.16 if below else spine_y + 0.08
+        va = 'top'          if below else 'bottom'
         ax_milestones.text(x, y, f'{label_date}\n{label_text}',
                            ha='center', va=va, fontsize=6.5,
                            fontfamily='DejaVu Sans', color='#2C2C2C',
