@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 import numpy as np
-from quality.data import MONTHLY_TICKETS, KEY_DATES, COLORS
+from quality.data import MONTHLY_TICKETS, COLORS
 from quality.canvas import new_page, add_page_header, add_footer, draw_sidebar_callouts
 
 FOOTER = ('Complaint trend: all helpdesk ticket types (quality + logistics) — trend is a valid signal proxy. '
@@ -70,7 +70,6 @@ def build_page():
         13:   {'label': 'STOP-SHIP',         'y_off': 3.0,  'x_off': 0.0},
     }
     for x_idx, cfg in annotation_config.items():
-        xi = int(x_idx) if x_idx == int(x_idx) else x_idx
         y_val = tickets[min(int(x_idx), 13)]
         ax_trend.annotate(
             cfg['label'],
