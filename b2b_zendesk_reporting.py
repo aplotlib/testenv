@@ -62,14 +62,14 @@ QUALITY_CATEGORIES = [
     'Comfort: Skin Irritation or Allergic Reaction',
     'Defect: Broken / Structural Failure',
     'Defect: Malfunctions / Stops Working',
-    'Defect: Cosmetic Damage',
     'Defect: Poor Material Quality',
+    'Defect: Cosmetic Damage',
     'Wrong Product / Not as Described',
-    'Missing or Incomplete Components',
     "Performance: Ineffective / Doesn't Help",
     'Equipment Compatibility Issue',
-    'Stability: Shifts / Unstable / Falls',
     'Assembly / Usage Difficulty',
+    'Missing or Incomplete Components',
+    'Stability: Shifts / Unstable / Falls',
     'Medical / Safety Concern',
 ]
 
@@ -94,35 +94,13 @@ INJURY_KEYWORDS = [
 # ─── KEYWORD RULES ────────────────────────────────────────────────────────────
 
 KEYWORD_RULES: List[Tuple[str, List[str]]] = [
+    # Safety first — always highest priority
     ('Medical / Safety Concern', [
         'injury', 'injured', 'hospital', 'emergency', 'dangerous', 'unsafe',
-        'hazard', 'fell off', 'fall', 'fell', 'tipping', 'tipped over',
-        'cut my leg', 'cut myself', 'hurt', 'accident',
+        'hazard', 'fell off', 'tipping', 'tipped over', 'fell', 'fall',
+        'cut my leg', 'cut myself', 'hurt', 'accident', 'death', 'fatal',
     ]),
-    ('Defect: Broken / Structural Failure', [
-        'broke', 'broken', 'snapped', 'cracked', 'crack', 'shattered',
-        'fell apart', 'ripped', 'rip', 'torn', 'tore', 'split',
-        'bent', 'buckle', 'weld', 'disconnected from the frame',
-        'collapsed', 'structural', 'frame broke', 'clamp broke',
-        'handle broke', 'leg broke', 'arm broke', 'pin broke',
-        'connector broke', 'broken clamp', 'broken connector',
-        'broken handle', 'broken part', 'broken piece', 'broken battery',
-        'broke off', 'snapped off',
-    ]),
-    ('Defect: Malfunctions / Stops Working', [
-        'malfunction', 'stops working', 'stopped working', 'not working',
-        "won't turn on", 'wont turn on', "won't work", 'wont work',
-        "doesn't work", 'doesnt work', 'not turning on', "won't operate",
-        'quit working', 'dead', 'beeping', 'beeps', '2 beeps',
-        'not charging', 'not taking a charge', "won't charge",
-        'motor', 'control box defective', 'defective',
-        'not running', "won't run", 'stops when riding',
-        'stops dead', 'power issue', 'flashing', 'alarm sound',
-        'not getting cold', "isn't working", 'pump not working',
-        'pump quit', 'pump dead', 'pump making loud',
-        'not holding air', 'losing power', 'not turning',
-        'joystick', 'charger', 'not operate', 'scooter issue',
-    ]),
+    # Stability — checked before size/defects so tipping/sliding wins
     ('Stability: Shifts / Unstable / Falls', [
         'wobbly', 'wobble', 'wobbling', 'unstable', 'shifts',
         'slides', 'tipping forward', 'not stable', 'not secure',
@@ -130,13 +108,63 @@ KEYWORD_RULES: List[Tuple[str, List[str]]] = [
         "doesn't lock", 'not stay', "won't stay",
         'seat not locking', 'lock in place',
     ]),
-    ('Defect: Poor Material Quality', [
-        'cheap', 'poor quality', 'low quality', 'thin',
-        'flimsy', 'wear out', 'worn out', 'wears out',
-        'peeling', 'discolor', 'rusting', 'rust',
-        'velcro stopped', 'fabric', 'material',
-        'odor', 'smell', 'stain',
+    # Size — too small
+    ('Size: Too Small', [
+        'too small', 'too short', 'too narrow', 'too tight', 'too snug',
+        'runs small', 'cannot get on', "can't get on",
     ]),
+    # Size — too large
+    ('Size: Too Large', [
+        'too large', 'too big', 'too wide', 'too long', 'too bulky', 'oversized',
+        'too loose', 'runs large', 'falls off my', 'slides off my',
+    ]),
+    # Size — doesn't fit (no clear direction)
+    ("Size: Doesn't Fit / Wrong Dimensions", [
+        "doesn't fit", "doesnt fit", "does not fit", "not fit",
+        'not fitting', "won't fit", "didn't fit", 'wrong size', 'bad fit',
+    ]),
+    # Comfort subcategories
+    ('Comfort: Skin Irritation or Allergic Reaction', [
+        'rash', 'irritation', 'allergic', 'skin reaction', 'itching', 'itch',
+    ]),
+    ('Comfort: Too Hard / Rigid', [
+        'too hard', 'too stiff', 'too rigid', 'too firm',
+    ]),
+    ('Comfort: Too Soft / Lacks Support', [
+        'too soft', 'no support', 'lacks support', 'deflated',
+        'collapsed under', 'not enough support',
+    ]),
+    ('Comfort: Causes Pain or Pressure', [
+        'pain', 'painful', 'pressure', 'sore', 'bruise', 'bruising',
+        'digs in', 'rubs', 'rubbing', 'uncomfortable', 'discomfort',
+        'causes pain', 'hurts', 'numbed',
+    ]),
+    # Defect subcategories
+    ('Defect: Broken / Structural Failure', [
+        'broke', 'broken', 'snapped', 'cracked', 'crack', 'shattered',
+        'fell apart', 'ripped', 'rip', 'torn', 'tore', 'split',
+        'bent', 'buckle', 'weld', 'disconnected from the frame',
+        'structural', 'frame broke', 'clamp broke',
+        'handle broke', 'leg broke', 'broke off', 'snapped off',
+    ]),
+    ('Defect: Malfunctions / Stops Working', [
+        'malfunction', 'stops working', 'stopped working', 'not working',
+        "won't turn on", "won't work", "doesn't work", 'doesnt work',
+        'quit working', 'defective', 'beeping', 'not charging',
+        'motor', 'pump not working', 'pump quit', 'losing power',
+        'scooter issue', 'joystick', "isn't working",
+    ]),
+    ('Defect: Poor Material Quality', [
+        'scratch', 'scratched', 'dent', 'dented', 'paint peeling',
+        'cheap', 'poor quality', 'low quality', 'flimsy', 'wear out',
+        'peeling', 'discolor', 'rusting', 'rust', 'velcro stopped',
+    ]),
+    ('Wrong Product / Not as Described', [
+        'wrong product', 'wrong item', 'not as described',
+        'incorrect product', 'incorrect item', 'received the incorrect',
+        "didn't order", 'not what I ordered', 'different product', 'different color',
+    ]),
+    # Missing components
     ('Missing or Incomplete Components', [
         'missing part', 'missing piece', 'missing hardware',
         'missing bolt', 'missing screw', 'missing nut',
@@ -147,63 +175,26 @@ KEYWORD_RULES: List[Tuple[str, List[str]]] = [
         'empty package', 'package was empty', 'not included',
         "didn't include", 'only received 1', 'only received one',
         'missing push pin', 'missing handscrew', 'missing leg',
-        'missing axle', 'missing harware', 'missing hardware kit',
+        'missing axle', 'missing hardware kit',
     ]),
-    ('Comfort: Causes Pain or Pressure', [
-        'pain', 'painful', 'pressure', 'sore', 'bruise', 'bruising',
-        'digs in', 'rubs', 'rubbing', 'uncomfortable', 'discomfort',
-        'causes pain', 'hurts', 'numbed',
-    ]),
-    ('Comfort: Too Hard / Rigid', [
-        'too hard', 'too stiff', 'too rigid', 'really stiff',
-        'extremely hard', 'too firm',
-    ]),
-    ('Comfort: Too Soft / Lacks Support', [
-        'too soft', 'no support', 'lacks support', 'deflated',
-        'collapsed under', 'not enough support', 'stayed deflated',
-        'sinking', 'not expand',
-    ]),
-    ('Comfort: Skin Irritation or Allergic Reaction', [
-        'rash', 'irritation', 'allergic', 'skin reaction', 'itching', 'itch',
-    ]),
-    ('Size: Too Small', [
-        'too small', 'too short', 'too narrow', 'too tight',
-    ]),
-    ('Size: Too Large', [
-        'too large', 'too big', 'too wide', 'too long', 'too bulky',
-        'too heavy', 'oversized',
-    ]),
-    ("Size: Doesn't Fit / Wrong Dimensions", [
-        "doesn't fit", "doesnt fit", "does not fit", "not fit",
-        'not fitting', "won't fit", "didn't fit", 'wrong size',
-        'wrong dimension', 'bad fit', 'good fit',
-    ]),
-    ("Performance: Ineffective / Doesn't Help", [
-        'ineffective', "doesn't help", "doesn't do anything",
-        "doesn't work for", 'not effective', 'useless',
-        "didn't help", 'not able to use it',
-    ]),
+    # Equipment compatibility
     ('Equipment Compatibility Issue', [
         'not compatible', 'incompatible', "doesn't attach",
         'does not fit my walker', 'does not fit my wheelchair',
         "doesn't connect", 'not pairing',
     ]),
+    # Assembly difficulty
     ('Assembly / Usage Difficulty', [
         'hard to assemble', 'difficult to assemble', 'assembly issue',
-        'parts not fitting', 'unable to assemble', 'confusing instruction',
-        'how to', 'help assembl', 'help putting',
-        'not able to open', 'problem assembling',
+        'unable to assemble', 'confusing instruction',
+        'help assembl', 'help putting', 'problem assembling',
     ]),
-    ('Defect: Cosmetic Damage', [
-        'scratch', 'scratched', 'dent', 'dented', 'cosmetic',
-        'paint', 'hubcap', 'dust on',
+    # Performance
+    ("Performance: Ineffective / Doesn't Help", [
+        'ineffective', "doesn't help", "doesn't do anything",
+        "doesn't work for", 'not effective', 'useless', "didn't help",
     ]),
-    ('Wrong Product / Not as Described', [
-        'wrong product', 'wrong item', 'not as described',
-        'incorrect product', 'incorrect item', 'received the incorrect',
-        'wrong package', "didn't order", 'not what I ordered',
-        'different product', 'different color',
-    ]),
+    # Non-quality
     ('Fulfillment: Damaged in Shipping', [
         'damaged in shipping', 'damaged during shipping',
         'box arrived damaged', 'box was damaged', 'arrived damaged',
@@ -227,12 +218,8 @@ KEYWORD_RULES: List[Tuple[str, List[str]]] = [
         'decided not to', 'not a good fit for',
         'doctor recommended not', 'doctor advised',
         'hospice', 'will not use', "won't use",
-        'return product for a better price',
-        'return the item', 'wants to return',
-        'looking to return', 'return request',
-        'return/refund request', 'return/refund operation',
-        'return authorization', 'return process',
-        'return and refund', 'return request not needed',
+        'return the item', 'wants to return', 'looking to return',
+        'return request', 'return authorization', 'return process',
         'not meet', "didn't meet", 'expectations',
     ]),
     ('Customer: Ordered Wrong Size or Item', [
