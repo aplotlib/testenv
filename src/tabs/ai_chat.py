@@ -71,10 +71,7 @@ def display_chat_interface():
                 """
                 
                 system_instruction = "You are a helpful Regulatory Assistant."
-                if hasattr(ai, "openai") and hasattr(ai, "gemini"):
-                    concise, verbose = ai.generate_dual_responses(full_prompt, system_instruction)
-                else:
-                    concise, verbose = ai.generate_dual_responses(full_prompt, system_instruction, use_reasoning=True)
+                concise, verbose = ai.generate_dual_responses(full_prompt, system_instruction, use_reasoning=True)
 
                 tab_concise, tab_verbose = st.tabs(["⚡ Pithy", "📚 Verbose"])
                 with tab_concise:

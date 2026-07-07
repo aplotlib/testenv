@@ -20,18 +20,11 @@ def display_capa_workflow():
             audio_val = st.audio_input("Record Quality Event")
             
             if audio_val:
-                if st.button("Process Audio", type="primary", key="proc_audio"):
-                    if ai:
-                        with st.spinner("Transcribing with Gemini Server-Side..."):
-                            audio_bytes = audio_val.read()
-                            result = ai.transcribe_and_structure(audio_bytes)
-                            if "error" not in result:
-                                st.session_state.capa_entry_draft.update(result)
-                                st.success("Audio Processed!")
-                            else:
-                                st.error("Processing Failed.")
-                    else:
-                        st.error("AI Service not active.")
+                st.info(
+                    "🎙️ Audio transcription is not available with the Claude API. "
+                    "Use the Meeting Transcript Import on the right — paste your "
+                    "notes and the AI will structure them into CAPA fields."
+                )
 
     with col_text:
         with st.expander("📝 Meeting Transcript Import", expanded=True):

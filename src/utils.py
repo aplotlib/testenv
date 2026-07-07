@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 def retry_with_backoff(retries=3, backoff_in_seconds=1):
     """
     Decorator to retry a function with exponential backoff.
-    Useful for API calls (OpenAI, Google) that might hit rate limits.
+    Useful for API calls (Anthropic) that might hit rate limits.
     """
     def decorator(func):
         @wraps(func)

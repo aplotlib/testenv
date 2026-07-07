@@ -1,12 +1,11 @@
 """
-AI CAPA Helper — Anthropic Claude Migration
-Replaced: openai SDK → anthropic SDK
+AI CAPA Helper — Anthropic Claude
 Primary model: claude-sonnet-4-6 (reasoning)
 Fast model:    claude-haiku-4-5-20251001
 
-Note: Audio transcription (Whisper) is an OpenAI-only feature.
-      transcribe_audio() now returns an informative message directing
-      users to manually enter text. All other functionality is unchanged.
+Note: Audio transcription is not supported by the Claude API.
+      transcribe_audio() returns an informative message directing
+      users to manually enter text.
 """
 
 import json
@@ -97,15 +96,14 @@ class AICAPAHelper:
         return ""
 
     # ------------------------------------------------------------------
-    # Public methods — same interface as the original OpenAI version
+    # Public methods
     # ------------------------------------------------------------------
     def transcribe_audio(self, audio_file) -> str:
         """
         Audio transcription is not supported by Anthropic's API.
         Returns a user-friendly message asking for manual text entry.
-
-        If you require audio transcription, keep a separate OpenAI client
-        using whisper-1 and pass the transcript text into refine_capa_input().
+        Use an external transcription tool and pass the transcript text
+        into refine_capa_input() if needed.
         """
         return (
             "Audio transcription is not available with the Claude API. "

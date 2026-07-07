@@ -1,26 +1,14 @@
 """
-AI Services — Anthropic Claude Migration
-=========================================
-Replaced: openai SDK (OpenAI) → anthropic SDK (Claude)
+AI Services — Anthropic Claude
+==============================
+All AI features run on the Anthropic API (Claude) exclusively.
 Primary models:
   - Fast:      claude-haiku-4-5-20251001
   - Reasoning: claude-sonnet-4-6
   - Powerful:  claude-opus-4-6  (optional — swap reasoning_model to use)
 
-Gemini support is retained as an OPTIONAL alternate path using Google's
-OpenAI-compatible endpoint (requires the openai package).  To use Gemini,
-set provider="gemini" and supply a valid GEMINI_API_KEY / GOOGLE_API_KEY.
-
-Audio transcription (Whisper) was an OpenAI-exclusive feature and has been
-removed. transcribe_and_structure() now processes plain text input.
-
-Migration Notes:
-  - anthropic.Anthropic() replaces openai.OpenAI()
-  - client.messages.create() replaces client.chat.completions.create()
-  - response.content[0].text replaces response.choices[0].message.content
-  - 'system' is a top-level parameter, not a messages[] entry
-  - response_format={"type":"json_object"} removed; JSON enforced via prompts
-  - JSON markdown fences stripped from Claude responses
+Audio transcription is not supported — transcribe_and_structure()
+processes plain text input (paste already-transcribed notes).
 """
 
 import re
@@ -75,11 +63,7 @@ def _resolve_anthropic_key(explicit_key: Optional[str] = None) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 class AIServiceBase:
-    """
-    Base class for all AI services — Anthropic Claude primary, Gemini optional.
-
-    Interface is backward-compatible with the previous OpenAI-backed version.
-    """
+    """Base class for all AI services — Anthropic Claude only."""
 
     # Default token budgets
     FAST_MAX_TOKENS = 512
@@ -88,18 +72,15 @@ class AIServiceBase:
     def __init__(
         self,
         api_key: str,
-        provider: str = "claude",
+        provider: str = "claude",  # kept for call-site compatibility; always Claude
         model_overrides: Optional[Dict[str, str]] = None,
     ):
         model_overrides = model_overrides or {}
-        self.provider = provider
-        self.client = None          # Anthropic client (primary)
-        self._gemini_client = None  # OpenAI-compat client for Gemini (optional)
-
-        if provider == "gemini":
-            self._init_gemini(api_key, model_overrides)
-        else:
-            self._init_claude(api_key, model_overrides)
+        self.provider = "claude"
+        self.client = None  # Anthropic client
+        if provider != "claude":
+            logger.warning(f"Provider '{provider}' is no longer supported — using Claude.")
+        self._init_claude(api_key, model_overrides)
 
     # ---- Initializers ----
 
@@ -116,25 +97,6 @@ class AIServiceBase:
         except Exception as e:
             logger.error(f"Failed to initialize Anthropic client: {e}")
 
-    def _init_gemini(self, api_key: str, model_overrides: Dict):
-        """Google Gemini via OpenAI-compatible endpoint (requires openai package)."""
-        try:
-            import openai as _openai  # type: ignore
-            if api_key and api_key.startswith("sk-"):
-                logger.warning("Gemini provider selected but key looks like a Claude/Anthropic key (sk- prefix).")
-            gemini_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY", "")
-            self._gemini_client = _openai.OpenAI(
-                api_key=gemini_key,
-                base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-            )
-            self.fast_model = model_overrides.get("fast", "gemini-1.5-flash")
-            self.reasoning_model = model_overrides.get("reasoning", "gemini-1.5-pro")
-            logger.info("Gemini initialized via OpenAI-compatible endpoint.")
-        except ImportError:
-            logger.error("openai package required for Gemini support. Run: pip install openai")
-        except Exception as e:
-            logger.error(f"Failed to initialize Gemini client: {e}")
-
     # ---- Low-level call methods ----
 
     @retry_with_backoff(retries=3, backoff_in_seconds=2)
@@ -147,19 +109,6 @@ class AIServiceBase:
         temperature: float = 0.4,
     ):
         """Execute a Claude messages.create() call with retry logic."""
-        if self.provider == "gemini" and self._gemini_client:
-            # Route through OpenAI-compat endpoint
-            return self._gemini_client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user_message},
-                ],
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-
-        # Anthropic (primary)
         return self.client.messages.create(
             model=model,
             max_tokens=max_tokens,
@@ -169,10 +118,7 @@ class AIServiceBase:
         )
 
     def _extract_content(self, response) -> str:
-        """Extract text from either an Anthropic Message or OpenAI ChatCompletion."""
-        if self.provider == "gemini":
-            return response.choices[0].message.content or ""
-        # Anthropic
+        """Extract text from an Anthropic Message."""
         if response.content and len(response.content) > 0:
             return response.content[0].text.strip()
         return ""
@@ -186,7 +132,7 @@ class AIServiceBase:
         use_reasoning: bool = False,
     ) -> Dict[str, Any]:
         """Generate a JSON response, handling fence stripping and parse errors."""
-        if not (self.client or self._gemini_client):
+        if not self.client:
             return {"error": "AI client not initialized (missing API key)."}
 
         system = system_instruction or "You are a helpful assistant."
@@ -225,7 +171,7 @@ class AIServiceBase:
         use_reasoning: bool = False,
     ) -> str:
         """Generate a plain-text response."""
-        if not (self.client or self._gemini_client):
+        if not self.client:
             return "Error: AI client not initialized (missing API key)."
 
         system = system_instruction or "You are a helpful assistant."
@@ -297,10 +243,10 @@ class AIService(AIServiceBase):
         """
         Extract structured CAPA fields from plain text (meeting notes, typed observations).
 
-        NOTE: Audio transcription (Whisper) was removed — Claude does not have a
-        speech-to-text endpoint.  Pass already-transcribed text here instead.
+        NOTE: Claude does not have a speech-to-text endpoint.
+        Pass already-transcribed text here instead.
         """
-        if not (self.client or self._gemini_client):
+        if not self.client:
             return {"error": "AI client not initialized."}
 
         system_prompt = "You are a Quality Assurance Assistant. Extract fields from text. Respond with valid JSON only — no fences."
@@ -527,127 +473,23 @@ Return JSON with keys:
 
 
 # ---------------------------------------------------------------------------
-# Multi-provider service (Claude primary + Gemini alternate)
-# ---------------------------------------------------------------------------
-
-class MultiProviderAIService:
-    """
-    Dual-provider service: Claude (primary) + Gemini (alternate).
-    Falls back to Claude for all calls by default.
-    """
-
-    def __init__(
-        self,
-        claude_key: str,
-        gemini_key: str,
-        model_overrides: Optional[Dict[str, Dict[str, str]]] = None,
-    ):
-        model_overrides = model_overrides or {}
-        self.claude = AIService(
-            claude_key, provider="claude", model_overrides=model_overrides.get("claude")
-        )
-        self.gemini = AIService(
-            gemini_key, provider="gemini", model_overrides=model_overrides.get("gemini")
-        )
-        self.default_provider = "claude"
-
-    def generate_dual_responses(
-        self, prompt: str, system_instruction: str
-    ) -> Tuple[str, str]:
-        """Concise response from Claude, verbose from Gemini."""
-        concise = self.claude.generate_text_with_verbosity(
-            prompt, system_instruction, "Pithy", use_reasoning=True
-        )
-        verbose = self.gemini.generate_text_with_verbosity(
-            prompt, system_instruction, "Verbose", use_reasoning=True
-        )
-        return concise, verbose
-
-    def _base(self) -> AIService:
-        return self.claude if self.default_provider == "claude" else self.gemini
-
-    def _generate_text(
-        self, prompt: str, system_instruction: str = None, use_reasoning: bool = False
-    ) -> str:
-        return self._base()._generate_text(
-            prompt, system_instruction=system_instruction, use_reasoning=use_reasoning
-        )
-
-    def _generate_json(
-        self, prompt: str, system_instruction: str = None, use_reasoning: bool = False
-    ) -> Dict[str, Any]:
-        return self._base()._generate_json(
-            prompt, system_instruction=system_instruction, use_reasoning=use_reasoning
-        )
-
-    def assess_relevance_json(self, my_context: str, record_text: str) -> Dict[str, str]:
-        return self._base().assess_relevance_json(my_context, record_text)
-
-    def generate_text_with_verbosity(
-        self,
-        prompt: str,
-        system_instruction: str,
-        verbosity: str,
-        use_reasoning: bool = False,
-    ) -> str:
-        return self._base().generate_text_with_verbosity(
-            prompt,
-            system_instruction=system_instruction,
-            verbosity=verbosity,
-            use_reasoning=use_reasoning,
-        )
-
-
-# ---------------------------------------------------------------------------
 # Singleton management
 # ---------------------------------------------------------------------------
 
 def get_ai_service() -> Optional[AIService]:
     """
     Return the shared AIService from session state.
-    Initializes lazily using keys stored in session state or Streamlit secrets.
-
-    Provider precedence:
-      1. "claude"  — uses ANTHROPIC_API_KEY from secrets/env (default)
-      2. "gemini"  — uses GEMINI_API_KEY / GOOGLE_API_KEY
-      3. "both"    — returns a MultiProviderAIService
+    Initializes lazily using the ANTHROPIC_API_KEY from session state,
+    Streamlit secrets, or environment variables. Claude (Anthropic) only.
     """
     if "ai_service" not in st.session_state:
-        provider = st.session_state.get("provider", "claude")
         model_overrides = st.session_state.get("model_overrides", {})
-
-        if provider == "both":
-            # Expect both keys to be present
-            claude_key = _resolve_anthropic_key(st.session_state.get("api_key"))
-            gemini_key = st.session_state.get("gemini_api_key", "")
-            if claude_key and gemini_key:
-                st.session_state.ai_service = MultiProviderAIService(
-                    claude_key, gemini_key, model_overrides=model_overrides
-                )
-            else:
-                return None
-
-        elif provider == "gemini":
-            api_key = st.session_state.get("api_key", "")
-            if api_key:
-                st.session_state.ai_service = AIService(
-                    api_key,
-                    provider="gemini",
-                    model_overrides=model_overrides.get("gemini"),
-                )
-            else:
-                return None
-
-        else:
-            # Default: Claude
-            api_key = _resolve_anthropic_key(st.session_state.get("api_key"))
-            if api_key:
-                st.session_state.ai_service = AIService(
-                    api_key,
-                    provider="claude",
-                    model_overrides=model_overrides.get("claude"),
-                )
-            else:
-                return None
+        api_key = _resolve_anthropic_key(st.session_state.get("api_key"))
+        if not api_key:
+            return None
+        st.session_state.ai_service = AIService(
+            api_key,
+            model_overrides=model_overrides.get("claude"),
+        )
 
     return st.session_state.get("ai_service")

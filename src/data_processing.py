@@ -6,11 +6,11 @@ from typing import Optional
 
 class DataProcessor:
     """Processes and standardizes data from various sources."""
-    def __init__(self, openai_api_key: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None):
         """
         Initializes the DataProcessor.
         """
-        self.api_key = openai_api_key
+        self.api_key = api_key
 
     def _normalize_sku(self, sku: str) -> str:
         """
