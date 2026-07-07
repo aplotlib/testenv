@@ -20,7 +20,7 @@ COMPLIANCE: ISO 13485 | FDA 21 CFR 820 | EU MDR | UK MDR
 Features:
 - Task-based landing page with intuitive tool selection
 - 🆕 v31.0: Claude-only AI (Haiku 4.5 / Sonnet 4.6 / Opus 4.6)
-- 🆕 v31.0: Removed all OpenAI dependencies
+- 🆕 v31.0: Anthropic (Claude) is the sole AI provider
 - 🆕 v25.0: Light/Dark theme switcher for optimal legibility
 - 🆕 v25.0: WCAG AAA compliant color contrast (7:1 ratio)
 - 🆕 v25.0: Enhanced UI/UX with improved formatting
@@ -317,9 +317,10 @@ QUALITY_CATEGORIES = [
 
 # AI Provider options — Claude (Anthropic) only
 AI_PROVIDER_OPTIONS = {
-    '🏃 Claude Haiku 4.5 (Fastest)': AIProvider.CLAUDE_FAST,
+    '🤖 Auto — best model per task (Recommended)': AIProvider.FASTEST,
     '🎯 Claude Sonnet 4.6 (Balanced)': AIProvider.CLAUDE,
-    '💎 Claude Opus 4.6 (Most Powerful)': AIProvider.CLAUDE_POWERFUL,
+    '💎 Claude Opus 4.6 (Max Accuracy)': AIProvider.CLAUDE_POWERFUL,
+    '🏃 Claude Haiku 4.5 (Fastest — lower accuracy)': AIProvider.CLAUDE_FAST,
 }
 
 # Source of Flag options for tracking how issues came to attention
@@ -721,9 +722,146 @@ def inject_custom_css():
         }}
     }}
     
-    /* Hide Streamlit branding */
+    /* ── Tab styling ───────────────────────────────────────────────── */
+    [data-testid="stTabs"] [data-baseweb="tab-list"] {{
+        gap: 0.25rem;
+        border-bottom: 2px solid rgba(35,178,190,0.2);
+    }}
+
+    [data-testid="stTabs"] [data-baseweb="tab"] {{
+        font-family: 'Poppins', sans-serif !important;
+        font-weight: 600 !important;
+        font-size: 0.85rem !important;
+        padding: 0.5rem 1rem !important;
+        border-radius: 6px 6px 0 0 !important;
+        border: 1px solid transparent !important;
+        border-bottom: none !important;
+        transition: all 0.2s ease !important;
+    }}
+
+    [data-testid="stTabs"] [aria-selected="true"] {{
+        background: rgba(35,178,190,0.12) !important;
+        border-color: rgba(35,178,190,0.4) !important;
+        color: #23b2be !important;
+        border-bottom: 2px solid #23b2be !important;
+    }}
+
+    /* ── File uploader ─────────────────────────────────────────────── */
+    [data-testid="stFileUploader"] {{
+        border: 2px dashed rgba(35,178,190,0.4) !important;
+        border-radius: 8px !important;
+        padding: 0.5rem !important;
+        transition: border-color 0.2s !important;
+    }}
+
+    [data-testid="stFileUploader"]:hover {{
+        border-color: rgba(35,178,190,0.8) !important;
+    }}
+
+    /* ── Radio buttons (input mode toggle) ─────────────────────────── */
+    [data-testid="stRadio"] > div {{
+        display: flex;
+        gap: 0.5rem;
+    }}
+
+    [data-testid="stRadio"] label {{
+        background: rgba(35,178,190,0.07);
+        border: 1px solid rgba(35,178,190,0.3);
+        border-radius: 6px;
+        padding: 0.4rem 1rem;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-weight: 500;
+    }}
+
+    [data-testid="stRadio"] label:has(input:checked) {{
+        background: rgba(35,178,190,0.18);
+        border-color: #23b2be;
+        color: #23b2be;
+    }}
+
+    /* ── Data editor header ────────────────────────────────────────── */
+    [data-testid="stDataFrame"] th {{
+        background: rgba(35,178,190,0.15) !important;
+        font-family: 'Poppins', sans-serif !important;
+        font-weight: 600 !important;
+        font-size: 0.8rem !important;
+    }}
+
+    /* ── Expander styling ──────────────────────────────────────────── */
+    [data-testid="stExpander"] {{
+        border: 1px solid rgba(35,178,190,0.2) !important;
+        border-radius: 8px !important;
+        margin-bottom: 0.5rem !important;
+    }}
+
+    [data-testid="stExpander"]:hover {{
+        border-color: rgba(35,178,190,0.5) !important;
+    }}
+
+    /* ── Info / warning / success boxes ────────────────────────────── */
+    [data-testid="stAlert"] {{
+        border-radius: 8px !important;
+        border-left-width: 4px !important;
+        font-family: 'Poppins', sans-serif !important;
+    }}
+
+    /* ── Spinner text ───────────────────────────────────────────────── */
+    [data-testid="stSpinner"] p {{
+        font-family: 'Poppins', sans-serif !important;
+        font-weight: 500 !important;
+        color: #23b2be !important;
+    }}
+
+    /* ── Download button ───────────────────────────────────────────── */
+    [data-testid="stDownloadButton"] > button {{
+        background: linear-gradient(135deg, #1a8f98 0%, #23b2be 100%) !important;
+    }}
+
+    /* ── Number input ───────────────────────────────────────────────── */
+    [data-testid="stNumberInput"] input {{
+        font-family: 'Poppins', sans-serif !important;
+        border-radius: 6px !important;
+    }}
+
+    /* ── Select box ─────────────────────────────────────────────────── */
+    [data-testid="stSelectbox"] > div > div {{
+        border-radius: 6px !important;
+        border: 1px solid rgba(35,178,190,0.4) !important;
+    }}
+
+    /* ── Multiselect ────────────────────────────────────────────────── */
+    [data-testid="stMultiSelect"] > div > div {{
+        border-radius: 6px !important;
+        border: 1px solid rgba(35,178,190,0.4) !important;
+    }}
+
+    /* ── Sidebar ─────────────────────────────────────────────────────── */
+    [data-testid="stSidebar"] {{
+        border-right: 1px solid rgba(35,178,190,0.2) !important;
+    }}
+
+    [data-testid="stSidebar"] h1,
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3 {{
+        color: #23b2be !important;
+    }}
+
+    /* ── Back button subtle override ────────────────────────────────── */
+    button[kind="secondary"] {{
+        border: 1px solid rgba(35,178,190,0.35) !important;
+        border-radius: 6px !important;
+    }}
+
+    button[kind="secondary"]:hover {{
+        border-color: #23b2be !important;
+        background: rgba(35,178,190,0.08) !important;
+    }}
+
+    /* ── Hide Streamlit branding ────────────────────────────────────── */
     #MainMenu {{visibility: hidden;}}
     footer {{visibility: hidden;}}
+    header[data-testid="stHeader"] {{visibility: hidden;}}
     </style>
     """, unsafe_allow_html=True)
 
@@ -733,7 +871,7 @@ def initialize_session_state():
     defaults = {
         # General AI
         'ai_analyzer': None,
-        'ai_provider': AIProvider.FASTEST,  # Default to fastest available (Claude-first)
+        'ai_provider': AIProvider.FASTEST,  # Auto — Sonnet for accuracy-critical tasks, Haiku for fast summaries
         
         # Tab 1: Categorizer
         'categorized_data': None,
@@ -1248,24 +1386,71 @@ def process_file_preserve_structure(file_content, filename):
         column_mapping = {}
         cols = df.columns.tolist()
 
-        # ── Fuzzy-detect complaint column ─────────────────────────────────
+        def _looks_like_code_column(col_name: str) -> bool:
+            """True if a column mostly holds reason codes (UNWANTED_ITEM, DEFECTIVE, ...)
+            rather than free-text customer comments."""
+            values = df[col_name].dropna().astype(str).str.strip()
+            values = values[values != ''].head(200)
+            if values.empty:
+                return False
+            code_like = values.str.fullmatch(r'[A-Z0-9_\-]{2,40}').mean()
+            return code_like >= 0.6
+
+        # ── Detect the FBA reason-code column first (it is NOT the complaint) ─
+        # Amazon return reports carry a 'reason' column with codes like
+        # UNWANTED_ITEM / DEFECTIVE. Categorizing those instead of the free-text
+        # customer comments destroys accuracy — keep the two strictly separate.
+        reason_candidates = ['reason', 'return reason', 'return-reason', 'reason code', 'reason-code']
+        cols_norm = {c: c.lower().strip().replace('-', ' ').replace('_', ' ') for c in cols}
+        reason_col = next(
+            (c for c in cols if cols_norm[c] in reason_candidates), None
+        )
+        if reason_col:
+            column_mapping['fba_reason'] = reason_col
+
+        # ── Detect complaint column: exact match on free-text names first ─
         complaint_candidates = [
-            'complaint', 'customer complaint', 'return reason', 'reason',
-            'issue', 'description', 'comments', 'feedback', 'notes',
-            'customer feedback', 'problem', 'defect description',
+            'customer-comments', 'customer comments', 'customer_comments',
+            'complaint', 'customer complaint', 'complaint text', 'comments',
+            'customer feedback', 'feedback', 'issue description',
+            'defect description', 'description', 'issue', 'problem', 'notes',
         ]
-        complaint_col = _fuzzy_find_column(cols, complaint_candidates)
+        complaint_col = None
+        for cand in complaint_candidates:
+            cand_norm = cand.replace('-', ' ').replace('_', ' ')
+            match = next((c for c in cols if cols_norm[c] == cand_norm and c != reason_col), None)
+            if match is not None:
+                complaint_col = match
+                break
 
-        # Fallback: position-based (column I = index 8)
-        if complaint_col is None and len(cols) > 8:
-            complaint_col = cols[8]
+        # Fuzzy fallback — never against the reason-code column
+        if complaint_col is None:
+            fuzzy_cols = [c for c in cols if c != reason_col]
+            complaint_col = _fuzzy_find_column(fuzzy_cols, complaint_candidates)
 
-        # ── Fuzzy-detect SKU column ───────────────────────────────────────
+        # Reject a "complaint" column that actually contains reason codes
+        if complaint_col is not None and _looks_like_code_column(complaint_col):
+            logger.warning(f"Column '{complaint_col}' looks like reason codes, not complaints — falling back")
+            complaint_col = None
+
+        # Fallback: position-based (column I = index 8), same sanity check
+        if complaint_col is None and len(cols) > 8 and cols[8] != reason_col:
+            if not _looks_like_code_column(cols[8]):
+                complaint_col = cols[8]
+
+        # ── Detect SKU column: exact match first, then fuzzy, then position ─
         sku_candidates = [
             'sku', 'asin', 'product sku', 'item sku', 'product code',
             'item number', 'model', 'part number', 'product id',
         ]
-        sku_col = _fuzzy_find_column(cols, sku_candidates)
+        sku_col = None
+        for cand in sku_candidates:
+            match = next((c for c in cols if cols_norm[c] == cand), None)
+            if match is not None:
+                sku_col = match
+                break
+        if sku_col is None:
+            sku_col = _fuzzy_find_column(cols, sku_candidates)
         if sku_col is None and len(cols) > 1:
             sku_col = cols[1]
 
@@ -1282,9 +1467,11 @@ def process_file_preserve_structure(file_content, filename):
 
         # ── Inform user of detected columns ───────────────────────────────
         if complaint_col:
-            detected_msg = f"Auto-detected: Complaint = **{complaint_col}**"
+            detected_msg = f"Auto-detected: Complaint text = **{complaint_col}**"
             if sku_col:
                 detected_msg += f", SKU = **{sku_col}**"
+            if reason_col:
+                detected_msg += f", Return-reason code = **{reason_col}** (used as hint only)"
             st.info(f"🔍 {detected_msg}")
         elif len(cols) < 11:
             st.error("File structure not recognized. Need at least 11 columns (A-K).")
@@ -1301,21 +1488,34 @@ def process_in_chunks(df, analyzer, column_mapping, chunk_size=None):
     if chunk_size is None:
         chunk_size = st.session_state.chunk_size
     
-    complaint_col = column_mapping['complaint']
+    complaint_col = column_mapping.get('complaint')
     category_col = column_mapping['category']
-    
-    # Get rows with complaints
-    valid_indices = df[df[complaint_col].notna() & (df[complaint_col].str.strip() != '')].index
+    fba_col = column_mapping.get('fba_reason')
+
+    # Rows to process: any with free-text complaints, plus rows that only have
+    # a recognized Amazon return-reason code (categorized via the code mapping)
+    if complaint_col:
+        valid_mask = df[complaint_col].notna() & (df[complaint_col].str.strip() != '')
+    else:
+        valid_mask = pd.Series(False, index=df.index)
+    text_rows = int(valid_mask.sum())
+    code_only_rows = 0
+    if fba_col and isinstance(FBA_REASON_MAP, dict):
+        code_mask = df[fba_col].isin(list(FBA_REASON_MAP.keys())) & ~valid_mask
+        code_only_rows = int(code_mask.sum())
+        valid_mask = valid_mask | code_mask
+    valid_indices = df[valid_mask].index
     total_valid = len(valid_indices)
-    
+
     if total_valid == 0:
-        st.warning("No valid complaints found in Column I to process")
+        st.warning("No complaint text or recognizable return-reason codes found to process.")
         return df
-    
+
     # Clear messaging about processing
+    code_note = f" (+ **{code_only_rows:,}** rows with only a return-reason code)" if code_only_rows else ""
     st.info(f"""
     📊 **Processing Details:**
-    - Total complaints to categorize (from Column I): **{total_valid:,}**
+    - Complaints with text to categorize: **{text_rows:,}**{code_note}
     - Processing chunk size: **{chunk_size}** rows at a time
     - API batch size: **{st.session_state.batch_size}** items per call
     """)
@@ -1325,8 +1525,9 @@ def process_in_chunks(df, analyzer, column_mapping, chunk_size=None):
     stats_container = st.container()
     
     processed_count = 0
+    method_counts = {'corrections': 0, 'instant': 0, 'ai': 0, 'failed': 0}
     start_time = time.time()
-    
+
     # Process in chunks
     for chunk_start in range(0, total_valid, chunk_size):
         chunk_end = min(chunk_start + chunk_size, total_valid)
@@ -1337,13 +1538,19 @@ def process_in_chunks(df, analyzer, column_mapping, chunk_size=None):
         # Prepare batch data
         batch_data = []
         for idx in chunk_indices:
-            complaint = str(df.at[idx, complaint_col]).strip()
-            
-            # Check for FBA reason code
+            complaint = ''
+            if complaint_col:
+                raw_complaint = df.at[idx, complaint_col]
+                if pd.notna(raw_complaint):
+                    complaint = str(raw_complaint).strip()
+
+            # FBA reason code (customer-selected, unreliable — used as hint/fallback only)
             fba_reason = None
-            if 'reason' in df.columns:
-                fba_reason = str(df.at[idx, 'reason'])
-            
+            if fba_col and fba_col in df.columns:
+                raw_reason = df.at[idx, fba_col]
+                if pd.notna(raw_reason):
+                    fba_reason = str(raw_reason).strip()
+
             batch_data.append({
                 'index': idx,
                 'complaint': complaint,
@@ -1359,14 +1566,24 @@ def process_in_chunks(df, analyzer, column_mapping, chunk_size=None):
                 
                 # Categorize sub-batch
                 results = analyzer.categorize_batch(sub_batch, mode='standard')
-                
+
                 # Update dataframe
                 for result in results:
                     idx = result['index']
-                    category = result.get('category', 'Other/Miscellaneous')
+                    category = result.get('category', 'Other / Miscellaneous')
                     df.at[idx, category_col] = category
-                    
-                    # Track stats
+
+                    # Track how each row was categorized (confidence encodes the path)
+                    conf = result.get('confidence', 0)
+                    if conf >= 1.0:
+                        method_counts['corrections'] += 1
+                    elif conf >= 0.9:
+                        method_counts['instant'] += 1
+                    elif conf >= 0.5:
+                        method_counts['ai'] += 1
+                    else:
+                        method_counts['failed'] += 1
+
                     processed_count += 1
                 
                 # Update progress
@@ -1402,7 +1619,8 @@ def process_in_chunks(df, analyzer, column_mapping, chunk_size=None):
             # Fill failed items with default category
             for item in batch_data:
                 if pd.isna(df.at[item['index'], category_col]):
-                    df.at[item['index'], category_col] = 'Other/Miscellaneous'
+                    df.at[item['index'], category_col] = 'Other / Miscellaneous'
+                    method_counts['failed'] += 1
         
         # Force garbage collection after each chunk
         gc.collect()
@@ -1411,10 +1629,22 @@ def process_in_chunks(df, analyzer, column_mapping, chunk_size=None):
     progress_bar.progress(1.0)
     elapsed = time.time() - start_time
     st.session_state.processing_speed = processed_count / elapsed if elapsed > 0 else 0
-    
+    st.session_state.categorization_breakdown = method_counts
+
     # Clear the stats container and show final message
     stats_container.empty()
     status_text.success(f"✅ Complete! Processed {processed_count:,} returns in {elapsed:.1f} seconds at {st.session_state.processing_speed:.1f} returns/second")
+
+    # Surface failures loudly — silent defaulting hides accuracy problems
+    if method_counts['failed'] > 0:
+        st.error(
+            f"⚠️ {method_counts['failed']:,} of {total_valid:,} complaints could not be categorized "
+            f"and were set to 'Other / Miscellaneous'. Check API status in the sidebar and re-run."
+        )
+    if st.session_state.processing_errors:
+        with st.expander(f"🐞 Processing errors ({len(st.session_state.processing_errors)})", expanded=False):
+            for err in st.session_state.processing_errors[-20:]:
+                st.caption(err)
     
     return df
 
@@ -1454,18 +1684,146 @@ def generate_statistics(df, column_mapping):
     logger.info(f"Statistics generated: {len(st.session_state.reason_summary)} categories")
 
 
-def export_with_column_k(df):
-    """Export to Excel preserving format"""
+def export_with_column_k(df, column_mapping=None):
+    """Export to Excel: Returns sheet + Category Summary + By SKU sheets for cross-dataset continuity"""
+
+    # Category-to-group mapping — mirrors MEDICAL_DEVICE_CATEGORIES taxonomy used by the Amazon return reason categorizer
+    _CATEGORY_GROUPS = {
+        'Size: Too Small':                               'Size & Fit',
+        'Size: Too Large':                               'Size & Fit',
+        "Size: Doesn't Fit / Wrong Dimensions":          'Size & Fit',
+        'Comfort: Causes Pain or Pressure':              'Comfort',
+        'Comfort: Too Hard / Rigid':                     'Comfort',
+        'Comfort: Too Soft / Lacks Support':             'Comfort',
+        'Comfort: Skin Irritation or Allergic Reaction': 'Comfort',
+        'Defect: Broken / Structural Failure':           'Product Defects',
+        'Defect: Malfunctions / Stops Working':          'Product Defects',
+        'Defect: Cosmetic Damage':                       'Product Defects',
+        'Defect: Poor Material Quality':                 'Product Defects',
+        "Performance: Ineffective / Doesn't Help":       'Performance & Compatibility',
+        'Equipment Compatibility Issue':                 'Performance & Compatibility',
+        'Stability: Shifts / Unstable / Falls':          'Stability',
+        'Assembly / Usage Difficulty':                   'Assembly & Instructions',
+        'Wrong Product / Not as Described':              'Order Accuracy',
+        'Missing or Incomplete Components':              'Order Accuracy',
+        'Customer: Changed Mind / No Longer Needed':     'Customer',
+        'Customer: Ordered Wrong Size or Item':          'Customer',
+        'Fulfillment: Damaged in Shipping':              'Fulfillment',
+        'Fulfillment: Wrong Item Sent':                  'Fulfillment',
+        'Medical / Safety Concern':                      'Medical & Safety',
+        'Other / Miscellaneous':                         'Other',
+    }
+    _QUALITY_ISSUE_CATS = {
+        'Size: Too Small', 'Size: Too Large', "Size: Doesn't Fit / Wrong Dimensions",
+        'Comfort: Causes Pain or Pressure', 'Comfort: Too Hard / Rigid',
+        'Comfort: Too Soft / Lacks Support', 'Comfort: Skin Irritation or Allergic Reaction',
+        'Defect: Broken / Structural Failure', 'Defect: Malfunctions / Stops Working',
+        'Defect: Cosmetic Damage', 'Defect: Poor Material Quality',
+        "Performance: Ineffective / Doesn't Help", 'Equipment Compatibility Issue',
+        'Stability: Shifts / Unstable / Falls', 'Assembly / Usage Difficulty',
+        'Missing or Incomplete Components', 'Medical / Safety Concern',
+    }
+
     output = io.BytesIO()
     if EXCEL_AVAILABLE:
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            # ── Sheet 1: Returns (raw categorized data, column K highlighted) ─
             df.to_excel(writer, index=False, sheet_name='Returns')
             workbook = writer.book
             worksheet = writer.sheets['Returns']
-            fmt = workbook.add_format({'bg_color': '#E6F5E6', 'font_color': '#006600', 'bold': True})
-            worksheet.set_column(10, 10, 20, fmt)
+            cat_col_fmt = workbook.add_format({'bg_color': '#E6F5E6', 'font_color': '#006600', 'bold': True})
+            worksheet.set_column(10, 10, 20, cat_col_fmt)
+
+            # ── Resolve column names from mapping or position ──────────────────
+            cm = column_mapping or {}
+            cat_col = cm.get('category') or (df.columns[10] if len(df.columns) > 10 else None)
+            sku_col = cm.get('sku')
+
+            if cat_col and cat_col in df.columns:
+                cat_series = df[cat_col].dropna()
+                cat_series = cat_series[cat_series.astype(str).str.strip() != '']
+                total = len(cat_series)
+
+                if total > 0:
+                    # ── Sheet 2: Category Summary ──────────────────────────────
+                    counts = cat_series.value_counts().reset_index()
+                    counts.columns = ['Category', 'Count']
+                    counts['pct'] = counts['Count'] / total
+
+                    ws_sum = workbook.add_worksheet('Category Summary')
+
+                    hdr_fmt  = workbook.add_format({'bold': True, 'bg_color': '#1B2A4A', 'font_color': '#00F3FF', 'border': 1, 'align': 'center'})
+                    qual_fmt = workbook.add_format({'bg_color': '#FFE8E8', 'border': 1})
+                    ok_fmt   = workbook.add_format({'bg_color': '#E8F5E9', 'border': 1})
+                    pct_qual = workbook.add_format({'num_format': '0.0%', 'bg_color': '#FFE8E8', 'border': 1})
+                    pct_ok   = workbook.add_format({'num_format': '0.0%', 'bg_color': '#E8F5E9', 'border': 1})
+
+                    ws_sum.set_column(0, 0, 45)
+                    ws_sum.set_column(1, 1, 28)
+                    ws_sum.set_column(2, 2, 10)
+                    ws_sum.set_column(3, 3, 12)
+                    ws_sum.set_column(4, 4, 16)
+
+                    for col_i, hdr in enumerate(['Category', 'Quality Group', 'Count', '% of Total', 'Is Quality Issue']):
+                        ws_sum.write(0, col_i, hdr, hdr_fmt)
+
+                    for row_i, row in counts.iterrows():
+                        cat  = row['Category']
+                        grp  = _CATEGORY_GROUPS.get(cat, 'Other')
+                        qual = cat in _QUALITY_ISSUE_CATS
+                        rfmt = qual_fmt if qual else ok_fmt
+                        pfmt = pct_qual if qual else pct_ok
+                        ws_sum.write(row_i + 1, 0, cat, rfmt)
+                        ws_sum.write(row_i + 1, 1, grp, rfmt)
+                        ws_sum.write(row_i + 1, 2, int(row['Count']), rfmt)
+                        ws_sum.write(row_i + 1, 3, row['pct'], pfmt)
+                        ws_sum.write(row_i + 1, 4, 'Yes' if qual else 'No', rfmt)
+
+                    # Group-level summary below the per-category table
+                    gap = len(counts) + 3
+                    grp_series  = cat_series.map(lambda c: _CATEGORY_GROUPS.get(c, 'Other'))
+                    grp_counts  = grp_series.value_counts().reset_index()
+                    grp_counts.columns = ['Quality Group', 'Count']
+
+                    grp_hdr = workbook.add_format({'bold': True, 'bg_color': '#2C3E50', 'font_color': '#ECF0F1', 'border': 1})
+                    grp_dat = workbook.add_format({'border': 1, 'bg_color': '#F4F6F7'})
+                    grp_pct = workbook.add_format({'num_format': '0.0%', 'border': 1, 'bg_color': '#F4F6F7'})
+
+                    ws_sum.write(gap, 0, 'Quality Group', grp_hdr)
+                    ws_sum.write(gap, 1, 'Count', grp_hdr)
+                    ws_sum.write(gap, 2, '% of Total', grp_hdr)
+                    for i, row in grp_counts.iterrows():
+                        ws_sum.write(gap + 1 + i, 0, row['Quality Group'], grp_dat)
+                        ws_sum.write(gap + 1 + i, 1, int(row['Count']), grp_dat)
+                        ws_sum.write(gap + 1 + i, 2, row['Count'] / total, grp_pct)
+
+                    # ── Sheet 3: By SKU ────────────────────────────────────────
+                    if sku_col and sku_col in df.columns:
+                        sku_df = df[[sku_col, cat_col]].dropna(subset=[cat_col]).copy()
+                        sku_df = sku_df[sku_df[cat_col].astype(str).str.strip() != '']
+                        sku_df = sku_df[~sku_df[sku_col].astype(str).str.strip().isin(['', 'nan'])]
+
+                        if not sku_df.empty:
+                            sku_df['_sku'] = sku_df[sku_col].astype(str).str.strip()
+                            grp_df = sku_df.groupby(['_sku', cat_col]).size().reset_index()
+                            grp_df.columns = ['SKU', 'Category', 'Count']
+                            sku_totals = grp_df.groupby('SKU')['Count'].transform('sum')
+                            grp_df['% within SKU'] = (grp_df['Count'] / sku_totals * 100).round(1)
+                            grp_df['Quality Group'] = grp_df['Category'].map(lambda c: _CATEGORY_GROUPS.get(c, 'Other'))
+                            grp_df['Is Quality Issue'] = grp_df['Category'].apply(lambda c: 'Yes' if c in _QUALITY_ISSUE_CATS else 'No')
+                            grp_df = grp_df.sort_values(['SKU', 'Count'], ascending=[True, False]).reset_index(drop=True)
+
+                            grp_df.to_excel(writer, index=False, sheet_name='By SKU')
+                            ws_sku = writer.sheets['By SKU']
+                            ws_sku.set_column(0, 0, 20)
+                            ws_sku.set_column(1, 1, 45)
+                            ws_sku.set_column(2, 2, 10)
+                            ws_sku.set_column(3, 3, 14)
+                            ws_sku.set_column(4, 4, 28)
+                            ws_sku.set_column(5, 5, 16)
     else:
         df.to_csv(output, index=False)
+
     output.seek(0)
     return output.getvalue()
 
@@ -9535,87 +9893,243 @@ def render_inventory_integration_tab():
 
     # --- TAB 1: Data Upload ---
     with inv_tab1:
-        st.markdown("#### Upload Inventory & Return Data")
+        st.markdown("#### Inventory & Return Data Input")
 
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.markdown("##### 📋 Odoo Inventory File")
-            st.caption("Upload your Odoo Inventory Forecast export (Excel format)")
-            odoo_file = st.file_uploader(
-                "Odoo Inventory Forecast",
-                type=['xlsx', 'xls'],
-                key="odoo_upload",
-                help="First data row contains headers: SKU, ASIN, Product Title, On Hand, DOI, etc."
-            )
-
-            if odoo_file:
-                st.success("✅ Odoo file uploaded")
-                with st.expander("ℹ️ Expected Odoo Columns"):
-                    st.markdown("""
-                    **Required columns:**
-                    - SKU, ASIN, Product Title
-                    - On Hand, On Order, Shipments in Transit, FBA Inbound, Total Units
-                    - Total Daily rate, Unit Cost
-                    - DOI, Warehouse DOI
-                    - Status, Amazon Status
-                    """)
-
-        with col2:
-            st.markdown("##### 📊 Pivot Return Report (Optional)")
-            st.caption("Upload B2B returns data for enhanced analysis")
-            pivot_file = st.file_uploader(
-                "Pivot Return Report",
-                type=['xlsx', 'xls'],
-                key="pivot_upload",
-                help="B2B returns with format: [SKU] Product Name"
-            )
-
-            if pivot_file:
-                st.success("✅ Pivot return report uploaded")
-                with st.expander("ℹ️ Pivot Report Format"):
-                    st.markdown("""
-                    **Expected format:**
-                    - Hierarchical pivot structure
-                    - SKU rows: `[SKU] Product Name`
-                    - Return quantities by month (optional)
-                    - **Note:** This is B2B returns only
-                    """)
+        input_mode = st.radio(
+            "Input method",
+            ["📤 File Upload", "✏️ Manual Entry"],
+            horizontal=True,
+            label_visibility="collapsed",
+            key="inv_input_mode"
+        )
 
         st.markdown("---")
 
-        # Process button
-        if odoo_file:
-            if st.button("🚀 Process Inventory Data", type="primary", width="stretch"):
-                with st.spinner("Processing inventory data..."):
-                    try:
-                        # Parse Odoo file
-                        odoo_parser = OdooInventoryParser()
-                        odoo_df = odoo_parser.parse_file(odoo_file)
+        # ── FILE UPLOAD MODE ──────────────────────────────────────────────────
+        if input_mode == "📤 File Upload":
+            col1, col2 = st.columns(2)
 
-                        st.success(f"✅ Parsed {len(odoo_df)} SKUs from Odoo")
+            with col1:
+                st.markdown("##### 📋 Odoo Inventory File")
+                st.caption("Upload your Odoo Inventory Forecast export (Excel format)")
+                odoo_file = st.file_uploader(
+                    "Odoo Inventory Forecast",
+                    type=['xlsx', 'xls'],
+                    key="odoo_upload",
+                    help="The file should contain headers: SKU, Product Title, On Hand, Total Daily rate, Unit Cost, etc."
+                )
 
-                        # Parse Pivot Return Report if provided
-                        returns_df = None
-                        if pivot_file:
-                            pivot_parser = PivotReturnReportParser()
-                            returns_df = pivot_parser.parse_file(pivot_file)
-                            st.success(f"✅ Parsed {len(returns_df)} SKUs from B2B returns")
+                if odoo_file:
+                    st.success(f"✅ {odoo_file.name} uploaded")
+                    with st.expander("ℹ️ Expected Odoo Columns"):
+                        st.markdown("""
+                        **Required columns:**
+                        - `SKU`, `Product Title`
+                        - `On Hand`, `Total Units`, `Total Daily rate`, `Unit Cost`
 
-                        # Calculate inventory metrics
-                        calculator = InventoryCalculator(st.session_state.inventory_config)
-                        results_df = calculator.calculate_inventory_metrics(odoo_df, returns_df)
+                        **Optional (auto-filled with 0 if missing):**
+                        - `On Order`, `Shipments in Transit`, `FBA Inbound`
+                        - `ASIN`, `Supplier`, `Status`, `Amazon Status`, `DOI`
+                        """)
 
-                        # Store in session state
-                        st.session_state.inventory_data = odoo_df
-                        st.session_state.inventory_results = results_df
+            with col2:
+                st.markdown("##### 📊 Pivot Return Report (Optional)")
+                st.caption("Upload B2B returns data for enhanced analysis")
+                pivot_file = st.file_uploader(
+                    "Pivot Return Report",
+                    type=['xlsx', 'xls'],
+                    key="pivot_upload",
+                    help="B2B returns pivot with SKU rows formatted as: [SKU] Product Name"
+                )
 
-                        st.success("✅ Inventory calculations complete!")
-                        st.info("📊 Switch to 'Dashboard & Results' tab to view analysis")
+                if pivot_file:
+                    st.success(f"✅ {pivot_file.name} uploaded")
+                    with st.expander("ℹ️ Pivot Report Format"):
+                        st.markdown("""
+                        **Expected format:**
+                        - Hierarchical pivot structure
+                        - SKU rows: `[SKU] Product Name`
+                        - Return quantities by month (optional)
+                        - **Note:** B2B returns only (not Amazon)
+                        """)
+                else:
+                    pivot_file = None
 
-                    except Exception as e:
-                        st.error(f"❌ Error processing files: {str(e)}")
-                        logger.error(f"Inventory processing error: {str(e)}", exc_info=True)
+            st.markdown("---")
+
+            if odoo_file:
+                if st.button("🚀 Process Inventory Data", type="primary", width="stretch"):
+                    with st.spinner("Parsing and calculating inventory metrics..."):
+                        try:
+                            odoo_file.seek(0)
+                            odoo_parser = OdooInventoryParser()
+                            odoo_df = odoo_parser.parse_file(odoo_file)
+                            st.success(f"✅ Parsed {len(odoo_df)} SKUs from Odoo file")
+
+                            returns_df = None
+                            if pivot_file:
+                                pivot_file.seek(0)
+                                pivot_parser = PivotReturnReportParser()
+                                returns_df = pivot_parser.parse_file(pivot_file)
+                                st.success(f"✅ Parsed {len(returns_df)} SKUs from B2B returns")
+
+                            calculator = InventoryCalculator(st.session_state.inventory_config)
+                            results_df = calculator.calculate_inventory_metrics(odoo_df, returns_df)
+
+                            st.session_state.inventory_data = odoo_df
+                            st.session_state.inventory_results = results_df
+                            st.success(f"✅ Metrics calculated for {len(results_df)} SKUs — switch to **Dashboard & Results**")
+                            st.rerun()
+
+                        except ValueError as e:
+                            st.error(f"❌ File format error: {e}")
+                            st.info("💡 Make sure the file contains the required columns: SKU, Product Title, On Hand, Total Units, Total Daily rate, Unit Cost")
+                            logger.error(f"Inventory parse error: {e}", exc_info=True)
+                        except Exception as e:
+                            st.error(f"❌ Unexpected error: {e}")
+                            logger.error(f"Inventory processing error: {e}", exc_info=True)
+            else:
+                st.info("👆 Upload your Odoo Inventory Forecast file above to get started")
+
+        # ── MANUAL ENTRY MODE ─────────────────────────────────────────────────
+        else:
+            st.markdown("##### ✏️ Enter Inventory Data Manually")
+            st.caption("Enter one row per SKU. **Total Units** is auto-calculated (On Hand + On Order + In Transit + FBA Inbound).")
+
+            if 'manual_inventory_df' not in st.session_state:
+                st.session_state.manual_inventory_df = pd.DataFrame({
+                    'SKU':                  ['', '', ''],
+                    'Product Title':        ['', '', ''],
+                    'On Hand':              [0, 0, 0],
+                    'On Order':             [0, 0, 0],
+                    'Shipments in Transit': [0, 0, 0],
+                    'FBA Inbound':          [0, 0, 0],
+                    'Total Daily rate':     [0.0, 0.0, 0.0],
+                    'Unit Cost':            [0.0, 0.0, 0.0],
+                })
+
+            edited_df = st.data_editor(
+                st.session_state.manual_inventory_df,
+                num_rows="dynamic",
+                use_container_width=True,
+                column_config={
+                    'SKU': st.column_config.TextColumn(
+                        'SKU *', help="Product SKU (e.g. MOB-2847)", required=True
+                    ),
+                    'Product Title': st.column_config.TextColumn(
+                        'Product Title *', help="Full product name", required=True
+                    ),
+                    'On Hand': st.column_config.NumberColumn(
+                        'On Hand', help="Units currently in warehouse", min_value=0, step=1, format="%d"
+                    ),
+                    'On Order': st.column_config.NumberColumn(
+                        'On Order', help="Units on open POs", min_value=0, step=1, format="%d"
+                    ),
+                    'Shipments in Transit': st.column_config.NumberColumn(
+                        'In Transit', help="Units shipped but not yet received", min_value=0, step=1, format="%d"
+                    ),
+                    'FBA Inbound': st.column_config.NumberColumn(
+                        'FBA Inbound', help="Units being sent to Amazon FBA", min_value=0, step=1, format="%d"
+                    ),
+                    'Total Daily rate': st.column_config.NumberColumn(
+                        'Daily Sales Rate', help="Average units sold per day", min_value=0.0, format="%.2f"
+                    ),
+                    'Unit Cost': st.column_config.NumberColumn(
+                        'Unit Cost ($)', help="Landed cost per unit", min_value=0.0, format="$%.2f"
+                    ),
+                },
+                key="manual_inv_editor"
+            )
+            st.session_state.manual_inventory_df = edited_df
+
+            st.markdown("---")
+            st.markdown("##### 📊 B2B Return Quantities (Optional)")
+            st.caption("Paste SKU return counts to factor B2B returns into the analysis.")
+
+            b2b_col1, b2b_col2 = st.columns([2, 1])
+            with b2b_col1:
+                b2b_input = st.text_area(
+                    "B2B returns (SKU: quantity per line)",
+                    placeholder="MOB-2847: 45\nSUP-5621: 12\nINS-3421: 8",
+                    height=120,
+                    label_visibility="collapsed",
+                    key="manual_b2b_input"
+                )
+            with b2b_col2:
+                st.markdown("""
+                **Format:**
+                ```
+                SKU: quantity
+                MOB-2847: 45
+                SUP-5621: 12
+                ```
+                One entry per line.
+                """)
+
+            st.markdown("---")
+
+            if st.button("🚀 Calculate Inventory Metrics", type="primary", width="stretch"):
+                valid_rows = edited_df[
+                    (edited_df['SKU'].astype(str).str.strip() != '') &
+                    (edited_df['Product Title'].astype(str).str.strip() != '')
+                ].copy()
+
+                if valid_rows.empty:
+                    st.error("❌ Please enter at least one SKU with a Product Title before calculating.")
+                else:
+                    with st.spinner(f"Calculating metrics for {len(valid_rows)} SKU(s)..."):
+                        try:
+                            # Compute Total Units from components
+                            valid_rows['Total Units'] = (
+                                valid_rows['On Hand'].fillna(0).astype(int) +
+                                valid_rows['On Order'].fillna(0).astype(int) +
+                                valid_rows['Shipments in Transit'].fillna(0).astype(int) +
+                                valid_rows['FBA Inbound'].fillna(0).astype(int)
+                            )
+
+                            # Ensure numeric types match what InventoryCalculator expects
+                            for _c in ['On Hand', 'On Order', 'Shipments in Transit', 'FBA Inbound', 'Total Units']:
+                                valid_rows[_c] = pd.to_numeric(valid_rows[_c], errors='coerce').fillna(0).astype(int)
+                            for _c in ['Total Daily rate', 'Unit Cost']:
+                                valid_rows[_c] = pd.to_numeric(valid_rows[_c], errors='coerce').fillna(0.0)
+
+                            # Add optional columns with defaults
+                            for _c in ['ASIN', 'Supplier', 'Status', 'Amazon Status']:
+                                valid_rows[_c] = ''
+                            for _c in ['DOI', 'Warehouse DOI']:
+                                valid_rows[_c] = float('nan')
+                            for _c in ['Last Sale (days)', 'Amazon OOS', 'Warehouse OOS', 'Total OOS']:
+                                valid_rows[_c] = 0
+
+                            # Parse B2B returns if provided
+                            returns_df = None
+                            if b2b_input.strip():
+                                b2b_records = []
+                                for line in b2b_input.strip().splitlines():
+                                    line = line.strip()
+                                    if ':' in line:
+                                        sku_part, qty_part = line.split(':', 1)
+                                        try:
+                                            b2b_records.append({
+                                                'SKU': sku_part.strip(),
+                                                'B2B_ReturnQty': int(qty_part.strip())
+                                            })
+                                        except ValueError:
+                                            pass
+                                if b2b_records:
+                                    returns_df = pd.DataFrame(b2b_records)
+
+                            calculator = InventoryCalculator(st.session_state.inventory_config)
+                            results_df = calculator.calculate_inventory_metrics(valid_rows, returns_df)
+
+                            st.session_state.inventory_data = valid_rows
+                            st.session_state.inventory_results = results_df
+                            st.success(f"✅ Metrics calculated for {len(results_df)} SKU(s) — switch to **Dashboard & Results**")
+                            st.rerun()
+
+                        except Exception as e:
+                            st.error(f"❌ Calculation error: {e}")
+                            logger.error(f"Manual inventory calc error: {e}", exc_info=True)
 
     # --- TAB 2: Configuration ---
     with inv_tab2:
@@ -9711,175 +10225,154 @@ def render_inventory_integration_tab():
     # --- TAB 3: Dashboard & Results ---
     with inv_tab3:
         if st.session_state.inventory_results is None:
-            st.info("📤 Upload and process inventory data in the 'Data Upload' tab first")
-            return
+            st.info("📤 Upload and process inventory data in the **Data Upload** tab first, then return here to view your dashboard.")
 
-        results_df = st.session_state.inventory_results
+        if st.session_state.inventory_results is not None:
+            results_df = st.session_state.inventory_results
 
-        st.markdown("#### 📊 Inventory Analysis Dashboard")
+            st.markdown("#### 📊 Inventory Analysis Dashboard")
 
-        # Summary KPIs
-        st.markdown("##### 📈 Summary Metrics")
-        kpi_col1, kpi_col2, kpi_col3, kpi_col4 = st.columns(4)
+            # Summary KPIs
+            st.markdown("##### 📈 Summary Metrics")
+            kpi_col1, kpi_col2, kpi_col3, kpi_col4 = st.columns(4)
 
-        with kpi_col1:
-            total_skus = len(results_df)
-            st.metric("Total SKUs", f"{total_skus:,}")
+            with kpi_col1:
+                total_skus = len(results_df)
+                st.metric("Total SKUs", f"{total_skus:,}")
 
-        with kpi_col2:
-            past_reorder = len(results_df[results_df['DaysToReorder'] < 0])
-            st.metric("⚠️ Past Reorder Point", past_reorder,
-                     delta=None if past_reorder == 0 else "Action Needed",
-                     delta_color="inverse")
+            with kpi_col2:
+                past_reorder = len(results_df[results_df['DaysToReorder'] < 0])
+                st.metric("⚠️ Past Reorder Point", past_reorder,
+                         delta=None if past_reorder == 0 else "Action Needed",
+                         delta_color="inverse")
 
-        with kpi_col3:
-            reorder_soon = len(results_df[(results_df['DaysToReorder'] >= 0) &
-                                         (results_df['DaysToReorder'] < 14)])
-            st.metric("🟡 Reorder Soon (<14d)", reorder_soon)
+            with kpi_col3:
+                reorder_soon = len(results_df[(results_df['DaysToReorder'] >= 0) &
+                                             (results_df['DaysToReorder'] < 14)])
+                st.metric("🟡 Reorder Soon (<14d)", reorder_soon)
 
-        with kpi_col4:
-            total_at_risk = results_df['AtRiskDollars'].sum()
-            st.metric("💰 At-Risk Pipeline", f"${total_at_risk:,.0f}")
+            with kpi_col4:
+                total_at_risk = results_df['AtRiskDollars'].sum()
+                st.metric("💰 At-Risk Pipeline", f"${total_at_risk:,.0f}")
 
-        st.markdown("---")
+            st.markdown("---")
 
-        # Filters
-        st.markdown("##### 🔍 Filters")
-        filter_col1, filter_col2, filter_col3 = st.columns(3)
+            # Filters
+            st.markdown("##### 🔍 Filters")
+            filter_col1, filter_col2, filter_col3 = st.columns(3)
 
-        with filter_col1:
-            status_filter = st.multiselect(
-                "Status",
-                options=['Past Reorder', 'Reorder Soon', 'Healthy'],
-                default=['Past Reorder', 'Reorder Soon']
+            with filter_col1:
+                status_filter = st.multiselect(
+                    "Status",
+                    options=['Past Reorder', 'Reorder Soon', 'Healthy'],
+                    default=['Past Reorder', 'Reorder Soon']
+                )
+
+            with filter_col2:
+                category_filter = st.multiselect(
+                    "Category",
+                    options=['All'] + list(results_df['Product Title'].str[:3].unique()),
+                    default=['All']
+                )
+
+            with filter_col3:
+                sort_by = st.selectbox(
+                    "Sort By",
+                    options=['DaysToReorder', 'DOI_Conservative', 'AtRiskDollars', 'SKU'],
+                    index=0
+                )
+
+            # Apply filters
+            filtered_df = results_df.copy()
+
+            # Status filter
+            if status_filter:
+                status_conditions = []
+                if 'Past Reorder' in status_filter:
+                    status_conditions.append(filtered_df['DaysToReorder'] < 0)
+                if 'Reorder Soon' in status_filter:
+                    status_conditions.append((filtered_df['DaysToReorder'] >= 0) &
+                                            (filtered_df['DaysToReorder'] < 14))
+                if 'Healthy' in status_filter:
+                    status_conditions.append(filtered_df['DaysToReorder'] >= 14)
+
+                if status_conditions:
+                    combined_condition = status_conditions[0]
+                    for cond in status_conditions[1:]:
+                        combined_condition = combined_condition | cond
+                    filtered_df = filtered_df[combined_condition]
+
+            # Sort
+            filtered_df = filtered_df.sort_values(by=sort_by)
+
+            st.markdown("---")
+            st.markdown(f"##### 📋 Results ({len(filtered_df)} SKUs)")
+
+            # Display results table
+            display_columns = [
+                'SKU', 'Product Title', 'On Hand', 'Total Units',
+                'Total Daily rate', 'DOI_Planning', 'DOI_Conservative',
+                'DaysToReorder', 'MustOrderBy', 'CA_Window_BeforePO',
+                'AtRiskUnits', 'AtRiskDollars'
+            ]
+
+            display_df = filtered_df[display_columns].copy()
+
+            # Format numeric columns
+            display_df['DOI_Planning'] = display_df['DOI_Planning'].apply(
+                lambda x: f"{x:.1f}" if pd.notna(x) else "N/A"
+            )
+            display_df['DOI_Conservative'] = display_df['DOI_Conservative'].apply(
+                lambda x: f"{x:.1f}" if pd.notna(x) else "N/A"
+            )
+            display_df['DaysToReorder'] = display_df['DaysToReorder'].apply(
+                lambda x: f"{x:.1f}" if pd.notna(x) else "N/A"
+            )
+            display_df['CA_Window_BeforePO'] = display_df['CA_Window_BeforePO'].apply(
+                lambda x: f"{x:.1f}" if pd.notna(x) else "N/A"
+            )
+            display_df['AtRiskDollars'] = display_df['AtRiskDollars'].apply(
+                lambda x: f"${x:,.0f}"
             )
 
-        with filter_col2:
-            category_filter = st.multiselect(
-                "Category",
-                options=['All'] + list(results_df['Product Title'].str[:3].unique()),
-                default=['All']
-            )
+            st.dataframe(display_df, use_container_width=True, height=600)
 
-        with filter_col3:
-            sort_by = st.selectbox(
-                "Sort By",
-                options=['DaysToReorder', 'DOI_Conservative', 'AtRiskDollars', 'SKU'],
-                index=0
-            )
+            # Export options
+            st.markdown("---")
+            st.markdown("##### 📤 Export Options")
 
-        # Apply filters
-        filtered_df = results_df.copy()
+            export_col1, export_col2 = st.columns(2)
 
-        # Status filter
-        if status_filter:
-            status_conditions = []
-            if 'Past Reorder' in status_filter:
-                status_conditions.append(filtered_df['DaysToReorder'] < 0)
-            if 'Reorder Soon' in status_filter:
-                status_conditions.append((filtered_df['DaysToReorder'] >= 0) &
-                                        (filtered_df['DaysToReorder'] < 14))
-            if 'Healthy' in status_filter:
-                status_conditions.append(filtered_df['DaysToReorder'] >= 14)
-
-            if status_conditions:
-                combined_condition = status_conditions[0]
-                for cond in status_conditions[1:]:
-                    combined_condition = combined_condition | cond
-                filtered_df = filtered_df[combined_condition]
-
-        # Sort
-        filtered_df = filtered_df.sort_values(by=sort_by)
-
-        st.markdown("---")
-        st.markdown(f"##### 📋 Results ({len(filtered_df)} SKUs)")
-
-        # Display results table
-        display_columns = [
-            'SKU', 'Product Title', 'On Hand', 'Total Units',
-            'Total Daily rate', 'DOI_Planning', 'DOI_Conservative',
-            'DaysToReorder', 'MustOrderBy', 'CA_Window_BeforePO',
-            'AtRiskUnits', 'AtRiskDollars'
-        ]
-
-        display_df = filtered_df[display_columns].copy()
-
-        # Format numeric columns
-        display_df['DOI_Planning'] = display_df['DOI_Planning'].apply(
-            lambda x: f"{x:.1f}" if pd.notna(x) else "N/A"
-        )
-        display_df['DOI_Conservative'] = display_df['DOI_Conservative'].apply(
-            lambda x: f"{x:.1f}" if pd.notna(x) else "N/A"
-        )
-        display_df['DaysToReorder'] = display_df['DaysToReorder'].apply(
-            lambda x: f"{x:.1f}" if pd.notna(x) else "N/A"
-        )
-        display_df['CA_Window_BeforePO'] = display_df['CA_Window_BeforePO'].apply(
-            lambda x: f"{x:.1f}" if pd.notna(x) else "N/A"
-        )
-        display_df['AtRiskDollars'] = display_df['AtRiskDollars'].apply(
-            lambda x: f"${x:,.0f}"
-        )
-
-        st.dataframe(display_df, width="stretch", height=600)
-
-        # Export options
-        st.markdown("---")
-        st.markdown("##### 📤 Export Options")
-
-        export_col1, export_col2 = st.columns(2)
-
-        with export_col1:
-            # CSV export
-            csv_buffer = io.StringIO()
-            filtered_df.to_csv(csv_buffer, index=False)
-            st.download_button(
-                "📥 Export to CSV",
-                csv_buffer.getvalue(),
-                file_name=f"inventory_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv",
-                width="stretch"
-            )
-
-        with export_col2:
-            # Excel export (if available)
-            if EXCEL_AVAILABLE:
-                excel_buffer = io.BytesIO()
-                with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
-                    filtered_df.to_excel(writer, sheet_name='Inventory Analysis', index=False)
-
+            with export_col1:
+                csv_buffer = io.StringIO()
+                filtered_df.to_csv(csv_buffer, index=False)
                 st.download_button(
-                    "📥 Export to Excel",
-                    excel_buffer.getvalue(),
-                    file_name=f"inventory_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    "📥 Export to CSV",
+                    csv_buffer.getvalue(),
+                    file_name=f"inventory_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
                     width="stretch"
                 )
+
+            with export_col2:
+                if EXCEL_AVAILABLE:
+                    excel_buffer = io.BytesIO()
+                    with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
+                        filtered_df.to_excel(writer, sheet_name='Inventory Analysis', index=False)
+                    st.download_button(
+                        "📥 Export to Excel",
+                        excel_buffer.getvalue(),
+                        file_name=f"inventory_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        width="stretch"
+                    )
 
     # --- TAB 4: Critical Integration View ---
     with inv_tab4:
         st.markdown("### 🚨 Critical Integration View: Quality + Inventory + Reorder")
         st.caption("Unified view showing SKUs with BOTH quality issues AND inventory urgency")
 
-        # Prompt to use quality screening data
-        if st.session_state.qc_results_df is None or st.session_state.qc_results_df.empty:
-            st.info("""
-            💡 **Tip: Integrate Quality Screening Data**
-
-            This view combines quality issues with inventory urgency to help you answer:
-            - "Can we fix quality issues BEFORE reordering?"
-            - "Which problems are most urgent financially?"
-            - "Do we have time for corrective action?"
-
-            **To enable this view:**
-            1. Go to **Tab 3: Quality Screening**
-            2. Run screening (Lite, Pro, or Quick Eval modes)
-            3. Return here to see integrated analysis
-
-            The tool will automatically merge quality flags with your inventory data!
-            """)
-
-        # Check if we have both quality and inventory data
+        # Check data availability
         has_quality_data = st.session_state.qc_results_df is not None and not st.session_state.qc_results_df.empty
         has_inventory_data = st.session_state.inventory_results is not None and not st.session_state.inventory_results.empty
 
@@ -9888,286 +10381,209 @@ def render_inventory_integration_tab():
             📊 **No data available yet**
 
             To use the Critical Integration View:
-            1. Run quality screening in **Tab 3: Quality Screening**
-            2. Upload inventory data in **Tab 4: Inventory Integration → Data Upload**
+            1. Run quality screening via **Quality Screening** tool
+            2. Upload or enter inventory data in the **Data Upload** tab above
 
-            This view will then show products with BOTH quality flags AND inventory urgency.
+            Once both datasets are loaded, this view automatically merges them to show which
+            products have BOTH quality issues AND inventory urgency — so you know exactly where
+            to act first.
             """)
-            return
+        elif not has_quality_data:
+            st.warning("⚠️ Missing quality screening data — run a quality screening first, then return here.")
+        elif not has_inventory_data:
+            st.warning("⚠️ Missing inventory data — upload or enter inventory data in the **Data Upload** tab, then return here.")
 
-        if not has_quality_data:
-            st.warning("⚠️ Missing quality screening data. Please run analysis in Tab 3 first.")
-            return
+        if has_quality_data and has_inventory_data:
+            quality_df = st.session_state.qc_results_df.copy()
+            inventory_df = st.session_state.inventory_results.copy()
 
-        if not has_inventory_data:
-            st.warning("⚠️ Missing inventory data. Please upload Odoo data in the 'Data Upload' tab first.")
-            return
+            # Find SKU column in quality data
+            sku_col_quality = None
+            for col in ['SKU', 'Main SKU', 'sku', 'Product_ID']:
+                if col in quality_df.columns:
+                    sku_col_quality = col
+                    break
 
-        # Merge quality and inventory data
-        quality_df = st.session_state.qc_results_df.copy()
-        inventory_df = st.session_state.inventory_results.copy()
+            sku_col_inventory = 'SKU'
 
-        # Try to merge on SKU column (handle different naming)
-        sku_col_quality = None
-        for col in ['SKU', 'Main SKU', 'sku', 'Product_ID']:
-            if col in quality_df.columns:
-                sku_col_quality = col
-                break
-
-        sku_col_inventory = 'SKU'  # Standard from Odoo parser
-
-        if sku_col_quality is None:
-            st.error("Could not find SKU column in quality data")
-            return
-
-        # Merge datasets
-        try:
-            merged_df = quality_df.merge(
-                inventory_df,
-                left_on=sku_col_quality,
-                right_on=sku_col_inventory,
-                how='inner',
-                suffixes=('_quality', '_inventory')
-            )
-
-            if merged_df.empty:
-                st.warning("⚠️ No matching SKUs found between quality screening and inventory data")
-                return
-
-            # Calculate integrated priority scoring
-            merged_df['IntegratedPriority'] = 0
-
-            # Quality factors
-            if 'Return_Rate' in merged_df.columns:
-                merged_df['IntegratedPriority'] += merged_df['Return_Rate'] * 100
-
-            if 'Risk_Score' in merged_df.columns:
-                merged_df['IntegratedPriority'] += merged_df['Risk_Score'] / 10
-
-            # Inventory urgency factors
-            if 'DaysToReorder' in merged_df.columns:
-                # More urgent = higher priority
-                merged_df['IntegratedPriority'] += merged_df['DaysToReorder'].apply(
-                    lambda x: 50 if pd.isna(x) or x < 0 else (30 if x < 7 else (15 if x < 14 else 0))
-                )
-
-            # Financial exposure
-            if 'AtRiskDollars' in merged_df.columns:
-                max_risk = merged_df['AtRiskDollars'].max()
-                if max_risk > 0:
-                    merged_df['IntegratedPriority'] += (merged_df['AtRiskDollars'] / max_risk) * 20
-
-            # Assign urgency classification
-            def classify_urgency(row):
-                days = row.get('DaysToReorder', None)
-                return_rate = row.get('Return_Rate', 0)
-                risk = row.get('Risk_Score', 0)
-
-                # Critical: Past reorder + quality issue
-                if pd.notna(days) and days < 0 and (return_rate > 0.10 or risk > 70):
-                    return '🔴 CRITICAL'
-                # High: <7 days + quality issue
-                elif pd.notna(days) and days < 7 and (return_rate > 0.08 or risk > 60):
-                    return '🟠 HIGH'
-                # Medium: 7-14 days + quality issue
-                elif pd.notna(days) and days < 14 and (return_rate > 0.05 or risk > 50):
-                    return '🟡 MEDIUM'
-                # Low: 14-30 days buffer
-                elif pd.notna(days) and days < 30:
-                    return '🟢 LOW'
-                else:
-                    return '⚪ MONITOR'
-
-            merged_df['UrgencyClass'] = merged_df.apply(classify_urgency, axis=1)
-
-            # Generate recommendations
-            def generate_recommendation(row):
-                days = row.get('DaysToReorder', None)
-                ca_before_po = row.get('CA_Window_BeforePO', None)
-                urgency = row.get('UrgencyClass', '')
-
-                if '🔴 CRITICAL' in urgency:
-                    return "URGENT: Order now + expedite fix OR find substitute - past reorder point"
-                elif '🟠 HIGH' in urgency:
-                    if pd.notna(ca_before_po) and ca_before_po > 3:
-                        return f"Expedite investigation - {ca_before_po:.0f} days to fix before PO"
-                    else:
-                        return "Critical window - order with known issue + fix in parallel"
-                elif '🟡 MEDIUM' in urgency:
-                    if pd.notna(ca_before_po) and ca_before_po > 14:
-                        return f"Plan correction - {ca_before_po:.0f} days available before reorder"
-                    else:
-                        return "Monitor closely - investigate and track progress"
-                else:
-                    return "Continue monitoring - sufficient buffer time"
-
-            merged_df['Recommendation'] = merged_df.apply(generate_recommendation, axis=1)
-
-            # Sort by priority
-            merged_df = merged_df.sort_values('IntegratedPriority', ascending=False)
-
-            # Summary metrics
-            st.markdown("#### 📊 Integration Summary")
-            kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-
-            with kpi1:
-                total_integrated = len(merged_df)
-                st.metric("Total SKUs", f"{total_integrated:,}", help="Products with both quality and inventory data")
-
-            with kpi2:
-                critical_count = len(merged_df[merged_df['UrgencyClass'] == '🔴 CRITICAL'])
-                st.metric("🔴 Critical", critical_count,
-                         delta="Action in 0-3 days" if critical_count > 0 else None,
-                         delta_color="inverse")
-
-            with kpi3:
-                high_count = len(merged_df[merged_df['UrgencyClass'] == '🟠 HIGH'])
-                st.metric("🟠 High", high_count,
-                         delta="Action in 4-7 days" if high_count > 0 else None,
-                         delta_color="inverse")
-
-            with kpi4:
-                total_at_risk = merged_df['AtRiskDollars'].sum() if 'AtRiskDollars' in merged_df.columns else 0
-                st.metric("💰 At Risk", f"${total_at_risk:,.0f}", help="Total pipeline exposure")
-
-            st.markdown("---")
-
-            # Filters
-            st.markdown("#### 🔍 Filters")
-            filter_col1, filter_col2 = st.columns(2)
-
-            with filter_col1:
-                urgency_filter = st.multiselect(
-                    "Urgency Level",
-                    options=['🔴 CRITICAL', '🟠 HIGH', '🟡 MEDIUM', '🟢 LOW', '⚪ MONITOR'],
-                    default=['🔴 CRITICAL', '🟠 HIGH'],
-                    help="Filter by urgency classification"
-                )
-
-            with filter_col2:
-                min_priority = st.slider(
-                    "Minimum Priority Score",
-                    min_value=0,
-                    max_value=int(merged_df['IntegratedPriority'].max()),
-                    value=0,
-                    help="Show only products above this priority threshold"
-                )
-
-            # Apply filters
-            filtered_integrated = merged_df.copy()
-            if urgency_filter:
-                filtered_integrated = filtered_integrated[
-                    filtered_integrated['UrgencyClass'].isin(urgency_filter)
-                ]
-            filtered_integrated = filtered_integrated[
-                filtered_integrated['IntegratedPriority'] >= min_priority
-            ]
-
-            st.markdown(f"#### 📋 Critical Items ({len(filtered_integrated)} SKUs)")
-
-            if filtered_integrated.empty:
-                st.success("✅ No critical items match current filters")
+            if sku_col_quality is None:
+                st.error("❌ Could not find a SKU column in the quality screening data.")
             else:
-                # Display critical items
-                for idx, row in filtered_integrated.iterrows():
-                    urgency_colors = {
-                        '🔴 CRITICAL': '#dc2626',
-                        '🟠 HIGH': '#f59e0b',
-                        '🟡 MEDIUM': '#fbbf24',
-                        '🟢 LOW': '#10b981',
-                        '⚪ MONITOR': '#6b7280'
-                    }
+                try:
+                    merged_df = quality_df.merge(
+                        inventory_df,
+                        left_on=sku_col_quality,
+                        right_on=sku_col_inventory,
+                        how='inner',
+                        suffixes=('_quality', '_inventory')
+                    )
 
-                    urgency_color = urgency_colors.get(row['UrgencyClass'], '#6b7280')
+                    if merged_df.empty:
+                        st.warning("⚠️ No matching SKUs found between quality screening and inventory data. Ensure SKUs use the same format in both datasets.")
+                    else:
+                        # Integrated priority scoring
+                        merged_df['IntegratedPriority'] = 0
+                        if 'Return_Rate' in merged_df.columns:
+                            merged_df['IntegratedPriority'] += merged_df['Return_Rate'] * 100
+                        if 'Risk_Score' in merged_df.columns:
+                            merged_df['IntegratedPriority'] += merged_df['Risk_Score'] / 10
+                        if 'DaysToReorder' in merged_df.columns:
+                            merged_df['IntegratedPriority'] += merged_df['DaysToReorder'].apply(
+                                lambda x: 50 if pd.isna(x) or x < 0 else (30 if x < 7 else (15 if x < 14 else 0))
+                            )
+                        if 'AtRiskDollars' in merged_df.columns:
+                            max_risk = merged_df['AtRiskDollars'].max()
+                            if max_risk > 0:
+                                merged_df['IntegratedPriority'] += (merged_df['AtRiskDollars'] / max_risk) * 20
 
-                    with st.expander(
-                        f"{row['UrgencyClass']} | {row.get(sku_col_quality, 'Unknown')} - "
-                        f"{row.get('Product Name', row.get('Product_Name', row.get('Product Title', 'Unknown')))}",
-                        expanded=(row['UrgencyClass'] in ['🔴 CRITICAL', '🟠 HIGH'])
-                    ):
-                        st.markdown(f"""
-                        <div style="background: {urgency_color}; color: white; padding: 0.75rem;
-                                    border-radius: 8px; margin-bottom: 1rem;">
-                            <strong>Priority Score: {row['IntegratedPriority']:.1f}</strong>
-                        </div>
-                        """, unsafe_allow_html=True)
+                        def classify_urgency(row):
+                            days = row.get('DaysToReorder', None)
+                            return_rate = row.get('Return_Rate', 0)
+                            risk = row.get('Risk_Score', 0)
+                            if pd.notna(days) and days < 0 and (return_rate > 0.10 or risk > 70):
+                                return '🔴 CRITICAL'
+                            elif pd.notna(days) and days < 7 and (return_rate > 0.08 or risk > 60):
+                                return '🟠 HIGH'
+                            elif pd.notna(days) and days < 14 and (return_rate > 0.05 or risk > 50):
+                                return '🟡 MEDIUM'
+                            elif pd.notna(days) and days < 30:
+                                return '🟢 LOW'
+                            else:
+                                return '⚪ MONITOR'
 
-                        col1, col2, col3 = st.columns(3)
+                        def generate_recommendation(row):
+                            days = row.get('DaysToReorder', None)
+                            ca_before_po = row.get('CA_Window_BeforePO', None)
+                            urgency = row.get('UrgencyClass', '')
+                            if '🔴 CRITICAL' in urgency:
+                                return "URGENT: Order now + expedite fix OR find substitute — past reorder point"
+                            elif '🟠 HIGH' in urgency:
+                                if pd.notna(ca_before_po) and ca_before_po > 3:
+                                    return f"Expedite investigation — {ca_before_po:.0f} days to fix before PO"
+                                return "Critical window — order with known issue + fix in parallel"
+                            elif '🟡 MEDIUM' in urgency:
+                                if pd.notna(ca_before_po) and ca_before_po > 14:
+                                    return f"Plan correction — {ca_before_po:.0f} days available before reorder"
+                                return "Monitor closely — investigate and track progress"
+                            return "Continue monitoring — sufficient buffer time"
 
-                        with col1:
-                            st.markdown("**Quality Metrics**")
-                            _rr = row.get('Return_Rate') or 0
-                            return_rate = _rr * 100 if _rr < 1 else _rr
-                            st.metric("Return Rate", f"{return_rate:.2f}%")
-                            if 'Risk_Score' in row and pd.notna(row['Risk_Score']):
-                                st.metric("Risk Score", f"{row['Risk_Score']:.0f}")
-                            if 'Action_Required' in row:
-                                st.write(f"**Action:** {row['Action_Required']}")
+                        merged_df['UrgencyClass'] = merged_df.apply(classify_urgency, axis=1)
+                        merged_df['Recommendation'] = merged_df.apply(generate_recommendation, axis=1)
+                        merged_df = merged_df.sort_values('IntegratedPriority', ascending=False)
 
-                        with col2:
-                            st.markdown("**Inventory Status**")
-                            if 'DaysToReorder' in row and pd.notna(row['DaysToReorder']):
-                                st.metric("Days to Reorder", f"{row['DaysToReorder']:.1f}")
-                            if 'DOI_Conservative' in row and pd.notna(row['DOI_Conservative']):
-                                st.metric("DOI (Conservative)", f"{row['DOI_Conservative']:.1f}")
-                            if 'MustOrderBy' in row:
-                                st.write(f"**Must Order By:** {row['MustOrderBy']}")
+                        # Summary KPIs
+                        st.markdown("#### 📊 Integration Summary")
+                        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+                        with kpi1:
+                            st.metric("Matched SKUs", f"{len(merged_df):,}", help="Products with both quality and inventory data")
+                        with kpi2:
+                            critical_count = len(merged_df[merged_df['UrgencyClass'] == '🔴 CRITICAL'])
+                            st.metric("🔴 Critical", critical_count,
+                                     delta="Act now" if critical_count > 0 else None, delta_color="inverse")
+                        with kpi3:
+                            high_count = len(merged_df[merged_df['UrgencyClass'] == '🟠 HIGH'])
+                            st.metric("🟠 High", high_count,
+                                     delta="4-7 days" if high_count > 0 else None, delta_color="inverse")
+                        with kpi4:
+                            total_at_risk = merged_df['AtRiskDollars'].sum() if 'AtRiskDollars' in merged_df.columns else 0
+                            st.metric("💰 At Risk", f"${total_at_risk:,.0f}")
 
-                        with col3:
-                            st.markdown("**Financial Impact**")
-                            if 'AtRiskDollars' in row and pd.notna(row['AtRiskDollars']):
-                                st.metric("At Risk", f"${row['AtRiskDollars']:,.0f}")
-                            if 'AtRiskUnits' in row and pd.notna(row['AtRiskUnits']):
-                                st.metric("Units at Risk", f"{row['AtRiskUnits']:,}")
+                        st.markdown("---")
 
-                        # Recommendation box
-                        st.markdown(f"""
-                        <div style="background: #f0f9ff; border-left: 4px solid #0284c7;
-                                    padding: 1rem; margin-top: 1rem; border-radius: 4px;">
-                            <strong>📋 Recommendation:</strong><br>
-                            {row.get('Recommendation', 'No recommendation available')}
-                        </div>
-                        """, unsafe_allow_html=True)
+                        # Filters
+                        filter_col1, filter_col2 = st.columns(2)
+                        with filter_col1:
+                            urgency_filter = st.multiselect(
+                                "Urgency Level",
+                                options=['🔴 CRITICAL', '🟠 HIGH', '🟡 MEDIUM', '🟢 LOW', '⚪ MONITOR'],
+                                default=['🔴 CRITICAL', '🟠 HIGH']
+                            )
+                        with filter_col2:
+                            min_priority = st.slider(
+                                "Minimum Priority Score", min_value=0,
+                                max_value=max(1, int(merged_df['IntegratedPriority'].max())), value=0
+                            )
 
-                        # Action buttons
-                        action_col1, action_col2, action_col3 = st.columns(3)
+                        filtered_integrated = merged_df.copy()
+                        if urgency_filter:
+                            filtered_integrated = filtered_integrated[
+                                filtered_integrated['UrgencyClass'].isin(urgency_filter)
+                            ]
+                        filtered_integrated = filtered_integrated[
+                            filtered_integrated['IntegratedPriority'] >= min_priority
+                        ]
 
-                        with action_col1:
-                            if st.button(f"📧 Email Vendor", key=f"email_{idx}"):
-                                st.info("Vendor email generator feature - navigate to Tab 3 Quality Screening")
+                        st.markdown(f"#### 📋 Critical Items ({len(filtered_integrated)} SKUs)")
 
-                        with action_col2:
-                            if st.button(f"📋 Generate CAPA", key=f"capa_{idx}"):
-                                st.info("CAPA generator feature - navigate to Tab 3 Quality Screening")
+                        if filtered_integrated.empty:
+                            st.success("✅ No critical items match current filters")
+                        else:
+                            urgency_colors = {
+                                '🔴 CRITICAL': '#dc2626', '🟠 HIGH': '#f59e0b',
+                                '🟡 MEDIUM': '#fbbf24', '🟢 LOW': '#10b981', '⚪ MONITOR': '#6b7280'
+                            }
+                            for idx, row in filtered_integrated.iterrows():
+                                urgency_color = urgency_colors.get(row['UrgencyClass'], '#6b7280')
+                                with st.expander(
+                                    f"{row['UrgencyClass']} | {row.get(sku_col_quality, 'Unknown')} — "
+                                    f"{row.get('Product Name', row.get('Product_Name', row.get('Product Title', 'Unknown')))}",
+                                    expanded=(row['UrgencyClass'] in ['🔴 CRITICAL', '🟠 HIGH'])
+                                ):
+                                    st.markdown(f"""
+                                    <div style="background:{urgency_color};color:white;padding:0.75rem;
+                                                border-radius:8px;margin-bottom:1rem;">
+                                        <strong>Priority Score: {row['IntegratedPriority']:.1f}</strong>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                    col1, col2, col3 = st.columns(3)
+                                    with col1:
+                                        st.markdown("**Quality Metrics**")
+                                        _rr = row.get('Return_Rate') or 0
+                                        st.metric("Return Rate", f"{(_rr*100 if _rr<1 else _rr):.2f}%")
+                                        if 'Risk_Score' in row and pd.notna(row['Risk_Score']):
+                                            st.metric("Risk Score", f"{row['Risk_Score']:.0f}")
+                                    with col2:
+                                        st.markdown("**Inventory Status**")
+                                        if 'DaysToReorder' in row and pd.notna(row['DaysToReorder']):
+                                            st.metric("Days to Reorder", f"{row['DaysToReorder']:.1f}")
+                                        if 'DOI_Conservative' in row and pd.notna(row['DOI_Conservative']):
+                                            st.metric("DOI (Conservative)", f"{row['DOI_Conservative']:.1f}")
+                                        if 'MustOrderBy' in row:
+                                            st.write(f"**Must Order By:** {row['MustOrderBy']}")
+                                    with col3:
+                                        st.markdown("**Financial Impact**")
+                                        if 'AtRiskDollars' in row and pd.notna(row['AtRiskDollars']):
+                                            st.metric("At Risk $", f"${row['AtRiskDollars']:,.0f}")
+                                        if 'AtRiskUnits' in row and pd.notna(row['AtRiskUnits']):
+                                            st.metric("Units at Risk", f"{row['AtRiskUnits']:,}")
+                                    st.markdown(f"""
+                                    <div style="background:rgba(2,132,199,0.1);border-left:4px solid #0284c7;
+                                                padding:0.75rem;margin-top:0.75rem;border-radius:4px;">
+                                        <strong>📋 Recommendation:</strong> {row.get('Recommendation', 'N/A')}
+                                    </div>
+                                    """, unsafe_allow_html=True)
 
-                        with action_col3:
-                            if st.button(f"🔍 Deep Dive", key=f"deep_{idx}"):
-                                st.info("Deep dive analysis feature - navigate to Tab 3 Quality Screening")
+                            # Export
+                            st.markdown("---")
+                            export_cols = [sku_col_quality, 'UrgencyClass', 'IntegratedPriority',
+                                          'Return_Rate', 'Risk_Score', 'DaysToReorder', 'DOI_Conservative',
+                                          'AtRiskDollars', 'Recommendation']
+                            export_df = filtered_integrated[
+                                [c for c in export_cols if c in filtered_integrated.columns]
+                            ]
+                            csv_buf = io.StringIO()
+                            export_df.to_csv(csv_buf, index=False)
+                            st.download_button(
+                                "📥 Export Critical Integration View (CSV)",
+                                csv_buf.getvalue(),
+                                file_name=f"critical_integration_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                mime="text/csv",
+                                width="stretch"
+                            )
 
-                # Export integrated view
-                st.markdown("---")
-                st.markdown("#### 📤 Export Integrated View")
-
-                export_cols = [sku_col_quality, 'Product Name', 'UrgencyClass', 'IntegratedPriority',
-                              'Return_Rate', 'Risk_Score', 'DaysToReorder', 'DOI_Conservative',
-                              'AtRiskDollars', 'Recommendation']
-
-                export_df = filtered_integrated[[col for col in export_cols if col in filtered_integrated.columns]]
-
-                csv_buffer = io.StringIO()
-                export_df.to_csv(csv_buffer, index=False)
-
-                st.download_button(
-                    "📥 Export Critical Integration View (CSV)",
-                    csv_buffer.getvalue(),
-                    file_name=f"critical_integration_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv",
-                    width="stretch"
-                )
-
-        except Exception as e:
-            st.error(f"Error merging data: {str(e)}")
-            logger.error(f"Integration view error: {str(e)}", exc_info=True)
+                except Exception as e:
+                    st.error(f"Error merging data: {e}")
+                    logger.error(f"Integration view error: {e}", exc_info=True)
 
 
 # --- EXTRACTED TOOL FUNCTIONS (For Task-Based Navigation) ---
@@ -10201,21 +10617,51 @@ def render_categorizer_tool(provider_map=None, provider_selection=None):
             complaint_col = column_mapping.get('complaint')
             if complaint_col:
                 valid_complaints = df[df[complaint_col].notna() & (df[complaint_col].str.strip() != '')].shape[0]
-                st.info(f"Found {valid_complaints:,} complaints to categorize in Column I.")
+                st.info(f"Found {valid_complaints:,} complaints to categorize in **{complaint_col}**.")
+                provider = st.session_state.ai_provider
+                model_note = {
+                    AIProvider.CLAUDE_FAST: "Claude Haiku 4.5 (fastest — lower accuracy)",
+                    AIProvider.CLAUDE_POWERFUL: "Claude Opus 4.6 (max accuracy)",
+                }.get(provider, "Claude Sonnet 4.6 (balanced — recommended)")
+                st.caption(f"🤖 AI categorization will use **{model_note}**. Change it in the sidebar under *AI Model*.")
             else:
-                st.warning("Complaint column not found in expected position.")
+                st.warning(
+                    "⚠️ No free-text complaint column detected — only found structural/code columns. "
+                    "Make sure your file includes the customer comment text (e.g. 'customer-comments')."
+                )
 
             if st.button("🚀 Start Categorization", type="primary"):
                 analyzer = get_ai_analyzer()
-                with st.spinner("Categorizing..."):
-                    categorized_df = process_in_chunks(df, analyzer, column_mapping)
-                    st.session_state.categorized_data = categorized_df
-                    st.session_state.processing_complete = True
-                    generate_statistics(categorized_df, column_mapping)
+                if analyzer is None:
+                    st.error(
+                        "🚫 AI is unavailable — no working ANTHROPIC_API_KEY found. "
+                        "Categorization was **not** run: without AI every complaint would be "
+                        "silently mislabeled 'Other / Miscellaneous'. Check **🔌 API Status** in the sidebar."
+                    )
+                else:
+                    st.session_state.processing_errors = []
+                    with st.spinner("Categorizing..."):
+                        categorized_df = process_in_chunks(df, analyzer, column_mapping)
+                        st.session_state.categorized_data = categorized_df
+                        st.session_state.processing_complete = True
+                        generate_statistics(categorized_df, column_mapping)
 
-                    st.session_state.export_data = export_with_column_k(categorized_df)
-                    st.session_state.export_filename = f"categorized_{datetime.now().strftime('%Y%m%d')}.xlsx"
-                    st.rerun()
+                        st.session_state.export_data = export_with_column_k(categorized_df, column_mapping)
+                        st.session_state.export_filename = f"categorized_{datetime.now().strftime('%Y%m%d')}.xlsx"
+                        st.rerun()
+
+    if st.session_state.processing_complete and st.session_state.get('categorization_breakdown'):
+        bd = st.session_state.categorization_breakdown
+        total_done = sum(bd.values()) or 1
+        st.markdown("##### 🧭 How complaints were categorized")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("🤖 AI (Claude)", f"{bd['ai']:,}", f"{bd['ai']/total_done:.0%}")
+        c2.metric("⚡ Pattern/code match", f"{bd['instant']:,}", f"{bd['instant']/total_done:.0%}")
+        c3.metric("🧠 Learned corrections", f"{bd['corrections']:,}", f"{bd['corrections']/total_done:.0%}")
+        c4.metric("⚠️ Failed (defaulted)", f"{bd['failed']:,}", f"{bd['failed']/total_done:.0%}",
+                  delta_color="inverse")
+        if bd['failed'] > 0:
+            st.warning("Failed rows were set to 'Other / Miscellaneous' — check API status and re-run.")
 
     if st.session_state.processing_complete and st.session_state.categorized_data is not None:
         display_results_dashboard(st.session_state.categorized_data, st.session_state.column_mapping)
@@ -10486,10 +10932,10 @@ def render_task_selector():
 
     st.markdown("""
     <div style="text-align: center; margin: 1.5rem 0 2rem 0;">
-        <h2 style="color: #004366; font-family: 'Poppins', sans-serif; margin-bottom: 0.5rem;">
+        <h2 style="font-family: 'Poppins', sans-serif; margin-bottom: 0.5rem;">
             📋 What are you trying to do?
         </h2>
-        <p style="color: #666; font-size: 1rem;">Select a tool below or type what you need</p>
+        <p style="color: #9EB3C2; font-size: 1rem;">Select a tool below or type what you need</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -10506,25 +10952,24 @@ def render_task_selector():
         """Render a single task card"""
         task = TASK_DEFINITIONS[task_id]
         with col:
-            # Card container - featured cards have special styling
             if featured:
                 st.markdown(f"""
-                <div style="background: linear-gradient(135deg, rgba(0,67,102,0.15) 0%, rgba(35,178,190,0.2) 100%);
-                            border: 2px solid rgba(0,67,102,0.5); border-radius: 12px; padding: 1rem;
-                            margin-bottom: 0.5rem; min-height: 120px; box-shadow: 0 4px 12px rgba(0,67,102,0.15);">
+                <div style="background: linear-gradient(135deg, rgba(35,178,190,0.15) 0%, rgba(0,67,102,0.25) 100%);
+                            border: 2px solid rgba(35,178,190,0.6); border-radius: 12px; padding: 1rem;
+                            margin-bottom: 0.5rem; min-height: 120px; box-shadow: 0 4px 16px rgba(35,178,190,0.2);">
                     <div style="font-size: 2rem; text-align: center; margin-bottom: 0.3rem;">{task['icon']}</div>
-                    <div style="font-weight: 700; color: #004366; text-align: center; font-size: 1rem;">{task['title']}</div>
+                    <div style="font-weight: 700; color: #E0E6ED; text-align: center; font-size: 1rem;">{task['title']}</div>
                     <div style="color: #23b2be; text-align: center; font-size: 0.8rem; margin-bottom: 0.3rem; font-weight: 500;">{task['subtitle']}</div>
-                    <div style="color: #666; text-align: center; font-size: 0.7rem; margin-top: 0.3rem;">FDA • EMA • MHRA • Health Canada • CPSC • Media</div>
+                    <div style="color: #9EB3C2; text-align: center; font-size: 0.7rem; margin-top: 0.3rem;">FDA • EMA • MHRA • Health Canada • CPSC • Media</div>
                 </div>
                 """, unsafe_allow_html=True)
             else:
                 st.markdown(f"""
-                <div style="background: linear-gradient(135deg, rgba(35,178,190,0.05) 0%, rgba(0,67,102,0.08) 100%);
-                            border: 1px solid rgba(35,178,190,0.3); border-radius: 12px; padding: 1rem;
-                            margin-bottom: 0.5rem; min-height: 120px;">
+                <div style="background: linear-gradient(135deg, rgba(35,178,190,0.07) 0%, rgba(0,67,102,0.12) 100%);
+                            border: 1px solid rgba(35,178,190,0.35); border-radius: 12px; padding: 1rem;
+                            margin-bottom: 0.5rem; min-height: 120px; transition: border-color 0.2s;">
                     <div style="font-size: 2rem; text-align: center; margin-bottom: 0.3rem;">{task['icon']}</div>
-                    <div style="font-weight: 600; color: #004366; text-align: center; font-size: 0.95rem;">{task['title']}</div>
+                    <div style="font-weight: 600; color: #E0E6ED; text-align: center; font-size: 0.95rem;">{task['title']}</div>
                     <div style="color: #23b2be; text-align: center; font-size: 0.8rem; margin-bottom: 0.3rem;">{task['subtitle']}</div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -10556,7 +11001,7 @@ def render_task_selector():
     st.markdown("---")
     st.markdown("""
     <div style="text-align: center; margin: 0.5rem 0;">
-        <span style="color: #004366; font-weight: 600;">🔍 Regulatory Intelligence</span>
+        <span style="color: #23b2be; font-weight: 600; letter-spacing: 0.05em;">🔍 Regulatory Intelligence</span>
     </div>
     """, unsafe_allow_html=True)
 
@@ -11249,15 +11694,24 @@ def main():
         # AI Provider selection
         provider_selection = st.selectbox(
             "🤖 AI Model",
-            options=['Fastest (Claude Haiku 4.5)', 'Claude Sonnet 4.6', 'Claude Opus 4.6'],
+            options=[
+                'Auto — best model per task (Recommended)',
+                'Claude Sonnet 4.6 (Balanced)',
+                'Claude Opus 4.6 (Max Accuracy)',
+                'Claude Haiku 4.5 (Fastest — lower accuracy)',
+            ],
             index=0,
-            help="Select Claude model for AI-powered tools"
+            help=(
+                "Auto uses Sonnet for categorization (accuracy-critical) and Haiku "
+                "for fast summaries. Pick a specific model to override every task."
+            )
         )
 
         provider_map = {
-            'Fastest (Claude Haiku 4.5)': AIProvider.FASTEST,
-            'Claude Sonnet 4.6': AIProvider.CLAUDE,
-            'Claude Opus 4.6': AIProvider.CLAUDE_POWERFUL,
+            'Auto — best model per task (Recommended)': AIProvider.FASTEST,
+            'Claude Sonnet 4.6 (Balanced)': AIProvider.CLAUDE,
+            'Claude Opus 4.6 (Max Accuracy)': AIProvider.CLAUDE_POWERFUL,
+            'Claude Haiku 4.5 (Fastest — lower accuracy)': AIProvider.CLAUDE_FAST,
         }
 
         # API Health Check

@@ -150,13 +150,13 @@ FBA_REASON_MAP = {
     'QUALITY_NOT_ADEQUATE':        'Defect: Poor Material Quality',
     'UNWANTED_ITEM':               'Customer: Changed Mind / No Longer Needed',
     'UNAUTHORIZED_PURCHASE':       'Customer: Changed Mind / No Longer Needed',
-    'CUSTOMER_DAMAGED':            'Customer: Changed Mind / No Longer Needed',
+    'CUSTOMER_DAMAGED':            'Other / Miscellaneous',  # customer-caused damage ≠ changed mind
     'SWITCHEROO':                  'Wrong Product / Not as Described',
     'EXPIRED_ITEM':                'Defect: Poor Material Quality',
     'DAMAGED_GLASS_VIAL':          'Defect: Broken / Structural Failure',
     'DIFFERENT_PRODUCT':           'Fulfillment: Wrong Item Sent',
     'MISSING_ITEM':                'Missing or Incomplete Components',
-    'NOT_DELIVERED':               'Fulfillment: Damaged in Shipping',
+    'NOT_DELIVERED':               'Other / Miscellaneous',  # never arrived ≠ damaged in shipping
     'ORDERED_WRONG_ITEM':          'Customer: Ordered Wrong Size or Item',
     'UNNEEDED_ITEM':               'Customer: Changed Mind / No Longer Needed',
     'BAD_GIFT':                    'Customer: Changed Mind / No Longer Needed',
@@ -208,8 +208,10 @@ QUICK_PATTERNS = {
     'Comfort: Causes Pain or Pressure': [
         r'\bcauses? (pain|sores?|blisters?|bruising|chafing|marks)\b',
         r'\bhurts?\b', r'\bpainful\b', r'\bsore\b', r'\bdigs? in\b',
-        r'\brubs?\b', r'\bcuts? into\b', r'\bpinches?\b', r'\buncomfortable\b',
+        r'\brubs?\b', r'\bcuts? into\b', r'\bpinches?\b',
         r'\bnumbs?\b', r'\bcirculation\b',
+        # NOTE: bare 'uncomfortable' removed — it doesn't identify the failure
+        # mode (pain vs rigidity vs softness); those go to the AI instead.
     ],
     'Comfort: Too Hard / Rigid': [
         r'\btoo (hard|stiff|rigid|firm|inflexible)\b',
@@ -223,8 +225,10 @@ QUICK_PATTERNS = {
     ],
     'Comfort: Skin Irritation or Allergic Reaction': [
         r'\birritati(on|ng|es?)\b', r'\brash\b', r'\ballerg(y|ic)\b',
-        r'\bred(ness|dening)\b', r'\bswelling\b', r'\breaction\b',
-        r'\bitching\b', r'\bitchy\b', r'\bbreaks? out\b', r'\bsensitiv(e|ity)\b',
+        r'\bred(ness|dening)\b', r'\bswelling\b', r'\bskin reaction\b',
+        r'\bitching\b', r'\bitchy\b', r'\bbreaks? out\b',
+        # NOTE: bare 'reaction' / 'sensitive' removed — too generic, hijacked
+        # unrelated complaints ("my doctor's reaction", "sensitive topic").
     ],
     # ── Defects ─────────────────────────────────────────────────────────────────
     'Defect: Broken / Structural Failure': [
@@ -242,7 +246,8 @@ QUICK_PATTERNS = {
     'Defect: Cosmetic Damage': [
         r'\bscratched\b', r'\bscratches\b', r'\bpaint (peeling|chipping|flaking)\b',
         r'\bpeeling\b', r'\bdiscolor(ed|ation)\b', r'\brust(ed|ing)?\b',
-        r'\bcosmet(ic|ically)\b', r'\bappearance\b',
+        r'\bcosmet(ic|ically)\b',
+        # NOTE: bare 'appearance' removed — matched "appearance of quality" etc.
     ],
     'Defect: Poor Material Quality': [
         r'\bpoor (quality|material|construction|build)\b', r'\bcheap (material|plastic|fabric)\b',
@@ -372,20 +377,42 @@ def calculate_cost(model: str, input_tokens: int, output_tokens: int) -> CostEst
     )
 
 
-def quick_categorize(complaint: str, fba_reason: str = None) -> Optional[str]:
-    """Quick pattern-based categorization for speed"""
-    if not complaint:
-        return None
+_CODE_LIKE_RE = re.compile(r'[A-Z0-9_\-]{2,40}')
 
+
+def quick_categorize(complaint: str, fba_reason: str = None) -> Optional[str]:
+    """
+    Quick pattern-based categorization for unambiguous cases only.
+
+    Precedence (accuracy-first):
+    1. Real complaint text + exactly ONE category's patterns match → that category.
+    2. Complaint text matching multiple categories, or none → None (defer to AI).
+    3. No usable complaint text (empty, or just a reason code) → FBA reason map.
+
+    The FBA reason code is customer-selected and unreliable — it must never
+    override actual complaint text (that was a major accuracy regression).
+    """
+    text = (complaint or '').strip()
+    # A "complaint" that is itself a reason code (e.g. 'UNWANTED_ITEM') is not free text
+    is_code_only = bool(_CODE_LIKE_RE.fullmatch(text))
+
+    if text and not is_code_only:
+        complaint_lower = text.lower()
+        matched = set()
+        for category, patterns in COMPILED_PATTERNS.items():
+            if any(p.search(complaint_lower) for p in patterns):
+                matched.add(category)
+                if len(matched) > 1:
+                    return None  # ambiguous — let the AI decide
+        if len(matched) == 1:
+            return next(iter(matched))
+        return None  # no clear pattern — let the AI decide
+
+    # No usable text — fall back to the FBA reason code mapping
     if fba_reason and fba_reason in FBA_REASON_MAP:
         return FBA_REASON_MAP[fba_reason]
-
-    complaint_lower = complaint.lower()
-
-    for category, patterns in COMPILED_PATTERNS.items():
-        for pattern in patterns:
-            if pattern.search(complaint_lower):
-                return category
+    if is_code_only and text in FBA_REASON_MAP:
+        return FBA_REASON_MAP[text]
 
     return None
 
@@ -777,7 +804,10 @@ class EnhancedAIAnalyzer:
             return self._call_claude(prompt, system_prompt, 'powerful')
 
         if p == AIProvider.FASTEST:
-            return self._call_claude(prompt, system_prompt, 'fast')
+            # "Auto" — use the model each task asks for. Forcing 'fast' here
+            # silently ran ALL categorization on Haiku, which misses nuance on
+            # the granular size/comfort taxonomy (accuracy regression).
+            return self._call_claude(prompt, system_prompt, mode)
 
         # Default: Claude standard
         return self._call_claude(prompt, system_prompt, mode)
@@ -857,27 +887,32 @@ Example: Defect: Malfunctions / Stops Working | Scooter battery not holding char
         self, complaint: str, fba_reason: str = None, mode: str = 'standard'
     ) -> Tuple[str, float, str, str]:
         """Categorize return with speed optimization and learned corrections."""
-        if not complaint or not complaint.strip():
-            return 'Other/Miscellaneous', 0.1, 'none', 'en'
+        complaint = (complaint or '').strip()
 
         # 1. Check persistent corrections memory — exact match = instant, free
-        try:
-            from corrections_memory import get_corrections_memory
-            mem = get_corrections_memory()
-            direct = mem.get_direct_match(complaint)
-            if direct:
-                self.cost_tracker.add_quick_categorization()
-                severity = detect_severity(complaint, direct)
-                return direct, 1.0, severity, 'en'
-        except Exception:
-            mem = None
+        mem = None
+        if complaint:
+            try:
+                from corrections_memory import get_corrections_memory
+                mem = get_corrections_memory()
+                direct = mem.get_direct_match(complaint)
+                if direct:
+                    self.cost_tracker.add_quick_categorization()
+                    severity = detect_severity(complaint, direct)
+                    return direct, 1.0, severity, 'en'
+            except Exception:
+                mem = None
 
-        # 2. Quick pattern match
+        # 2. Quick match — unambiguous text patterns, or FBA code when no text
         quick_category = quick_categorize(complaint, fba_reason)
         if quick_category:
             self.cost_tracker.add_quick_categorization()
             severity = detect_severity(complaint, quick_category)
             return quick_category, 0.9, severity, 'en'
+
+        # No usable complaint text and no recognizable code — nothing to analyze
+        if not complaint or _CODE_LIKE_RE.fullmatch(complaint):
+            return 'Other / Miscellaneous', 0.1, 'none', 'en'
 
         # 3. AI categorization
         self.cost_tracker.add_ai_categorization()
@@ -924,9 +959,16 @@ Respond with ONLY the exact category name from the list. No explanation, no punc
             system_prompt = system_prompt + f"\n\n{few_shot_block}"
 
         categories_list = '\n'.join(f'  {cat}' for cat in MEDICAL_DEVICE_CATEGORIES)
+        fba_hint = ''
+        if fba_reason and fba_reason in FBA_REASON_MAP:
+            fba_hint = (
+                f'\nRETURN REASON CODE (customer-selected, often inaccurate — '
+                f'use only as a weak hint, the complaint text takes precedence): {fba_reason}\n'
+            )
         user_prompt = (
             f'AVAILABLE CATEGORIES:\n{categories_list}\n\n'
-            f'COMPLAINT: "{complaint}"\n\n'
+            f'COMPLAINT: "{complaint}"\n'
+            f'{fba_hint}\n'
             f'CATEGORY:'
         )
 
@@ -938,7 +980,10 @@ Respond with ONLY the exact category name from the list. No explanation, no punc
             severity = detect_severity(complaint, category)
             return category, 0.85, severity, 'en'
 
-        return 'Other/Miscellaneous', 0.3, 'none', 'en'
+        # AI call failed — use the FBA code as a last resort before giving up
+        if fba_reason and fba_reason in FBA_REASON_MAP:
+            return FBA_REASON_MAP[fba_reason], 0.4, 'none', 'en'
+        return 'Other / Miscellaneous', 0.3, 'none', 'en'
 
     def categorize_batch(
         self, complaints: List[Dict[str, Any]], mode: str = 'standard'
@@ -965,7 +1010,7 @@ Respond with ONLY the exact category name from the list. No explanation, no punc
             except Exception as e:
                 logger.error(f"Batch categorization error: {e}")
                 result = item.copy()
-                result.update({'category': 'Other/Miscellaneous', 'confidence': 0.1, 'severity': 'none', 'language': 'en'})
+                result.update({'category': 'Other / Miscellaneous', 'confidence': 0.1, 'severity': 'none', 'language': 'en'})
                 results.append(result)
 
         return results
