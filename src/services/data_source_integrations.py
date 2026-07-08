@@ -374,13 +374,36 @@ class SmartsheetConnector:
 
 
 class ConnectionManager:
-    """Manage and persist data source connections"""
+    """Manage and persist data source connections.
 
-    def __init__(self, config_file: str = "data_connections.json"):
+    Connection params can contain credentials (DB passwords, API tokens),
+    so the config lives under ~/.quality_app — NEVER inside the repo/app
+    directory where it could be committed to version control.
+    """
+
+    _DEFAULT_CONFIG = Path(os.path.expanduser("~/.quality_app")) / "data_connections.json"
+
+    def __init__(self, config_file: str = None):
         """Initialize connection manager"""
-        self.config_file = config_file
+        self.config_file = str(config_file or self._DEFAULT_CONFIG)
+        try:
+            Path(self.config_file).parent.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
         self.connections = {}
+        self._migrate_legacy_config()
         self.load_connections()
+
+    def _migrate_legacy_config(self):
+        """Move a legacy repo-dir data_connections.json to the safe location."""
+        legacy = Path("data_connections.json")
+        try:
+            if legacy.exists() and not os.path.exists(self.config_file):
+                legacy.replace(self.config_file)
+            elif legacy.exists():
+                legacy.unlink()  # already migrated — remove the repo-dir copy
+        except Exception:
+            pass
 
     def load_connections(self):
         """Load saved connections from config file"""

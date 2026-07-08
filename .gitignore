@@ -60,3 +60,10 @@ logs/
 
 # PowerShell scripts
 *.ps1
+
+# Connection configs & uploaded credentials — must never be committed
+data_connections.json
+google_creds_*.json
+*.pem
+*.p12
+service_account*.json

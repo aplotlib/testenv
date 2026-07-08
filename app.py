@@ -62,6 +62,7 @@ from datetime import datetime, timedelta
 import io
 from typing import Dict, List, Any, Optional, Tuple
 import time
+import html as _html
 from collections import Counter, defaultdict
 import re
 import os 
@@ -1278,8 +1279,12 @@ def render_connection_modal():
 
         if creds_file and conn_name:
             if st.button("💾 Save Connection"):
-                # Save credentials file
-                creds_path = f"google_creds_{conn_name}.json"
+                # Save credentials OUTSIDE the repo dir (never committable),
+                # with a sanitized filename (no path traversal via conn_name)
+                safe_name = re.sub(r'[^A-Za-z0-9_-]', '_', conn_name)[:50] or 'default'
+                creds_dir = os.path.join(os.path.expanduser('~/.quality_app'), 'credentials')
+                os.makedirs(creds_dir, exist_ok=True)
+                creds_path = os.path.join(creds_dir, f"google_creds_{safe_name}.json")
                 with open(creds_path, 'wb') as f:
                     f.write(creds_file.getvalue())
 
@@ -2095,9 +2100,9 @@ def display_results_dashboard(df, column_mapping):
                 <div class="info-box" style="border-left: 4px solid {risk_color}; margin: 0.5rem 0;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <div>
-                            <strong>{i+1}. SKU: {product['SKU'][:40]}{'...' if len(product['SKU']) > 40 else ''}</strong>
+                            <strong>{i+1}. SKU: {_html.escape(str(product['SKU'])[:40])}{'...' if len(str(product['SKU'])) > 40 else ''}</strong>
                             <div style="color: {COLORS['muted']}; font-size: 0.9em; margin-top: 0.2rem;">
-                                Top issue: {product['Top Issue']}
+                                Top issue: {_html.escape(str(product['Top Issue']))}
                             </div>
                         </div>
                         <div style="text-align: right;">
@@ -2897,10 +2902,10 @@ def render_risk_analysis_fmea(tracker):
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <div>
                     <h4 style="color: #004366; font-family: 'Poppins', sans-serif; margin: 0 0 0.3rem 0; font-weight: 600;">
-                        {item['Product']} ({item['SKU']})
+                        {_html.escape(str(item['Product']))} ({_html.escape(str(item['SKU']))})
                     </h4>
                     <p style="color: #555; font-family: 'Poppins', sans-serif; font-size: 0.9em; margin: 0.3rem 0;">
-                        <strong>Failure Mode:</strong> {item['Failure Mode']}
+                        <strong>Failure Mode:</strong> {_html.escape(str(item['Failure Mode']))}
                     </p>
                     <p style="color: #666; font-family: 'Poppins', sans-serif; font-size: 0.85em; margin: 0.3rem 0;">
                         S: {item['Severity (S)']} × O: {item['Occurrence (O)']} × D: {item['Detection (D)']} = <strong>RPN: {item['RPN']}</strong>
@@ -4564,7 +4569,7 @@ and export confirmed cases back to Smartsheet for tracking.
                     <div style="background: rgba(35,178,190,0.05); border-left: 3px solid #23b2be;
                                 padding: 0.8rem; margin-bottom: 0.5rem; border-radius: 4px;">
                         <p style="font-family: 'Poppins', sans-serif; color: #004366; font-weight: 600; margin: 0 0 0.5rem 0;">
-                            SKU: <strong>{sku}</strong> - appears in {len(cases)} cases:
+                            SKU: <strong>{_html.escape(str(sku))}</strong> - appears in {len(cases)} cases:
                         </p>
                     """, unsafe_allow_html=True)
                     for case in cases:

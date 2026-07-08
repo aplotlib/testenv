@@ -48,9 +48,9 @@ def search_openfda(device_name, manufacturer=None):
     }
     
     try:
-        response = requests.get(base_url, params=params)
+        response = requests.get(base_url, params=params, timeout=20)
         data = response.json()
-        
+
         if "error" in data:
             return "No specific FDA enforcement reports found in structured database."
             
@@ -102,9 +102,9 @@ def search_global_media_and_reg(query, category="general"):
     }
 
     try:
-        response = requests.get(url, params=params)
+        response = requests.get(url, params=params, timeout=20)
         data = response.json()
-        
+
         results = []
         if 'items' in data:
             for item in data['items']:

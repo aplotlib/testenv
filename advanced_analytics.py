@@ -12,6 +12,7 @@ These tools are designed for world-class quality teams like Arthrex.
 
 import streamlit as st
 import pandas as pd
+import html as _html
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 import logging
@@ -583,10 +584,10 @@ def render_risk_analysis_fmea(tracker):
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <div>
                     <h4 style="color: #004366; font-family: 'Poppins', sans-serif; margin: 0 0 0.3rem 0; font-weight: 600;">
-                        {item['Product']} ({item['SKU']})
+                        {_html.escape(str(item['Product']))} ({_html.escape(str(item['SKU']))})
                     </h4>
                     <p style="color: #555; font-family: 'Poppins', sans-serif; font-size: 0.9em; margin: 0.3rem 0;">
-                        <strong>Failure Mode:</strong> {item['Failure Mode']}
+                        <strong>Failure Mode:</strong> {_html.escape(str(item['Failure Mode']))}
                     </p>
                     <p style="color: #666; font-family: 'Poppins', sans-serif; font-size: 0.85em; margin: 0.3rem 0;">
                         S: {item['Severity (S)']} × O: {item['Occurrence (O)']} × D: {item['Detection (D)']} = <strong>RPN: {item['RPN']}</strong>
