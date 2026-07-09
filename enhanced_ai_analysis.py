@@ -1,4 +1,4 @@
-﻿"""
+"""
 Enhanced AI Analysis Module — Claude (Anthropic) Only
 Version 32.0
 

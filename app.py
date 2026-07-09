@@ -11712,7 +11712,32 @@ def render_all_tabs(provider_map: dict, provider_selection: str):
         render_product_compliance()
 
 
+def _require_passcode():
+    """Optional access gate. Set APP_PASSCODE in Streamlit secrets to enable;
+    when unset, the gate is disabled and the app behaves exactly as before.
+    Uses a constant-time comparison to avoid timing side-channels."""
+    try:
+        expected = str(st.secrets.get("APP_PASSCODE", "")).strip()
+    except Exception:
+        expected = ""
+    if not expected or st.session_state.get("_auth_ok"):
+        return
+
+    import hmac
+    st.markdown("## 🔒 Vive Health Quality Suite")
+    st.caption("This app is access-protected. Enter the team passcode to continue.")
+    code = st.text_input("Passcode", type="password", key="_auth_input")
+    if st.button("Enter", type="primary"):
+        if hmac.compare_digest(code.strip(), expected):
+            st.session_state["_auth_ok"] = True
+            st.rerun()
+        else:
+            st.error("Incorrect passcode.")
+    st.stop()
+
+
 def main():
+    _require_passcode()
     initialize_session_state()
 
     # ── Startup diagnostics (shown once per session) ──────────────────────
