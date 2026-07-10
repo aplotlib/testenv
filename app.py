@@ -11720,6 +11720,9 @@ def _require_passcode():
         expected = str(st.secrets.get("APP_PASSCODE", "")).strip()
     except Exception:
         expected = ""
+    if not expected:
+        # Hugging Face Spaces (and most container hosts) inject secrets as env vars
+        expected = os.environ.get("APP_PASSCODE", "").strip()
     if not expected or st.session_state.get("_auth_ok"):
         return
 

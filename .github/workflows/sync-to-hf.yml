@@ -1,0 +1,31 @@
+name: Sync to Hugging Face Space
+
+# Mirrors main to the private HF Space so GitHub stays the source of truth.
+# Requires two things in GitHub repo settings (Settings → Secrets and variables → Actions):
+#   secret   HF_TOKEN  — a Hugging Face WRITE token (hf.co → Settings → Access Tokens)
+#   variable HF_SPACE  — the Space path, e.g. "vive-quality/quality-suite"
+# Skips gracefully when not configured.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_SPACE: ${{ vars.HF_SPACE }}
+        run: |
+          if [ -z "$HF_TOKEN" ] || [ -z "$HF_SPACE" ]; then
+            echo "HF_TOKEN secret or HF_SPACE variable not configured — skipping sync."
+            exit 0
+          fi
+          git push --force "https://user:${HF_TOKEN}@huggingface.co/spaces/${HF_SPACE}" HEAD:main
