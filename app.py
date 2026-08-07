@@ -48,6 +48,15 @@ from typing import Optional
 import pandas as pd
 import streamlit as st
 
+from time_savings import (
+    SECONDS_PER_AMAZON_RETURN,
+    SECONDS_PER_SUPPORT_TICKET,
+    Savings,
+    estimate_amazon,
+    estimate_tickets,
+    format_duration,
+)
+
 # ── Core AI engine (required for categorization) ───────────────────────────────
 try:
     from enhanced_ai_analysis import (
@@ -180,7 +189,76 @@ def inject_css() -> None:
             padding: .75rem 1rem; border-radius: 6px; margin-bottom: 1rem; font-size: .9rem;
         }}
         div[data-testid="stMetricValue"] {{ font-size: 1.5rem; }}
+
+        /* Time-saved hero panel — the headline number for a demo */
+        .hero {{
+            background: linear-gradient(135deg, #0f766e 0%, {COLORS['secondary']} 100%);
+            border-radius: 14px; padding: 1.6rem 1.8rem; margin: .5rem 0 1.2rem;
+            box-shadow: 0 8px 28px rgba(0,67,102,.28);
+        }}
+        .hero-label {{
+            color: rgba(255,255,255,.82); font-size: .8rem; letter-spacing: .09em;
+            text-transform: uppercase; margin: 0 0 .3rem;
+        }}
+        .hero-value {{
+            color: #fff; font-size: 3.1rem; font-weight: 700; line-height: 1.05; margin: 0;
+        }}
+        .hero-sub {{ color: rgba(255,255,255,.9); font-size: .97rem; margin: .55rem 0 0; }}
+        .hero-chips {{ display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }}
+        .chip {{
+            background: rgba(255,255,255,.16); color: #fff; border-radius: 999px;
+            padding: .3rem .85rem; font-size: .85rem; white-space: nowrap;
+        }}
+        .chip b {{ font-weight: 700; }}
+        .estimate-box {{
+            border: 1px dashed {COLORS['primary']}; border-radius: 10px;
+            background: rgba(35,178,190,.07); padding: .9rem 1.1rem; margin: .6rem 0 1rem;
+        }}
+        .estimate-box .big {{ font-size: 1.45rem; font-weight: 700; color: {COLORS['primary']}; }}
         </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_savings_hero(sv: Savings, *, noun: str, partial: bool = False) -> None:
+    """The headline panel: how much analyst time this run replaced."""
+    chips = [
+        f"<span class='chip'>Manual: <b>{sv.manual_display}</b></span>",
+        f"<span class='chip'>This tool: <b>{sv.actual_display}</b></span>",
+    ]
+    if sv.speedup > 0:
+        chips.append(f"<span class='chip'><b>{sv.speedup_display}</b></span>")
+    chips.append(f"<span class='chip'>{sv.items:,} {noun}</span>")
+    chips.append(f"<span class='chip'>≈ <b>{sv.workdays_display}</b> of manual work</span>")
+
+    label = "Analyst time saved (partial run)" if partial else "Analyst time saved"
+    st.markdown(
+        f"""
+        <div class="hero">
+            <p class="hero-label">⏱ {label}</p>
+            <p class="hero-value">{sv.saved_display}</p>
+            <p class="hero-sub">
+                {sv.items:,} {noun} categorized · at {sv.seconds_per_item:g}s each by hand,
+                this would have taken <b>{sv.manual_display}</b>
+            </p>
+            <div class="hero-chips">{''.join(chips)}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_pre_estimate(sv: Savings, noun: str) -> None:
+    """Shown before processing: what this file is worth in manual hours."""
+    st.markdown(
+        f"""
+        <div class="estimate-box">
+            <span class="big">{sv.manual_display}</span>
+            &nbsp;of manual work in this file
+            &nbsp;<span style="opacity:.75">
+            ({sv.items:,} {noun} × {sv.seconds_per_item:g}s each ≈ {sv.workdays_display})</span>
+        </div>
         """,
         unsafe_allow_html=True,
     )
@@ -207,9 +285,24 @@ def initialize_session_state() -> None:
         "column_mapping": {},
         "export_data": None,
         "export_filename": None,
+        # Run lifecycle: 'idle' | 'running' | 'complete' | 'interrupted'.
+        # Anything found still 'running' on a fresh script run means the
+        # previous run was killed (stop pressed, tab closed, session timeout).
+        "run_state": "idle",
+        "stop_requested": False,
+        "rows_done": 0,
+        "rows_target": 0,
+        "processing_elapsed": 0.0,
+        # index -> confidence / method, for the review queue. Kept out of the
+        # DataFrame so it never leaks into the customer-facing export.
+        "row_confidence": {},
+        # Time-savings assumptions (adjustable so they can be defended live)
+        "sec_per_return": float(SECONDS_PER_AMAZON_RETURN),
+        "sec_per_ticket": float(SECONDS_PER_SUPPORT_TICKET),
         # B2B report
         "b2b_processed_data": None,
         "b2b_processing_complete": False,
+        "b2b_elapsed": 0.0,
         "b2b_export_data": None,
         "b2b_export_filename": None,
         "b2b_perf_mode": "Small (< 500 rows)",
@@ -403,8 +496,43 @@ def process_file_preserve_structure(file_content, filename):
         return None, None
 
 
-def process_in_chunks(df, analyzer, column_mapping, chunk_size=None):
-    """Categorize in chunks, reporting live progress."""
+def _export_filename(partial: bool = False) -> str:
+    """Export filename. Partial runs are labelled in the name itself so a
+    half-finished file can never be mistaken for a complete one downstream."""
+    ext = "xlsx" if EXCEL_AVAILABLE else "csv"
+    stamp = datetime.now().strftime("%Y%m%d")
+    if partial:
+        done = st.session_state.get("rows_done", 0)
+        target = st.session_state.get("rows_target", 0)
+        return f"categorized_PARTIAL_{done}of{target}_{stamp}.{ext}"
+    return f"categorized_{stamp}.{ext}"
+
+
+def count_uncategorized(df, column_mapping) -> int:
+    """Eligible rows still lacking a category — what a Resume would process."""
+    cat_col = column_mapping.get("category")
+    comp_col = column_mapping.get("complaint")
+    if not cat_col or cat_col not in df.columns:
+        return 0
+    empty = df[cat_col].isna() | (df[cat_col].astype(str).str.strip() == "")
+    if comp_col and comp_col in df.columns:
+        has_text = df[comp_col].notna() & (df[comp_col].astype(str).str.strip() != "")
+        empty = empty & has_text
+    return int(empty.sum())
+
+
+def process_in_chunks(df, analyzer, column_mapping, chunk_size=None,
+                      only_uncategorized: bool = False, limit: Optional[int] = None):
+    """Categorize in chunks, reporting live progress.
+
+    Partial work is durable: `df` is published into session state up front and
+    mutated in place, and the downloadable export is regenerated after every
+    chunk. So if this run is killed — Stop pressed, tab closed, session timing
+    out — everything completed so far is still there and still exportable.
+
+    only_uncategorized: skip rows that already have a category (used by Resume).
+    limit:              cap the number of rows processed (used by sample runs).
+    """
     if chunk_size is None:
         chunk_size = st.session_state.chunk_size
 
@@ -431,18 +559,51 @@ def process_in_chunks(df, analyzer, column_mapping, chunk_size=None):
         code_only_rows = int(code_mask.sum())
         valid_mask = valid_mask | code_mask
 
+    # Resume: leave already-filled categories alone.
+    if only_uncategorized:
+        done_mask = df[category_col].notna() & (df[category_col].astype(str).str.strip() != "")
+        valid_mask = valid_mask & ~done_mask
+
     valid_indices = df[valid_mask].index
+    if limit is not None:
+        valid_indices = valid_indices[: max(0, int(limit))]
     total_valid = len(valid_indices)
 
     if total_valid == 0:
-        st.warning("No complaint text or recognizable return-reason codes found to process.")
+        if only_uncategorized:
+            st.success("Nothing left to categorize — every eligible row already has a category.")
+        else:
+            st.warning("No complaint text or recognizable return-reason codes found to process.")
         return df
 
+    # ── Make partial work durable BEFORE the first API call ────────────────
+    # df is mutated in place below, so session state sees each write as it
+    # happens. This is what allows a killed run to still be exported.
+    st.session_state.categorized_data = df
+    st.session_state.column_mapping = column_mapping
+    st.session_state.run_state = "running"
+    st.session_state.stop_requested = False
+    st.session_state.rows_done = 0
+    st.session_state.rows_target = total_valid
+
     code_note = f" (+ **{code_only_rows:,}** rows with only a reason code)" if code_only_rows else ""
+    scope_note = " · **resuming** (skipping already-categorized rows)" if only_uncategorized else ""
+    if limit is not None:
+        scope_note += f" · **sample run** capped at {total_valid:,} rows"
     st.info(
-        f"📊 Categorizing **{text_rows:,}** complaints{code_note} · "
-        f"chunk size **{chunk_size}** · API batch **{st.session_state.batch_size}**"
+        f"📊 Categorizing **{total_valid:,}** of {text_rows:,} complaints{code_note} · "
+        f"chunk size **{chunk_size}** · API batch **{st.session_state.batch_size}**{scope_note}"
     )
+    st.caption(
+        "⏸ Safe to stop at any time — press **Stop** below, or just close the tab. "
+        "Everything already categorized is kept and stays downloadable."
+    )
+
+    # Rendered before the loop: clicking it triggers a Streamlit rerun, which
+    # ends this run. Partial results survive via the in-place mutation above.
+    if st.button("⏸ Stop and keep what's done", key="stop_categorization"):
+        st.session_state.stop_requested = True
+        st.rerun()
 
     progress_bar = st.progress(0)
     status_text = st.empty()
@@ -495,6 +656,8 @@ def process_in_chunks(df, analyzer, column_mapping, chunk_size=None):
                         method_counts["ai"] += 1
                     else:
                         method_counts["failed"] += 1
+                    # Retained for the review queue — lowest confidence first.
+                    st.session_state.row_confidence[idx] = conf
                     processed_count += 1
 
                 progress_bar.progress(processed_count / total_valid)
@@ -502,12 +665,20 @@ def process_in_chunks(df, analyzer, column_mapping, chunk_size=None):
                 speed = processed_count / elapsed if elapsed > 0 else 0
                 remaining = (total_valid - processed_count) / speed if speed > 0 else 0
 
+                # Publish progress every sub-batch so an interrupted run still
+                # reports accurately on the next script run.
+                st.session_state.rows_done = processed_count
+                st.session_state.processing_elapsed = elapsed
+                st.session_state.categorization_breakdown = dict(method_counts)
+
+                sv = estimate_amazon(processed_count, actual_seconds=elapsed,
+                                     seconds_per_item=st.session_state.sec_per_return)
                 with stats_container:
                     c1, c2, c3, c4 = st.columns(4)
                     c1.metric("Progress", f"{processed_count:,}/{total_valid:,}")
                     c2.metric("Speed", f"{speed:.1f}/sec")
-                    c3.metric("Chunk", f"{chunk_num}/{total_chunks}")
-                    c4.metric("ETA", f"{int(remaining)}s" if remaining > 0 else "Complete")
+                    c3.metric("ETA", f"{int(remaining)}s" if remaining > 0 else "Complete")
+                    c4.metric("⏱ Time saved so far", sv.saved_display)
 
                 # Throttle between sub-batches to stay inside API rate limits.
                 time.sleep(0.5)
@@ -520,12 +691,25 @@ def process_in_chunks(df, analyzer, column_mapping, chunk_size=None):
                     df.at[item["index"], category_col] = "Other / Miscellaneous"
                     method_counts["failed"] += 1
 
+        # Refresh the downloadable export after every chunk, so a download is
+        # available at all times rather than only on a clean finish.
+        try:
+            st.session_state.export_data = export_with_column_k(df, column_mapping)
+            st.session_state.export_filename = _export_filename(
+                partial=(processed_count < total_valid)
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Interim export refresh failed: %s", e)
+
         gc.collect()
 
     progress_bar.progress(1.0)
     elapsed = time.time() - start_time
     st.session_state.processing_speed = processed_count / elapsed if elapsed > 0 else 0
+    st.session_state.processing_elapsed = elapsed
     st.session_state.categorization_breakdown = method_counts
+    st.session_state.rows_done = processed_count
+    st.session_state.run_state = "complete"
 
     stats_container.empty()
     status_text.success(
@@ -696,6 +880,24 @@ def render_corrections_editor(df, category_col) -> None:
         None,
     )
 
+    # Review order matters. Showing an arbitrary first-200 wastes the reviewer's
+    # time on rows the pattern tier already got right with certainty. Ranking by
+    # ascending confidence puts the genuinely doubtful rows first, so corrections
+    # land where they actually improve future accuracy.
+    conf_map = st.session_state.get("row_confidence") or {}
+    order_mode = "arbitrary (no confidence data)"
+    if conf_map:
+        ranked = [i for i in df.index if i in conf_map]
+        ranked.sort(key=lambda i: conf_map.get(i, 1.0))
+        if ranked:
+            df = df.loc[ranked]
+            order_mode = "least-confident first"
+        low = sum(1 for c in conf_map.values() if c < 0.9)
+        st.caption(
+            f"Sorted **{order_mode}** — {low:,} row(s) were decided by the AI rather than "
+            "an exact pattern or a previous correction. Those are listed first."
+        )
+
     edit_df = df[[text_col, category_col]].copy() if text_col else df[[category_col]].copy()
     edit_df = edit_df.rename(
         columns={category_col: "Current Category", **({text_col: "Complaint Text"} if text_col else {})}
@@ -804,15 +1006,52 @@ def display_results_dashboard(df, column_mapping) -> None:
                     )
                     .reset_index()
                     .rename(columns={"_sku": "SKU"})
-                    .sort_values("Returns", ascending=False)
                 )
-                st.dataframe(agg, width="stretch", hide_index=True, height=420)
+                agg["Quality %"] = (agg["Quality Issues"] / agg["Returns"] * 100).round(1)
+
+                # Flag products whose returns are mostly genuine quality issues
+                # AND that have enough volume to be worth investigating. A SKU
+                # with 1 return at 100% is noise, not a signal.
+                min_vol = max(5, int(agg["Returns"].median() or 5))
+                agg["⚠"] = [
+                    "⚠️" if (q >= 60 and n >= min_vol) else ""
+                    for q, n in zip(agg["Quality %"], agg["Returns"])
+                ]
+                agg = agg.sort_values(["Returns"], ascending=False)
+
+                flagged = int((agg["⚠"] == "⚠️").sum())
+                if flagged:
+                    st.warning(
+                        f"⚠️ **{flagged} SKU(s)** have ≥60% quality-issue returns on "
+                        f"≥{min_vol} returns — worth a CAPA look.",
+                        icon="⚠️",
+                    )
+                st.dataframe(
+                    agg[["⚠", "SKU", "Returns", "Quality Issues", "Quality %", "Top Category"]],
+                    width="stretch", hide_index=True, height=420,
+                    column_config={"⚠": st.column_config.TextColumn("⚠", width="small")},
+                )
+                st.download_button(
+                    "⬇️ Download SKU breakdown (.csv)",
+                    data=agg.to_csv(index=False).encode("utf-8"),
+                    file_name=f"sku_breakdown_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv",
+                )
         else:
             st.info("No SKU column detected.")
 
     with tab_data:
-        st.dataframe(df.head(500), width="stretch", height=460)
-        st.caption(f"Previewing first {min(500, len(df)):,} of {len(df):,} rows.")
+        # Free-text search across the whole file — faster than exporting to
+        # Excel just to find the complaints mentioning one term.
+        q = st.text_input("🔎 Search complaints", key="amazon_search",
+                          placeholder="e.g. strap, battery, MOB1027")
+        view = df
+        if q:
+            hay = df.astype(str).apply(lambda c: c.str.contains(q, case=False, na=False))
+            view = df[hay.any(axis=1)]
+            st.caption(f"**{len(view):,}** row(s) match “{q}”.")
+        st.dataframe(view.head(500), width="stretch", height=460)
+        st.caption(f"Previewing first {min(500, len(view)):,} of {len(view):,} rows.")
 
     with tab_fix:
         render_corrections_editor(df, category_col)
@@ -995,6 +1234,24 @@ def render_sidebar() -> None:
             st.session_state.ai_provider = provider_map[choice]
 
             st.divider()
+            st.markdown("#### ⏱ Time-savings assumptions")
+            st.caption("Manual handling time per item — adjust to match your team.")
+            st.session_state.sec_per_return = float(
+                st.number_input(
+                    "Seconds per Amazon return", min_value=1.0, max_value=120.0,
+                    value=float(st.session_state.sec_per_return), step=1.0,
+                    help="Time for an analyst to read one return comment and record a category.",
+                )
+            )
+            st.session_state.sec_per_ticket = float(
+                st.number_input(
+                    "Seconds per support ticket", min_value=1.0, max_value=300.0,
+                    value=float(st.session_state.sec_per_ticket), step=5.0,
+                    help="Longer than a return: full ticket bodies, quoted threads, SKU lookup.",
+                )
+            )
+
+            st.divider()
             st.markdown("#### ⚙️ Throughput")
             st.session_state.chunk_size = st.select_slider(
                 "Chunk size", options=APP_CONFIG["chunk_sizes"], value=st.session_state.chunk_size,
@@ -1036,11 +1293,29 @@ def render_amazon_tool() -> None:
         unsafe_allow_html=True,
     )
 
+    # A run still marked 'running' on a fresh script run was killed mid-flight
+    # (Stop pressed, tab closed, session timed out). Partial work is intact.
+    if st.session_state.run_state == "running":
+        st.session_state.run_state = "interrupted"
+
+    interrupted = st.session_state.run_state == "interrupted"
+    have_data = st.session_state.categorized_data is not None
+
+    if interrupted and have_data:
+        done = st.session_state.get("rows_done", 0)
+        target = st.session_state.get("rows_target", 0)
+        st.warning(
+            f"⏸ **Run stopped early — your work was kept.** "
+            f"{done:,} of {target:,} rows were categorized before it stopped. "
+            "Download the partial file below, or resume to finish the rest.",
+            icon="⏸",
+        )
+
     uploaded = st.file_uploader(
         "Upload return data", type=["csv", "xlsx", "xls", "txt"], key="amazon_uploader"
     )
 
-    if uploaded:
+    if uploaded and not have_data:
         with st.spinner(f"Reading {uploaded.name}..."):
             df, column_mapping = process_file_preserve_structure(uploaded.read(), uploaded.name)
 
@@ -1050,14 +1325,27 @@ def render_amazon_tool() -> None:
 
             if complaint_col:
                 n = int((df[complaint_col].notna() & (df[complaint_col].str.strip() != "")).sum())
-                st.info(f"Found **{n:,}** complaints to categorize in **{complaint_col}**.")
+                st.success(f"Found **{n:,}** complaints to categorize in **{complaint_col}**.")
+                render_pre_estimate(
+                    estimate_amazon(n, seconds_per_item=st.session_state.sec_per_return),
+                    "returns",
+                )
             else:
                 st.warning(
                     "⚠️ No free-text complaint column detected — only structural/code columns. "
                     "Make sure the export includes the customer comment text (e.g. 'customer-comments')."
                 )
 
-            if st.button("🚀 Start categorization", type="primary", disabled=not complaint_col):
+            c_run, c_sample = st.columns([2, 1])
+            start = c_run.button("🚀 Categorize everything", type="primary",
+                                 disabled=not complaint_col, width="stretch")
+            # A cheap dry run: validates column detection and output quality on a
+            # new file format before committing to thousands of API calls.
+            sample = c_sample.button("🧪 Test on first 100", disabled=not complaint_col,
+                                     width="stretch",
+                                     help="Quick, low-cost check that this file parses correctly.")
+
+            if start or sample:
                 analyzer = get_ai_analyzer()
                 if analyzer is None:
                     st.error(
@@ -1067,46 +1355,83 @@ def render_amazon_tool() -> None:
                     )
                 else:
                     st.session_state.processing_errors = []
-                    with st.spinner("Categorizing..."):
-                        categorized = process_in_chunks(df, analyzer, column_mapping)
-                        st.session_state.categorized_data = categorized
-                        st.session_state.processing_complete = True
-                        generate_statistics(categorized, column_mapping)
-                        st.session_state.export_data = export_with_column_k(categorized, column_mapping)
-                        ext = "xlsx" if EXCEL_AVAILABLE else "csv"
-                        st.session_state.export_filename = (
-                            f"categorized_{datetime.now().strftime('%Y%m%d')}.{ext}"
-                        )
+                    st.session_state.row_confidence = {}
+                    categorized = process_in_chunks(
+                        df, analyzer, column_mapping, limit=100 if sample else None
+                    )
+                    st.session_state.categorized_data = categorized
+                    st.session_state.processing_complete = True
+                    generate_statistics(categorized, column_mapping)
+                    st.session_state.export_data = export_with_column_k(categorized, column_mapping)
+                    st.session_state.export_filename = _export_filename(
+                        partial=count_uncategorized(categorized, column_mapping) > 0
+                    )
                     st.rerun()
 
-    if st.session_state.processing_complete and st.session_state.categorized_data is not None:
+    if have_data:
+        df_done = st.session_state.categorized_data
+        cm = st.session_state.column_mapping
+        remaining = count_uncategorized(df_done, cm)
+
+        # ── Headline: time saved ───────────────────────────────────────────
+        done_rows = st.session_state.get("rows_done", 0)
+        elapsed = st.session_state.get("processing_elapsed", 0.0)
+        if done_rows:
+            render_savings_hero(
+                estimate_amazon(done_rows, actual_seconds=elapsed,
+                                seconds_per_item=st.session_state.sec_per_return),
+                noun="returns",
+                partial=remaining > 0,
+            )
+
         bd = st.session_state.get("categorization_breakdown")
         if bd:
             total_done = sum(bd.values()) or 1
+            free = bd["instant"] + bd["corrections"]
             st.markdown("##### 🧭 How complaints were categorized")
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("🤖 AI (Claude)", f"{bd['ai']:,}", f"{bd['ai'] / total_done:.0%}")
-            c2.metric("⚡ Pattern match (free)", f"{bd['instant']:,}", f"{bd['instant'] / total_done:.0%}")
-            c3.metric("🧠 Learned corrections", f"{bd['corrections']:,}", f"{bd['corrections'] / total_done:.0%}")
-            c4.metric("⚠️ Failed", f"{bd['failed']:,}", f"{bd['failed'] / total_done:.0%}", delta_color="inverse")
+            c1.metric("⚡ Free (no API call)", f"{free:,}", f"{free / total_done:.0%} of rows")
+            c2.metric("🤖 AI (Claude)", f"{bd['ai']:,}", f"{bd['ai'] / total_done:.0%}")
+            c3.metric("🧠 Learned corrections", f"{bd['corrections']:,}")
+            c4.metric("⚠️ Failed", f"{bd['failed']:,}",
+                      f"{bd['failed'] / total_done:.0%}", delta_color="inverse")
 
+        # ── Export + resume ───────────────────────────────────────────────
+        cols = st.columns([2, 1, 1])
         if st.session_state.export_data:
-            st.download_button(
-                "⬇️ Download categorized file",
+            cols[0].download_button(
+                "⬇️ Download " + ("partial file" if remaining else "categorized file"),
                 data=st.session_state.export_data,
                 file_name=st.session_state.export_filename,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 type="primary",
                 width="stretch",
             )
-
-        display_results_dashboard(st.session_state.categorized_data, st.session_state.column_mapping)
-
-        if st.button("🔄 Clear / start over", key="amazon_clear"):
-            for k in ["categorized_data", "processing_complete", "export_data",
-                      "export_filename", "categorization_breakdown"]:
-                st.session_state[k] = None if k != "processing_complete" else False
+        if remaining:
+            if cols[1].button(f"▶️ Resume ({remaining:,} left)", width="stretch"):
+                analyzer = get_ai_analyzer()
+                if analyzer is None:
+                    st.error("🚫 AI unavailable — cannot resume. Check **API status** in the sidebar.")
+                else:
+                    process_in_chunks(df_done, analyzer, cm, only_uncategorized=True)
+                    generate_statistics(df_done, cm)
+                    st.session_state.export_data = export_with_column_k(df_done, cm)
+                    st.session_state.export_filename = _export_filename(
+                        partial=count_uncategorized(df_done, cm) > 0
+                    )
+                    st.rerun()
+        if cols[2].button("🔄 Clear / start over", key="amazon_clear", width="stretch"):
+            for k in ["categorized_data", "export_data", "export_filename",
+                      "categorization_breakdown", "reason_summary", "product_summary"]:
+                st.session_state[k] = None
+            st.session_state.processing_complete = False
+            st.session_state.run_state = "idle"
+            st.session_state.rows_done = 0
+            st.session_state.rows_target = 0
+            st.session_state.row_confidence = {}
             st.rerun()
+
+        display_results_dashboard(df_done, cm)
 
 
 def render_b2b_tool() -> None:
@@ -1146,7 +1471,11 @@ def render_b2b_tool() -> None:
     if b2b_file:
         b2b_df = process_b2b_file(b2b_file.read(), b2b_file.name)
         if b2b_df is not None:
-            st.markdown(f"**Tickets found:** {len(b2b_df):,}")
+            st.success(f"**{len(b2b_df):,}** tickets found.")
+            render_pre_estimate(
+                estimate_tickets(len(b2b_df), seconds_per_item=st.session_state.sec_per_ticket),
+                "tickets",
+            )
 
             if st.button("⚡ Generate B2B report", type="primary"):
                 analyzer = get_ai_analyzer(max_workers=max_workers)
@@ -1157,7 +1486,9 @@ def render_b2b_tool() -> None:
                     )
                 else:
                     with st.spinner("Running AI analysis and SKU extraction..."):
+                        _b2b_start = time.time()
                         final_b2b = generate_b2b_report(b2b_df, analyzer, batch_size)
+                        st.session_state.b2b_elapsed = time.time() - _b2b_start
                         st.session_state.b2b_processed_data = final_b2b
                         st.session_state.b2b_processing_complete = True
 
@@ -1183,12 +1514,35 @@ def render_b2b_tool() -> None:
         df_res = st.session_state.b2b_processed_data
         st.markdown("### 🏁 Report")
 
+        render_savings_hero(
+            estimate_tickets(len(df_res),
+                             actual_seconds=st.session_state.get("b2b_elapsed", 0.0),
+                             seconds_per_item=st.session_state.sec_per_ticket),
+            noun="tickets",
+        )
+
         known = df_res[df_res["SKU"] != "Unknown"]
         c1, c2, c3 = st.columns(3)
         c1.metric("Tickets processed", f"{len(df_res):,}")
         c2.metric("SKUs identified", f"{len(known):,}",
                   f"{len(known) / len(df_res) * 100:.1f}% coverage" if len(df_res) else None)
         c3.metric("Unique products", known["SKU"].nunique())
+
+        # Which products generate the most B2B trouble — the analyst's first
+        # question after "what came in this month?".
+        if not known.empty:
+            with st.expander("🚨 Top products by ticket volume", expanded=True):
+                top = (
+                    known.groupby("SKU")
+                    .agg(Tickets=("SKU", "size"),
+                         **{"Top issue": ("Category", lambda s: s.value_counts().idxmax())},
+                         **{"Quality issues": ("Category",
+                                               lambda s: int(s.isin(QUALITY_ISSUE_CATS).sum()))})
+                    .reset_index()
+                    .sort_values("Tickets", ascending=False)
+                    .head(15)
+                )
+                st.dataframe(top, width="stretch", hide_index=True)
 
         with st.expander("🔧 Filters"):
             f1, f2 = st.columns(2)
@@ -1257,6 +1611,20 @@ def render_zendesk_tool() -> None:
         unsafe_allow_html=True,
     )
     render_b2b_zendesk_reporting()
+
+    # The Zendesk tool is a self-contained module, so read back whatever it
+    # left in session state to report savings without interfering with it.
+    ztickets = st.session_state.get("zendesk_categorized")
+    try:
+        n_tickets = len(ztickets) if ztickets is not None else 0
+    except TypeError:
+        n_tickets = 0
+    if n_tickets:
+        st.divider()
+        render_savings_hero(
+            estimate_tickets(n_tickets, seconds_per_item=st.session_state.sec_per_ticket),
+            noun="tickets",
+        )
 
 
 def _require_passcode() -> None:

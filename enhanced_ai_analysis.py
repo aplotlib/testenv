@@ -329,9 +329,18 @@ QUICK_PATTERNS = {
     ],
     # 2. Customer-caused — catch early (high volume, clear signals)
     'Customer: Changed Mind / No Longer Needed': [
-        r'\bchanged (my )?mind\b', r'\bno longer (need|want|require)\b',
+        # NOTE: the inflection group below is deliberate — an unsuffixed
+        # `(need|want|require)\b` can never match "no longer required" or
+        # "no longer needed", because \b fails against the trailing 'd'.
+        r'\bchanged (my )?mind\b', r'\bno longer (need|want|require)(s|d|ed)?\b',
         r'\bdo not (need|want) (it|this|anymore)\b',
-        r'\bnot needed\b', r'\bno longer needed\b', r'\bno need\b',
+        r'\bnot needed\b', r'\bno longer needed\b', r'\bno need(ed)?\b',
+        r'\bnot required\b',
+        r'\bfound (an? )?alternative\b',
+        r'\b(trip|plan|surgery|procedure|appointment)s? (was |were |got )?(cancelled|canceled)\b',
+        # NOTE: "ordered by mistake" deliberately excluded — reviewed data
+        # assigns that to 'Customer: Ordered Wrong Size or Item', not here.
+        r'\bduplicate (order|purchase)\b',
         r'\bdecided (not to|against)\b', r'\bdonating\b',
         r'\bsurgery (cancelled|canceled)\b', r'\bfound (a |an )?(better|other)\b',
         r'\bno longer on (crutches|walker|wheelchair)\b',
@@ -538,6 +547,15 @@ QUICK_PATTERNS = {
         r'\bdoes not suit\b', r'\bno (pain )?relief\b',
         r'\bdoes not work for (my|the|her|his|their) (pain|condition|problem|issue|need)\b',
         r'\bdid not work for (my|the|her|his|their) (pain|condition|problem|issue|need)\b',
+        # Insufficient-support phrasing, but only in its fully-qualified form.
+        # Deliberately NOT a bare "does not work" (ambiguous with Defect:
+        # Malfunctions on powered devices) and NOT a bare "not enough support"
+        # — measured against reviewed data, that phrase alone lands on Size,
+        # Comfort, or Wrong Product about as often as Performance.
+        # "enough/much" only — a flat "does not give ANY support" is a
+        # lacks-support complaint (Comfort: Too Soft), not a performance one.
+        r'\bdoes not (give|provide|offer) (enough|much) (support|relief|help)\b',
+        r'\bdoes not do the job\b', r'\bdid not do (the job|anything)\b',
     ],
     'Assembly / Usage Difficulty': [
         r'\bdifficult to (assemble|use|adjust|put together|set up)\b',
@@ -617,6 +635,56 @@ def calculate_cost(model: str, input_tokens: int, output_tokens: int) -> CostEst
 _CODE_LIKE_RE = re.compile(r'[A-Z0-9_\-]{2,40}')
 
 
+# Amazon's return UI offers a generic "Not as Expected" reason, and its text
+# matches the Wrong Product patterns on essentially any complaint. So that
+# category collides constantly with the real signal sitting in the detail text
+# ("Not as Expected|too tight|no"). It is a catch-all phrasing, not evidence.
+_CATCH_ALL_CATEGORY = 'Wrong Product / Not as Described'
+
+# Categories where the catch-all is NOT clearly the weaker signal, so a
+# collision with it keeps deferring to the AI rather than being auto-resolved.
+# Measured against reviewed data (train half only, to keep the held-out
+# evaluation honest) — the reviewer's choice in these collisions was either
+# the catch-all itself or genuinely split:
+#   Assembly / Usage Difficulty    catch-all won 4/4
+#   Performance: Ineffective       catch-all won 2/2
+#   Customer: Ordered Wrong Size   split, specific won only 40%
+#   Stability: Shifts / Unstable   specific won 3/4 — too thin to trust
+_CATCH_ALL_UNRESOLVED = frozenset({
+    'Assembly / Usage Difficulty',
+    "Performance: Ineffective / Doesn't Help",
+    'Customer: Ordered Wrong Size or Item',
+    'Stability: Shifts / Unstable / Falls',
+})
+
+# A stated size direction is strictly more specific than the generic
+# "doesn't fit / wrong dimensions" bucket, so it wins outright.
+_SIZE_GENERIC = "Size: Doesn't Fit / Wrong Dimensions"
+
+
+def _resolve_collision(matched: set) -> Optional[str]:
+    """Decide a multi-pattern match, or return None to defer to the AI.
+
+    Deliberately narrow: this only resolves collisions where one side is a
+    known catch-all or strictly less specific. Anything else defers, which
+    preserves the property that the pattern tier is never the source of a
+    wrong answer.
+    """
+    # Specific size direction beats the generic fit bucket.
+    if matched == {_SIZE_GENERIC, 'Size: Too Small'}:
+        return 'Size: Too Small'
+    if matched == {_SIZE_GENERIC, 'Size: Too Large'}:
+        return 'Size: Too Large'
+
+    # Exactly one specific category vs the catch-all -> the specific one.
+    if len(matched) == 2 and _CATCH_ALL_CATEGORY in matched:
+        other = next(c for c in matched if c != _CATCH_ALL_CATEGORY)
+        if other not in _CATCH_ALL_UNRESOLVED:
+            return other
+
+    return None
+
+
 def quick_categorize(complaint: str, fba_reason: str = None) -> Optional[str]:
     """
     Quick categorization for unambiguous cases only.
@@ -673,20 +741,21 @@ def quick_categorize(complaint: str, fba_reason: str = None) -> Optional[str]:
         if explicit_attach:
             return 'Equipment Compatibility Issue'
 
-    # Remaining patterns — accept only a single unambiguous category match;
-    # multi-category matches go to the AI, which handles nuance far better
+    # Remaining patterns — a single match is accepted directly. Multi-category
+    # matches go through _resolve_collision, which only decides the cases where
+    # one pattern is a known catch-all; anything genuinely ambiguous still
+    # defers to the AI.
     matched = set()
     for category, patterns in COMPILED_PATTERNS.items():
         if category in ('Medical / Safety Concern', 'Equipment Compatibility Issue'):
             continue  # already handled above
         if any(p.search(complaint_lower) for p in patterns):
             matched.add(category)
-            if len(matched) > 1:
-                return None  # ambiguous — let the AI decide
+
     if len(matched) == 1:
         return next(iter(matched))
-
-    return None
+    if len(matched) > 1:
+        return _resolve_collision(matched)
 
     return None
 

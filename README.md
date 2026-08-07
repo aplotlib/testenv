@@ -66,11 +66,75 @@ python validate_categorizer.py --truth categorized_20260630.xlsx --ai --sample 2
 ```
 
 Last run against the June 2026 reviewed export (4,558 rows):
-**pattern tier resolved 3,024 rows (66.3%) at 100.0% precision** — zero
-disagreements with the reviewed categories. The remaining ~1,530 rows go to Claude.
+**pattern tier resolved 3,237 rows (71.0%) at 100.0% precision** — zero
+disagreements with the reviewed categories. The remaining ~1,320 rows go to Claude.
 
 The script exits non-zero if precision falls below `--min-precision` (default
 0.80), so it works as a regression guard.
+
+#### Guarding against overfitting
+
+The collision-resolution rules were derived by inspecting the reviewed export,
+so measuring them on that same file would flatter them. `validate_holdout.py`
+splits the data 50/50 on a fixed seed and reports both halves:
+
+```bash
+python validate_holdout.py categorized_20260630.xlsx
+```
+
+Current result — **100.00% precision on both** the train half and the held-out
+half at 71.0% coverage. Matching numbers mean the rules generalize rather than
+memorizing this month's file. **If you tune the patterns, re-run this**; a train
+score much higher than held-out means you have overfitted and next month's
+export will regress.
+
+### Full test suite
+
+```bash
+python test_time_savings.py        # time-savings maths
+python test_partial_recovery.py    # interrupt / resume / sample-run durability
+python validate_categorizer.py --truth categorized_20260630.xlsx
+python validate_holdout.py categorized_20260630.xlsx
+```
+
+## Time savings
+
+Every run reports the analyst time it replaced, using per-item manual handling
+baselines that are **adjustable in the sidebar** so the assumption can be
+challenged live rather than taken on faith:
+
+| Item | Default manual time |
+|---|---|
+| Amazon return reason | 7 seconds |
+| B2B / Zendesk support ticket | 25 seconds |
+
+The file's worth is shown *before* you run it ("8h 51m of manual work in this
+file"), and the saved time is shown as the headline afterwards. For the June
+2026 export: **4,558 returns = 8h 51m by hand**, about 1.1 workdays.
+
+## If a run stops early
+
+Long runs are interruptible without losing work. Partial results are durable by
+design: the DataFrame is published to session state before the first API call
+and mutated in place, and the downloadable export is regenerated after **every
+chunk**. So if a run stops — Stop pressed, tab closed, session timed out —
+everything already categorized is kept.
+
+- **⏸ Stop and keep what's done** — halts the run, keeps every completed row.
+- **Partial downloads are labelled in the filename**
+  (`categorized_PARTIAL_1620of4558_20260807.xlsx`) so a half-finished file can
+  never be mistaken for a complete one downstream.
+- **▶️ Resume** — processes only the rows still missing a category. No rework,
+  no double API spend.
+- **🧪 Test on first 100** — a cheap dry run to confirm a new file parses
+  correctly before committing to thousands of API calls.
+
+`test_partial_recovery.py` covers all of this, including simulating a killed
+run mid-flight.
+
+One limitation to be aware of: durability is per **session**. It survives
+interrupts, reruns, and Stop, but not the Streamlit Cloud container being
+recycled. Download the partial file if you need to step away for a long time.
 
 ## Teaching the tool
 
@@ -79,6 +143,21 @@ category. Saved corrections are applied as exact matches on future runs and
 injected as few-shot examples into the AI prompt, so the same complaint text is
 never miscategorized twice. Corrections persist in `~/.quality_app/`, outside
 the repository.
+
+Rows are listed **least-confident first**, not in file order — so review time
+goes to the rows the AI actually had doubt about, rather than to rows the
+pattern tier already resolved with certainty.
+
+## For the analyst
+
+- **By SKU** flags products with ≥60% quality-issue returns on meaningful
+  volume (⚠️), which is the CAPA shortlist. Downloadable as CSV.
+- **Search complaints** does free-text search across the whole file, so you
+  don't have to export to Excel just to find every mention of "strap".
+- **Top products by ticket volume** in the B2B tab, with the dominant issue per
+  SKU.
+- **Cost tracking** in the sidebar shows spend and how many rows were resolved
+  free of charge.
 
 ## Security posture (for IT review)
 
