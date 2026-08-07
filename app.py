@@ -943,6 +943,43 @@ def render_sidebar() -> None:
         else:
             st.error("No `ANTHROPIC_API_KEY`")
             st.caption("Add it in **Settings → Secrets** on Streamlit Cloud.")
+            # Diagnostic only — lists secret KEY NAMES (never values) so a
+            # naming/casing/nesting mismatch is visible without exposing the
+            # key itself. check_api_keys() matches exact casing; a secret
+            # saved under any other name or nested in a [section] won't be
+            # found, but silently, hence needing this to see why.
+            with st.expander("🔍 Diagnose: what Streamlit Cloud actually sees"):
+                try:
+                    names = sorted(st.secrets.keys()) if hasattr(st, "secrets") else []
+                except Exception as _e:  # noqa: BLE001
+                    names = None
+                    st.caption(f"Could not read st.secrets: {_e}")
+                if names is None:
+                    pass
+                elif not names:
+                    st.warning(
+                        "`st.secrets` is empty. Either nothing was saved, the app "
+                        "hasn't rebooted since you saved it, or the secrets TOML "
+                        "has a syntax error (check for a red banner elsewhere on "
+                        "this page)."
+                    )
+                else:
+                    st.write("Top-level secret names found:", names)
+                    expected = {"ANTHROPIC_API_KEY", "anthropic_api_key", "claude_api_key", "claude"}
+                    if not (set(names) & expected):
+                        st.warning(
+                            "None of these match an expected name exactly "
+                            f"(`{'`, `'.join(sorted(expected))}`). TOML keys are "
+                            "case-sensitive — rename the secret to exactly "
+                            "`ANTHROPIC_API_KEY`, or it must be at the top level, "
+                            "not nested under a `[section]`."
+                        )
+                    else:
+                        st.warning(
+                            "A matching key name was found, but its value doesn't "
+                            "start with `sk-ant-` — re-check for extra quotes, "
+                            "whitespace, or a truncated paste."
+                        )
 
         if AI_AVAILABLE:
             st.divider()
