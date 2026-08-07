@@ -1,34 +1,7 @@
-# requirements.txt — Vive Health Quality Suite
-
-# UI / app
 streamlit==1.55.0
-
-# Data + stats
 pandas==2.2.3
 numpy==2.2.3
-scipy==1.15.2
-statsmodels==0.14.4
-python-dateutil==2.9.0.post0
-
-# Visualization
-altair==6.0.0
-plotly==5.24.1
-
-# Excel I/O + exports
 openpyxl==3.1.5
 xlsxwriter==3.2.9
-
-# Document generation
-python-docx==1.2.0
-
-# HTTP
 requests==2.32.3
-
-# AI provider — Anthropic (Claude) only
-anthropic==0.75.0
-
-# Fuzzy matching
 RapidFuzz==3.14.3
-
-# Reliability
-tenacity==9.1.4
